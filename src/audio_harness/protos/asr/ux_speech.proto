@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+import "google/protobuf/duration.proto";
+
+option java_multiple_files = true;
+option java_package = "com.ux.speech";
+option java_outer_classname = "UxSpeechProto";
+option go_package = "ulang.com/speech;speech";
+
+package ux_speech;
+
+service UxSpeech {
+  rpc StreamingRecognize(stream StreamingRecognizeRequest) returns (stream StreamingRecognizeResponse) {}
+}
+
+message RecognitionConfig {
+  enum AudioEncoding {
+    AUDIO_ENCODING_UNSPECIFIED = 0;
+    LINEAR16 = 1;
+  }
+  AudioEncoding encoding = 1;
+  uint32 sample_rate_hertz = 2;
+  string language_code = 3;
+  bool enable_automatic_punctuation = 4;
+  repeated string hotwords = 5;
+  float hotword_bias = 6;
+}
+
+message RecognizeResponse {
+  repeated SpeechRecognitionResult results = 1;
+}
+
+message SpeechRecognitionResult {
+  SpeechRecognitionAlternative alternative = 1;
+  google.protobuf.Duration start_time = 2;
+  google.protobuf.Duration end_time = 3;
+}
+
+message StreamingRecognizeRequest {
+  oneof streaming_request {
+    StreamingRecognitionConfig streaming_config = 1;
+    bytes audio_content = 2;
+  }
+}
+
+message StreamingRecognitionConfig {
+  RecognitionConfig config = 1;
+  bool interim_results = 2;
+}
+
+message StreamingRecognizeResponse {
+  repeated StreamingRecognitionResult results = 1;
+}
+
+message StreamingRecognitionResult {
+  SpeechRecognitionAlternative alternative = 1;
+  bool is_final = 2;
+}
+
+message SpeakerInfo {
+  string id = 1;
+  string name = 2;
+  optional float confidence = 3;
+}
+
+message LanguageInfo {
+  string code = 1;
+  optional float confidence = 2;
+}
+
+message SpeechRecognitionAlternative {
+  string transcript = 1;
+  repeated WordInfo words = 2;
+  map<string, string> metadata = 3;
+  SpeakerInfo speaker = 4;
+  LanguageInfo language = 5;
+  bool speaker_changed = 6;
+  bool turn_completed = 7;
+}
+
+message WordInfo {
+  string word = 1;
+  google.protobuf.Duration start_time = 2;
+  google.protobuf.Duration end_time = 3;
+}

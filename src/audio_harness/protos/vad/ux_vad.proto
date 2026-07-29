@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+import "google/protobuf/duration.proto";
+
+option java_multiple_files = true;
+option java_package = "com.ux.vad";
+option java_outer_classname = "UxVadProto";
+option go_package = "ulang.com/vad;vad";
+
+package ux_vad;
+
+service UxVoiceActivityDetector {
+  rpc Detect(DetectRequest) returns (DetectResponse) {}
+  rpc StreamingDetect(stream StreamingDetectRequest)
+      returns (stream StreamingDetectResponse) {}
+}
+
+message DetectRequest {
+  DetectionConfig config = 1;
+  bytes audio = 2;
+}
+
+message DetectionConfig {
+  enum AudioEncoding {
+    ENCODING_UNSPECIFIED = 0;
+    LINEAR16 = 1;
+  }
+  AudioEncoding encoding = 1;
+  uint32 sample_rate_hertz = 2;
+}
+
+message DetectResponse {
+  repeated DetectionResult results = 1;
+}
+
+message DetectionResult {
+  google.protobuf.Duration start_time = 2;
+  google.protobuf.Duration end_time = 3;
+}
+
+message StreamingDetectRequest {
+  oneof streaming_request {
+    DetectionConfig config = 1;
+    bytes audio_content = 2;
+  }
+}
+
+message StreamingDetectResponse {
+  repeated DetectionResult results = 1;
+  google.protobuf.Duration processed_time = 2;
+}

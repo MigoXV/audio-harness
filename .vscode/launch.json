@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Audio Harness: serve",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "audio_harness.commands.app",
+      "args": [
+        "serve",
+        "--config",
+        "${workspaceFolder}/configs/asr-vad.yaml"
+      ],
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+engines:
+  asr:
+    target: ${ASR_SERVER_ADDR}
+    connect_timeout_seconds: 10
+    request_timeout_seconds: 120
+  vad:
+    target: ${VAD_SERVER_ADDR}
+    connect_timeout_seconds: 10
+  semantic_vad:
+    target: ${SEMANTIC_VAD_SERVER_ADDR}
+    connect_timeout_seconds: 5
+    request_timeout_seconds: 5
+
+workflow:
+  min_chunk_bytes: 6400
+  min_segment_seconds: 0.5
+  max_segment_seconds: 60
+  default_language_code: zh-CN
+  audio_queue_capacity: 32
+  segment_queue_capacity: 8
+  result_queue_capacity: 32
+  max_sessions: 64
+  max_asr_concurrency: 8
+
+serving:
+  host: 0.0.0.0
+  port: 50051
+  max_message_bytes: 4194304
+  shutdown_grace_seconds: 5

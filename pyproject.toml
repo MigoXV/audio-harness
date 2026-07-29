@@ -1,0 +1,51 @@
+[project]
+name = "audio-harness"
+version = "0.1.0"
+description = "面向实时音频智能的异步 ASR + VAD 编排基础设施"
+authors = [
+    {name = "migo",email = "1695587905@qq.com"}
+]
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "grpcio (>=1.83.0,<2.0.0)",
+    "protobuf (>=7.35.1,<8.0.0)",
+    "openai (>=2.50.0,<3.0.0)",
+    "fastapi[websocket] (>=0.140.13,<0.141.0)",
+    "uvicorn (>=0.51.0,<0.52.0)",
+    "tqdm (>=4.70.0,<5.0.0)",
+    "numpy (<2.3)",
+    "librosa (>=0.11.0,<0.12.0)",
+    "soundfile (>=0.14.0,<0.15.0)",
+    "httpx (>=0.28.1,<0.29.0)",
+    "openai-agents (>=0.19.0,<0.20.0)",
+    "aiortc (>=1.15.0,<2.0.0)",
+    "pydantic (>=2.13.0,<3.0.0)",
+    "pyyaml (>=6.0.2,<7.0.0)",
+    "typer (>=0.20.0,<0.21.0)"
+]
+
+[project.scripts]
+audio-harness = "audio_harness.commands.app:app"
+
+[tool.poetry]
+packages = [{include = "audio_harness", from = "src"}]
+
+[[tool.poetry.source]]
+name = "tuna"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+priority = "primary"
+
+[[tool.poetry.source]]
+name = "pypi"
+priority = "primary"
+
+[dependency-groups]
+dev = [
+    "pytest (>=8.4.0,<9.0.0)",
+    "pytest-asyncio (>=1.2.0,<2.0.0)"
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
