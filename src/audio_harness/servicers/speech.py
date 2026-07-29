@@ -14,7 +14,11 @@ from audio_harness.domain import (
     AsyncAsrEngine,
     AsyncVadEngine,
     CapacityExceededError,
+    EngineBindingInvalidError,
+    EngineBindingMissingError,
     EngineDeadlineError,
+    EngineLeaseProvider,
+    EngineSet,
     EngineUnavailableError,
     InvalidAudioError,
     RecognitionOptions,
@@ -53,6 +57,25 @@ class _SessionLimiter:
         finally:
             async with self._lock:
                 self.active -= 1
+
+
+class _StaticEngineProvider:
+    def __init__(
+        self,
+        *,
+        asr: AsyncAsrEngine,
+        vad: AsyncVadEngine,
+        semantic_vad: AsyncVadEngine | None,
+    ) -> None:
+        self.engines = EngineSet(
+            asr=asr,
+            vad=vad,
+            semantic_vad=semantic_vad,
+        )
+
+    @asynccontextmanager
+    async def lease(self):
+        yield self.engines
 
 
 def _seconds_to_duration(value: float) -> duration_pb2.Duration:
@@ -95,14 +118,21 @@ class SpeechServicer(pb2_grpc.UxSpeechServicer):
         self,
         *,
         config: AppConfig,
-        asr: AsyncAsrEngine,
-        vad: AsyncVadEngine,
-        semantic_vad: AsyncVadEngine | None,
+        engine_provider: EngineLeaseProvider | None = None,
+        asr: AsyncAsrEngine | None = None,
+        vad: AsyncVadEngine | None = None,
+        semantic_vad: AsyncVadEngine | None = None,
     ) -> None:
         self.config = config
-        self.asr = asr
-        self.vad = vad
-        self.semantic_vad = semantic_vad
+        if engine_provider is None:
+            if asr is None or vad is None:
+                raise ValueError("必须提供 engine_provider 或静态 ASR/VAD")
+            engine_provider = _StaticEngineProvider(
+                asr=asr,
+                vad=vad,
+                semantic_vad=semantic_vad,
+            )
+        self.engine_provider = engine_provider
         self.session_limiter = _SessionLimiter(config.workflow.max_sessions)
         self.asr_semaphore = asyncio.Semaphore(
             config.workflow.max_asr_concurrency
@@ -128,19 +158,20 @@ class SpeechServicer(pb2_grpc.UxSpeechServicer):
                     self._read_audio(request_iterator, audio_queue),
                     name="audio-harness-grpc-reader",
                 )
-                workflow = AsrVadWorkflow(
-                    asr=self.asr,
-                    vad=self.vad,
-                    semantic_vad=self.semantic_vad,
-                    config=self.config.workflow,
-                    asr_semaphore=self.asr_semaphore,
-                )
+                async with self.engine_provider.lease() as engines:
+                    workflow = AsrVadWorkflow(
+                        asr=engines.asr,
+                        vad=engines.vad,
+                        semantic_vad=engines.semantic_vad,
+                        config=self.config.workflow,
+                        asr_semaphore=self.asr_semaphore,
+                    )
 
-                async for result in workflow.run(
-                    self._audio_queue_iterator(audio_queue),
-                    settings.options,
-                ):
-                    yield build_response(result)
+                    async for result in workflow.run(
+                        self._audio_queue_iterator(audio_queue),
+                        settings.options,
+                    ):
+                        yield build_response(result)
                 await reader
         except CapacityExceededError as exc:
             await context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, str(exc))
@@ -150,6 +181,8 @@ class SpeechServicer(pb2_grpc.UxSpeechServicer):
             await context.abort(grpc.StatusCode.DEADLINE_EXCEEDED, str(exc))
         except EngineUnavailableError as exc:
             await context.abort(grpc.StatusCode.UNAVAILABLE, str(exc))
+        except (EngineBindingMissingError, EngineBindingInvalidError) as exc:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
         except asyncio.CancelledError:
             logger.info("客户端取消 StreamingRecognize")
             raise

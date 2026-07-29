@@ -10,46 +10,64 @@ def test_load_config_expands_environment(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("TEST_ASR_TARGET", "127.0.0.1:50008")
+    monkeypatch.setenv(
+        "TEST_DATABASE_URL",
+        "sqlite+aiosqlite:///./data/test.db",
+    )
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         """
-engines:
-  asr:
-    target: ${TEST_ASR_TARGET}
-  vad:
-    target: 127.0.0.1:53001
+database:
+  url: ${TEST_DATABASE_URL}
 """,
         encoding="utf-8",
     )
 
     config = AppConfig.load(config_path)
 
-    assert config.engines.asr.target == "127.0.0.1:50008"
+    assert config.database.url == "sqlite+aiosqlite:///./data/test.db"
     assert config.workflow.min_chunk_bytes == 6400
+    assert config.workflow.audio_buffer_seconds == 120
+    assert config.workflow.speech_pre_roll_seconds == 0.3
     assert config.serving.port == 50051
+    assert config.management.port == 8000
 
 
 def test_rejects_odd_pcm_chunk_size() -> None:
     with pytest.raises(ValidationError, match="min_chunk_bytes"):
         AppConfig.model_validate(
             {
-                "engines": {
-                    "asr": {"target": "asr:1"},
-                    "vad": {"target": "vad:2"},
-                },
                 "workflow": {"min_chunk_bytes": 3},
             }
         )
 
 
-def test_rejects_unexpanded_engine_environment() -> None:
-    with pytest.raises(ValidationError, match="未展开"):
+def test_rejects_non_async_sqlite_database() -> None:
+    with pytest.raises(ValidationError, match="sqlite\\+aiosqlite"):
         AppConfig.model_validate(
             {
-                "engines": {
-                    "asr": {"target": "${MISSING_ASR}"},
-                    "vad": {"target": "vad:2"},
-                }
+                "database": {"url": "sqlite:///./data/test.db"},
+            }
+        )
+
+
+def test_rejects_negative_speech_pre_roll() -> None:
+    with pytest.raises(ValidationError, match="speech_pre_roll_seconds"):
+        AppConfig.model_validate(
+            {
+                "workflow": {"speech_pre_roll_seconds": -0.1},
+            }
+        )
+
+
+def test_rejects_audio_buffer_shorter_than_segment_window() -> None:
+    with pytest.raises(ValidationError, match="audio_buffer_seconds"):
+        AppConfig.model_validate(
+            {
+                "workflow": {
+                    "audio_buffer_seconds": 60,
+                    "max_segment_seconds": 60,
+                    "speech_pre_roll_seconds": 0.3,
+                },
             }
         )

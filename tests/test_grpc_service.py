@@ -58,10 +58,6 @@ class EchoAsr:
 def make_config() -> AppConfig:
     return AppConfig.model_validate(
         {
-            "engines": {
-                "asr": {"target": "unused"},
-                "vad": {"target": "unused"},
-            },
             "workflow": {
                 "min_chunk_bytes": 4,
                 "min_segment_seconds": 0,

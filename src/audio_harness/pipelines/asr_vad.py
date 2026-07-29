@@ -35,19 +35,59 @@ class _Failure:
     error: BaseException
 
 
-class _PcmBuffer:
-    def __init__(self) -> None:
-        self.base_sample = 0
-        self.data = bytearray()
+class _RollingPcmBuffer:
+    """使用绝对采样下标访问的固定容量 PCM S16LE 环形缓冲。"""
+
+    def __init__(self, capacity_samples: int) -> None:
+        if capacity_samples <= 0:
+            raise ValueError("音频环形缓冲容量必须大于 0")
+        self._capacity_bytes = capacity_samples * 2
+        self._storage = bytearray(self._capacity_bytes)
+        self._start_byte = 0
+        self._length_bytes = 0
+        self._end_sample = 0
+
+    @property
+    def base_sample(self) -> int:
+        return self._end_sample - self._length_bytes // 2
 
     @property
     def end_sample(self) -> int:
-        return self.base_sample + len(self.data) // 2
+        return self._end_sample
 
     def append(self, audio: bytes) -> None:
         if len(audio) % 2:
             raise ValueError("PCM S16LE 音频字节数必须为偶数")
-        self.data.extend(audio)
+        if not audio:
+            return
+
+        input_bytes = len(audio)
+        self._end_sample += input_bytes // 2
+        if input_bytes >= self._capacity_bytes:
+            self._storage[:] = audio[-self._capacity_bytes :]
+            self._start_byte = 0
+            self._length_bytes = self._capacity_bytes
+            return
+
+        overflow = max(
+            0,
+            self._length_bytes + input_bytes - self._capacity_bytes,
+        )
+        if overflow:
+            self._start_byte = (
+                self._start_byte + overflow
+            ) % self._capacity_bytes
+            self._length_bytes -= overflow
+
+        write_at = (
+            self._start_byte + self._length_bytes
+        ) % self._capacity_bytes
+        first = min(input_bytes, self._capacity_bytes - write_at)
+        self._storage[write_at : write_at + first] = audio[:first]
+        remaining = input_bytes - first
+        if remaining:
+            self._storage[:remaining] = audio[first:]
+        self._length_bytes += input_bytes
 
     def slice(self, start_sample: int, end_sample: int) -> bytes:
         if start_sample < self.base_sample or end_sample > self.end_sample:
@@ -56,16 +96,30 @@ class _PcmBuffer:
                 f"[{start_sample}, {end_sample}) not in "
                 f"[{self.base_sample}, {self.end_sample})"
             )
-        start = (start_sample - self.base_sample) * 2
-        end = (end_sample - self.base_sample) * 2
-        return bytes(self.data[start:end])
+        if end_sample < start_sample:
+            raise ValueError("音频切片结束位置不能早于开始位置")
+        size = (end_sample - start_sample) * 2
+        if size == 0:
+            return b""
+        offset = (start_sample - self.base_sample) * 2
+        read_at = (self._start_byte + offset) % self._capacity_bytes
+        first = min(size, self._capacity_bytes - read_at)
+        if first == size:
+            return bytes(self._storage[read_at : read_at + first])
+        return bytes(self._storage[read_at:]) + bytes(
+            self._storage[: size - first]
+        )
 
     def trim_before(self, sample: int) -> None:
         target = min(max(sample, self.base_sample), self.end_sample)
         byte_count = (target - self.base_sample) * 2
         if byte_count:
-            del self.data[:byte_count]
-            self.base_sample = target
+            self._start_byte = (
+                self._start_byte + byte_count
+            ) % self._capacity_bytes
+            self._length_bytes -= byte_count
+            if self._length_bytes == 0:
+                self._start_byte = 0
 
 
 class AsrVadWorkflow:
@@ -162,7 +216,14 @@ class AsrVadWorkflow:
         sample_rate = options.sample_rate
         min_samples = int(round(self.config.min_segment_seconds * sample_rate))
         max_samples = max(1, int(round(self.config.max_segment_seconds * sample_rate)))
-        audio = _PcmBuffer()
+        pre_roll_samples = int(
+            round(self.config.speech_pre_roll_seconds * sample_rate)
+        )
+        buffer_samples = max(
+            1,
+            int(round(self.config.audio_buffer_seconds * sample_rate)),
+        )
+        audio = _RollingPcmBuffer(buffer_samples)
         active_start: int | None = None
         pending_turn_start: int | None = None
         last_processed = 0
@@ -267,7 +328,14 @@ class AsrVadWorkflow:
 
                 for boundary in update.boundaries:
                     if boundary.start_sample is not None:
-                        start = min(max(boundary.start_sample, 0), audio.end_sample)
+                        start = min(
+                            max(
+                                boundary.start_sample - pre_roll_samples,
+                                audio.base_sample,
+                                0,
+                            ),
+                            audio.end_sample,
+                        )
                         if active_start is None:
                             active_start = start
                         else:
@@ -296,7 +364,13 @@ class AsrVadWorkflow:
                     for value in (active_start, pending_turn_start)
                     if value is not None
                 ]
-                audio.trim_before(min(retain) if retain else processed)
+                lookback_start = max(
+                    audio.base_sample,
+                    processed - pre_roll_samples,
+                )
+                audio.trim_before(
+                    min(retain) if retain else lookback_start
+                )
 
         stream_end = audio.end_sample
         if active_start is not None and stream_end > active_start:

@@ -25,16 +25,12 @@ class EngineEndpoint(StrictModel):
         return value
 
 
-class EnginesConfig(StrictModel):
-    asr: EngineEndpoint
-    vad: EngineEndpoint
-    semantic_vad: Optional[EngineEndpoint] = None
-
-
 class WorkflowConfig(StrictModel):
     min_chunk_bytes: int = Field(default=6400, ge=2)
     min_segment_seconds: float = Field(default=0.5, ge=0)
     max_segment_seconds: float = Field(default=60.0, gt=0)
+    audio_buffer_seconds: float = Field(default=120.0, gt=0)
+    speech_pre_roll_seconds: float = Field(default=0.3, ge=0)
     default_language_code: str = Field(default="zh-CN", min_length=1)
     audio_queue_capacity: int = Field(default=32, gt=0)
     segment_queue_capacity: int = Field(default=8, gt=0)
@@ -46,6 +42,14 @@ class WorkflowConfig(StrictModel):
     def validate_pcm_alignment(self) -> "WorkflowConfig":
         if self.min_chunk_bytes % 2:
             raise ValueError("min_chunk_bytes 必须为偶数，以保持 PCM S16LE 对齐")
+        required_buffer = (
+            self.max_segment_seconds + self.speech_pre_roll_seconds
+        )
+        if self.audio_buffer_seconds < required_buffer:
+            raise ValueError(
+                "audio_buffer_seconds 不能小于 "
+                "max_segment_seconds + speech_pre_roll_seconds"
+            )
         return self
 
 
@@ -56,10 +60,31 @@ class ServingConfig(StrictModel):
     shutdown_grace_seconds: float = Field(default=5.0, ge=0)
 
 
+class ManagementConfig(StrictModel):
+    host: str = "0.0.0.0"
+    port: int = Field(default=8000, ge=1, le=65535)
+    shutdown_grace_seconds: float = Field(default=5.0, ge=0)
+
+
+class DatabaseConfig(StrictModel):
+    url: str = Field(
+        default="sqlite+aiosqlite:///./data/audio-harness.db",
+        min_length=1,
+    )
+
+    @field_validator("url")
+    @classmethod
+    def require_async_sqlite(cls, value: str) -> str:
+        if not value.startswith("sqlite+aiosqlite://"):
+            raise ValueError("第一版数据库必须使用 sqlite+aiosqlite")
+        return value
+
+
 class AppConfig(StrictModel):
-    engines: EnginesConfig
+    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     workflow: WorkflowConfig = Field(default_factory=WorkflowConfig)
     serving: ServingConfig = Field(default_factory=ServingConfig)
+    management: ManagementConfig = Field(default_factory=ManagementConfig)
 
     @model_validator(mode="after")
     def validate_message_limits(self) -> "AppConfig":
