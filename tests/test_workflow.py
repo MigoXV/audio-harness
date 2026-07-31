@@ -13,7 +13,10 @@ from audio_harness.domain import (
     VadBoundary,
     VadUpdate,
 )
-from audio_harness.pipelines.asr_vad import AsrVadWorkflow
+from audio_harness.pipelines.asr_vad import (
+    AsrVadWorkflow,
+    _RollingPcmBuffer,
+)
 
 
 class FakeVad:
@@ -69,6 +72,27 @@ class FakeAsr:
             )
 
 
+class DelayedStartVad(FakeVad):
+    async def stream_detect(
+        self,
+        audio_chunks: AsyncIterator[bytes],
+        sample_rate: int,
+    ) -> AsyncIterator[VadUpdate]:
+        processed = 0
+        index = 0
+        async for chunk in audio_chunks:
+            self.received.extend(chunk)
+            processed += len(chunk) // 2
+            index += 1
+            if index == 1:
+                yield VadUpdate(boundaries=(), processed_samples=processed)
+            else:
+                yield VadUpdate(
+                    boundaries=(VadBoundary(4, processed),),
+                    processed_samples=processed,
+                )
+
+
 async def chunks(*values: bytes) -> AsyncIterator[bytes]:
     for value in values:
         yield value
@@ -93,6 +117,35 @@ def make_workflow(
         ),
         asr_semaphore=asyncio.Semaphore(2),
     )
+
+
+def test_rolling_pcm_buffer_wraps_and_slices_by_absolute_sample() -> None:
+    buffer = _RollingPcmBuffer(capacity_samples=4)
+    audio = bytes(range(16))
+
+    buffer.append(audio[:6])
+    assert (buffer.base_sample, buffer.end_sample) == (0, 3)
+    assert buffer.slice(0, 3) == audio[:6]
+
+    buffer.append(audio[6:12])
+    assert (buffer.base_sample, buffer.end_sample) == (2, 6)
+    assert buffer.slice(2, 6) == audio[4:12]
+    assert buffer.slice(3, 5) == audio[6:10]
+
+    buffer.trim_before(4)
+    buffer.append(audio[12:16])
+    assert (buffer.base_sample, buffer.end_sample) == (4, 8)
+    assert buffer.slice(4, 8) == audio[8:16]
+
+
+def test_rolling_pcm_buffer_keeps_tail_of_oversized_append() -> None:
+    buffer = _RollingPcmBuffer(capacity_samples=4)
+    audio = bytes(range(16))
+
+    buffer.append(audio)
+
+    assert (buffer.base_sample, buffer.end_sample) == (4, 8)
+    assert buffer.slice(4, 8) == audio[8:16]
 
 
 @pytest.mark.asyncio
@@ -195,3 +248,34 @@ async def test_semantic_vad_failure_fails_open() -> None:
 
     assert [item.transcript for item in results] == ["临时", "最终"]
     assert len(asr.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_physical_vad_keeps_and_prepends_speech_pre_roll() -> None:
+    sample_rate = 4
+    vad = DelayedStartVad([])
+    asr = FakeAsr()
+    workflow = make_workflow(
+        vad,
+        asr,
+        config=WorkflowConfig(
+            min_chunk_bytes=4,
+            min_segment_seconds=0,
+            max_segment_seconds=60,
+            speech_pre_roll_seconds=0.5,
+        ),
+    )
+    audio = bytes(range(16))
+
+    results = [
+        item
+        async for item in workflow.run(
+            chunks(audio[:8], audio[8:]),
+            RecognitionOptions(sample_rate=sample_rate, language_code="zh-CN"),
+        )
+    ]
+
+    assert [item.transcript for item in results] == ["临时", "最终"]
+    assert len(asr.calls) == 1
+    assert (asr.calls[0].start_sample, asr.calls[0].end_sample) == (2, 8)
+    assert asr.calls[0].audio == audio[4:16]

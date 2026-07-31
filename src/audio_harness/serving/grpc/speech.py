@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import grpc
@@ -11,48 +10,29 @@ from google.protobuf import duration_pb2
 
 from audio_harness.config import AppConfig
 from audio_harness.domain import (
-    AsyncAsrEngine,
-    AsyncVadEngine,
     CapacityExceededError,
+    EngineBindingInvalidError,
+    EngineBindingMissingError,
     EngineDeadlineError,
     EngineUnavailableError,
     InvalidAudioError,
     RecognitionOptions,
     TranscriptionResult,
 )
-from audio_harness.pipelines.asr_vad import AsrVadWorkflow
 from audio_harness.protos.asr import ux_speech_pb2 as pb2
 from audio_harness.protos.asr import ux_speech_pb2_grpc as pb2_grpc
+from audio_harness.sessions import (
+    TranscriptionSession,
+    TranscriptionSessionService,
+)
+from audio_harness.workflow_settings import WorkflowSettingsStore
 
 logger = logging.getLogger(__name__)
-
-_AUDIO_END = object()
 
 
 @dataclass(frozen=True)
 class _RecognitionSettings:
     options: RecognitionOptions
-
-
-class _SessionLimiter:
-    def __init__(self, capacity: int) -> None:
-        self.capacity = capacity
-        self.active = 0
-        self._lock = asyncio.Lock()
-
-    @asynccontextmanager
-    async def slot(self):
-        async with self._lock:
-            if self.active >= self.capacity:
-                raise CapacityExceededError(
-                    f"活动会话已达到上限: {self.capacity}"
-                )
-            self.active += 1
-        try:
-            yield
-        finally:
-            async with self._lock:
-                self.active -= 1
 
 
 def _seconds_to_duration(value: float) -> duration_pb2.Duration:
@@ -95,18 +75,12 @@ class SpeechServicer(pb2_grpc.UxSpeechServicer):
         self,
         *,
         config: AppConfig,
-        asr: AsyncAsrEngine,
-        vad: AsyncVadEngine,
-        semantic_vad: AsyncVadEngine | None,
+        session_service: TranscriptionSessionService,
+        workflow_settings: WorkflowSettingsStore | None = None,
     ) -> None:
         self.config = config
-        self.asr = asr
-        self.vad = vad
-        self.semantic_vad = semantic_vad
-        self.session_limiter = _SessionLimiter(config.workflow.max_sessions)
-        self.asr_semaphore = asyncio.Semaphore(
-            config.workflow.max_asr_concurrency
-        )
+        self.session_service = session_service
+        self.workflow_settings = workflow_settings
 
     async def StreamingRecognize(
         self,
@@ -115,31 +89,33 @@ class SpeechServicer(pb2_grpc.UxSpeechServicer):
     ) -> AsyncIterator[pb2.StreamingRecognizeResponse]:
         reader: asyncio.Task[None] | None = None
         try:
-            async with self.session_limiter.slot():
-                try:
-                    first_request = await anext(request_iterator)
-                except StopAsyncIteration as exc:
-                    raise InvalidAudioError("请求流不能为空") from exc
-                settings = self._parse_first_request(first_request)
-                audio_queue: asyncio.Queue[object] = asyncio.Queue(
-                    maxsize=self.config.workflow.audio_queue_capacity
-                )
+            workflow_config = (
+                self.workflow_settings.current().config
+                if self.workflow_settings is not None
+                else self.config.workflow
+            )
+            try:
+                first_request = await anext(request_iterator)
+            except StopAsyncIteration as exc:
+                raise InvalidAudioError("请求流不能为空") from exc
+            settings = self._parse_first_request(
+                first_request,
+                default_language_code=workflow_config.default_language_code,
+            )
+            async with self.session_service.open(
+                settings.options
+            ) as session:
                 reader = asyncio.create_task(
-                    self._read_audio(request_iterator, audio_queue),
+                    self._read_audio(
+                        request_iterator,
+                        session,
+                        min_chunk_bytes=workflow_config.min_chunk_bytes,
+                    ),
                     name="audio-harness-grpc-reader",
                 )
-                workflow = AsrVadWorkflow(
-                    asr=self.asr,
-                    vad=self.vad,
-                    semantic_vad=self.semantic_vad,
-                    config=self.config.workflow,
-                    asr_semaphore=self.asr_semaphore,
-                )
-
-                async for result in workflow.run(
-                    self._audio_queue_iterator(audio_queue),
-                    settings.options,
-                ):
+                async for result in session.events():
+                    if not isinstance(result, TranscriptionResult):
+                        continue
                     yield build_response(result)
                 await reader
         except CapacityExceededError as exc:
@@ -150,6 +126,8 @@ class SpeechServicer(pb2_grpc.UxSpeechServicer):
             await context.abort(grpc.StatusCode.DEADLINE_EXCEEDED, str(exc))
         except EngineUnavailableError as exc:
             await context.abort(grpc.StatusCode.UNAVAILABLE, str(exc))
+        except (EngineBindingMissingError, EngineBindingInvalidError) as exc:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
         except asyncio.CancelledError:
             logger.info("客户端取消 StreamingRecognize")
             raise
@@ -166,6 +144,8 @@ class SpeechServicer(pb2_grpc.UxSpeechServicer):
     def _parse_first_request(
         self,
         request: pb2.StreamingRecognizeRequest,
+        *,
+        default_language_code: str,
     ) -> _RecognitionSettings:
         if not request.HasField("streaming_config"):
             raise InvalidAudioError("首包必须包含 streaming_config")
@@ -180,7 +160,7 @@ class SpeechServicer(pb2_grpc.UxSpeechServicer):
             raise InvalidAudioError("sample_rate_hertz 必须大于 0")
         language = config.language_code.strip()
         if not language or language.lower() == "auto":
-            language = self.config.workflow.default_language_code
+            language = default_language_code
         return _RecognitionSettings(
             options=RecognitionOptions(
                 sample_rate=sample_rate,
@@ -194,10 +174,12 @@ class SpeechServicer(pb2_grpc.UxSpeechServicer):
     async def _read_audio(
         self,
         request_iterator: AsyncIterator[pb2.StreamingRecognizeRequest],
-        audio_queue: asyncio.Queue[object],
+        session: TranscriptionSession,
+        *,
+        min_chunk_bytes: int,
     ) -> None:
         buffer = bytearray()
-        chunk_size = self.config.workflow.min_chunk_bytes
+        chunk_size = min_chunk_bytes
         try:
             async for request in request_iterator:
                 request_type = request.WhichOneof("streaming_request")
@@ -206,26 +188,15 @@ class SpeechServicer(pb2_grpc.UxSpeechServicer):
                         "首包之后只能发送 audio_content"
                     )
                 chunk = request.audio_content
-                if len(chunk) > self.config.serving.max_message_bytes:
+                if len(chunk) > self.config.limits.max_message_bytes:
                     raise InvalidAudioError("单个音频消息超过 max_message_bytes")
                 buffer.extend(chunk)
                 while len(buffer) >= chunk_size:
-                    await audio_queue.put(bytes(buffer[:chunk_size]))
+                    await session.append(bytes(buffer[:chunk_size]))
                     del buffer[:chunk_size]
             if len(buffer) % 2:
                 raise InvalidAudioError("PCM S16LE 总字节数必须为偶数")
             if buffer:
-                await audio_queue.put(bytes(buffer))
+                await session.append(bytes(buffer))
         finally:
-            await audio_queue.put(_AUDIO_END)
-
-    async def _audio_queue_iterator(
-        self,
-        audio_queue: asyncio.Queue[object],
-    ) -> AsyncIterator[bytes]:
-        while True:
-            item = await audio_queue.get()
-            if item is _AUDIO_END:
-                return
-            assert isinstance(item, bytes)
-            yield item
+            await session.finish()

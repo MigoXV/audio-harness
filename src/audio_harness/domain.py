@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Mapping, Optional, Protocol
+from typing import AsyncContextManager, Mapping, Optional, Protocol
 
 
 @dataclass(frozen=True)
@@ -24,6 +24,19 @@ class VadBoundary:
 class VadUpdate:
     boundaries: tuple[VadBoundary, ...]
     processed_samples: int
+
+
+@dataclass(frozen=True)
+class SpeechStarted:
+    start_sample: int
+    sample_rate: int
+
+
+@dataclass(frozen=True)
+class SpeechStopped:
+    start_sample: int
+    end_sample: int
+    sample_rate: int
 
 
 @dataclass(frozen=True)
@@ -68,6 +81,17 @@ class AsyncAsrEngine(Protocol):
     ) -> AsyncIterator[TranscriptionResult]: ...
 
 
+@dataclass(frozen=True)
+class EngineSet:
+    asr: AsyncAsrEngine
+    vad: AsyncVadEngine
+    semantic_vad: AsyncVadEngine | None = None
+
+
+class EngineLeaseProvider(Protocol):
+    def lease(self) -> AsyncContextManager[EngineSet]: ...
+
+
 class AudioHarnessError(Exception):
     """Audio Harness 可映射到外部协议的基础异常。"""
 
@@ -86,3 +110,11 @@ class EngineUnavailableError(AudioHarnessError):
 
 class EngineDeadlineError(AudioHarnessError):
     """下游引擎请求超时。"""
+
+
+class EngineBindingMissingError(AudioHarnessError):
+    """运行时必需的引擎角色尚未绑定。"""
+
+
+class EngineBindingInvalidError(AudioHarnessError):
+    """引擎角色绑定与资产能力不一致。"""

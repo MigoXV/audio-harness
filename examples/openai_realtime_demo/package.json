@@ -1,0 +1,13 @@
+{
+  "name": "audio-harness-realtime-demo-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.11.0",
+  "scripts": {
+    "dev": "pnpm --parallel --stream --filter audio-harness-realtime-demo-backend --filter audio-harness-realtime-demo-web run dev",
+    "start": "pnpm --filter audio-harness-realtime-demo-backend run start",
+    "build": "pnpm --filter audio-harness-realtime-demo-web run build && pnpm --filter audio-harness-realtime-demo-backend run build",
+    "lint": "pnpm --parallel --stream --filter audio-harness-realtime-demo-backend --filter audio-harness-realtime-demo-web run lint",
+    "test": "pnpm --parallel --stream --filter audio-harness-realtime-demo-backend --filter audio-harness-realtime-demo-web run test"
+  }
+}

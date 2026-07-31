@@ -1,0 +1,9 @@
+packages:
+  - backend
+  - web
+
+allowBuilds:
+  esbuild: true
+
+onlyBuiltDependencies:
+  - esbuild

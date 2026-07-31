@@ -8,7 +8,10 @@ from google.protobuf import duration_pb2
 
 from audio_harness.config import EngineEndpoint
 from audio_harness.domain import AudioSegment, RecognitionOptions
-from audio_harness.engines.grpc import GrpcAsrEngine, GrpcVadEngine
+from audio_harness.inferencers.grpc import (
+    GrpcAsrInferencer,
+    GrpcVadInferencer,
+)
 from audio_harness.protos.asr import ux_speech_pb2 as speech_pb2
 from audio_harness.protos.asr import ux_speech_pb2_grpc as speech_pb2_grpc
 from audio_harness.protos.vad import ux_vad_pb2 as vad_pb2
@@ -60,12 +63,19 @@ class FakeSpeechServicer(speech_pb2_grpc.UxSpeechServicer):
     def __init__(self) -> None:
         self.config: speech_pb2.StreamingRecognitionConfig | None = None
         self.audio = bytearray()
+        self.audio_message_count = 0
 
     async def StreamingRecognize(self, request_iterator, context):
         async for request in request_iterator:
             if request.HasField("streaming_config"):
                 self.config = request.streaming_config
             elif request.HasField("audio_content"):
+                self.audio_message_count += 1
+                if self.audio_message_count > 1:
+                    await context.abort(
+                        grpc.StatusCode.INVALID_ARGUMENT,
+                        "Only a single audio_content message is supported.",
+                    )
                 self.audio.extend(request.audio_content)
         for text, final in (("interim", False), ("final", True)):
             yield speech_pb2.StreamingRecognizeResponse(
@@ -87,28 +97,31 @@ async def audio_chunks(*chunks: bytes) -> AsyncIterator[bytes]:
 
 
 @pytest.mark.asyncio
-async def test_grpc_vad_engine_uses_async_stream_and_unary_turn_detection() -> None:
+async def test_grpc_vad_inferencer_uses_async_stream_and_unary_turn_detection() -> None:
     fake = FakeVadServicer()
     server = grpc.aio.server()
     vad_pb2_grpc.add_UxVoiceActivityDetectorServicer_to_server(fake, server)
     port = server.add_insecure_port("127.0.0.1:0")
     await server.start()
-    engine = GrpcVadEngine(
+    inferencer = GrpcVadInferencer(
         EngineEndpoint(target=f"127.0.0.1:{port}"),
         max_message_bytes=1024,
     )
     try:
-        await engine.ready()
+        await inferencer.ready()
         updates = [
             update
-            async for update in engine.stream_detect(
+            async for update in inferencer.stream_detect(
                 audio_chunks(b"\x00\x00", b"\x01\x00"),
                 sample_rate=4,
             )
         ]
-        completed = await engine.detect_turn(b"\x00\x00\x01\x00", sample_rate=4)
+        completed = await inferencer.detect_turn(
+            b"\x00\x00\x01\x00",
+            sample_rate=4,
+        )
     finally:
-        await engine.close()
+        await inferencer.close()
         await server.stop(0)
 
     assert len(updates) == 1
@@ -122,13 +135,13 @@ async def test_grpc_vad_engine_uses_async_stream_and_unary_turn_detection() -> N
 
 
 @pytest.mark.asyncio
-async def test_grpc_asr_engine_always_requests_and_returns_interim_results() -> None:
+async def test_grpc_asr_inferencer_always_requests_and_returns_interim_results() -> None:
     fake = FakeSpeechServicer()
     server = grpc.aio.server()
     speech_pb2_grpc.add_UxSpeechServicer_to_server(fake, server)
     port = server.add_insecure_port("127.0.0.1:0")
     await server.start()
-    engine = GrpcAsrEngine(
+    inferencer = GrpcAsrInferencer(
         EngineEndpoint(target=f"127.0.0.1:{port}"),
         min_chunk_bytes=4,
         max_message_bytes=1024,
@@ -145,12 +158,13 @@ async def test_grpc_asr_engine_always_requests_and_returns_interim_results() -> 
         hotword_bias=2.0,
     )
     try:
-        await engine.ready()
+        await inferencer.ready()
         results = [
-            result async for result in engine.transcribe(segment, options)
+            result
+            async for result in inferencer.transcribe(segment, options)
         ]
     finally:
-        await engine.close()
+        await inferencer.close()
         await server.stop(0)
 
     assert [(item.transcript, item.is_final) for item in results] == [
@@ -162,4 +176,5 @@ async def test_grpc_asr_engine_always_requests_and_returns_interim_results() -> 
     assert fake.config is not None
     assert fake.config.interim_results is True
     assert fake.config.config.hotwords == ["Audio Harness"]
+    assert fake.audio_message_count == 1
     assert bytes(fake.audio) == segment.audio

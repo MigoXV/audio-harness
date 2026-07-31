@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import grpc
 import pytest
 
-from audio_harness.config import AppConfig
+from audio_harness.capacity import ServingCapacity
+from audio_harness.config import AppConfig, CapacityConfig
 from audio_harness.domain import (
     AudioSegment,
+    EngineSet,
     RecognitionOptions,
     TranscriptionResult,
     VadBoundary,
@@ -15,7 +19,9 @@ from audio_harness.domain import (
 )
 from audio_harness.protos.asr import ux_speech_pb2 as pb2
 from audio_harness.protos.asr import ux_speech_pb2_grpc as pb2_grpc
-from audio_harness.servicers.speech import SpeechServicer
+from audio_harness.serving.grpc import SpeechServicer
+from audio_harness.sessions import TranscriptionSessionService
+from audio_harness.workflow_settings import WorkflowSettingsSnapshot
 
 
 class CompleteVad:
@@ -55,13 +61,31 @@ class EchoAsr:
             )
 
 
+class StaticProvider:
+    @asynccontextmanager
+    async def lease(self):
+        yield EngineSet(
+            asr=EchoAsr(),
+            vad=CompleteVad(),
+            semantic_vad=None,
+        )
+
+
+class StaticSettings:
+    def __init__(self, config) -> None:
+        self._snapshot = WorkflowSettingsSnapshot(
+            config=config,
+            revision=1,
+            updated_at=datetime.now(timezone.utc),
+        )
+
+    def current(self) -> WorkflowSettingsSnapshot:
+        return self._snapshot
+
+
 def make_config() -> AppConfig:
     return AppConfig.model_validate(
         {
-            "engines": {
-                "asr": {"target": "unused"},
-                "vad": {"target": "unused"},
-            },
             "workflow": {
                 "min_chunk_bytes": 4,
                 "min_segment_seconds": 0,
@@ -72,12 +96,20 @@ def make_config() -> AppConfig:
 
 async def start_server() -> tuple[grpc.aio.Server, int]:
     server = grpc.aio.server()
+    config = make_config()
+    settings = StaticSettings(config.workflow)
+    capacity = ServingCapacity(CapacityConfig())
+    sessions = TranscriptionSessionService(
+        engine_provider=StaticProvider(),
+        workflow_settings=settings,
+        session_limiter=capacity.grpc_sessions,
+        asr_limiter=capacity.asr,
+    )
     pb2_grpc.add_UxSpeechServicer_to_server(
         SpeechServicer(
-            config=make_config(),
-            asr=EchoAsr(),
-            vad=CompleteVad(),
-            semantic_vad=None,
+            config=config,
+            session_service=sessions,
+            workflow_settings=settings,
         ),
         server,
     )
