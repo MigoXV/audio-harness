@@ -2,7 +2,9 @@ from audio_harness.database.models import (
     Base,
     CapacitySetting,
     EngineAsset,
-    EngineBinding,
+    PipelineActivation,
+    PipelineRevision,
+    PipelineWorkingCopy,
     WorkflowSetting,
 )
 from audio_harness.database.session import Database, upgrade_database
@@ -12,7 +14,9 @@ __all__ = [
     "CapacitySetting",
     "Database",
     "EngineAsset",
-    "EngineBinding",
+    "PipelineActivation",
+    "PipelineRevision",
+    "PipelineWorkingCopy",
     "WorkflowSetting",
     "upgrade_database",
 ]

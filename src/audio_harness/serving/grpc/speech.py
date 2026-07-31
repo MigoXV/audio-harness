@@ -11,8 +11,7 @@ from google.protobuf import duration_pb2
 from audio_harness.config import AppConfig
 from audio_harness.domain import (
     CapacityExceededError,
-    EngineBindingInvalidError,
-    EngineBindingMissingError,
+    EngineConfigurationInvalidError,
     EngineDeadlineError,
     EngineUnavailableError,
     InvalidAudioError,
@@ -21,6 +20,7 @@ from audio_harness.domain import (
 )
 from audio_harness.protos.asr import ux_speech_pb2 as pb2
 from audio_harness.protos.asr import ux_speech_pb2_grpc as pb2_grpc
+from audio_harness.pipelines.service import PipelineNotActiveError
 from audio_harness.sessions import (
     TranscriptionSession,
     TranscriptionSessionService,
@@ -126,7 +126,10 @@ class SpeechServicer(pb2_grpc.UxSpeechServicer):
             await context.abort(grpc.StatusCode.DEADLINE_EXCEEDED, str(exc))
         except EngineUnavailableError as exc:
             await context.abort(grpc.StatusCode.UNAVAILABLE, str(exc))
-        except (EngineBindingMissingError, EngineBindingInvalidError) as exc:
+        except (
+            EngineConfigurationInvalidError,
+            PipelineNotActiveError,
+        ) as exc:
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
         except asyncio.CancelledError:
             logger.info("客户端取消 StreamingRecognize")

@@ -11,6 +11,7 @@
     "test:server": "cd ../.. && poetry run pytest tests/test_web_app.py tests/test_engine_control_api.py"
   },
   "dependencies": {
+    "@xyflow/react": "^12.11.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2"

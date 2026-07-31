@@ -35,38 +35,6 @@ const AUDIO_FIELDS: NumericField[] = [
     step: 2,
     hint: "必须为偶数，保持 PCM S16LE 对齐。",
   },
-  {
-    key: "min_segment_seconds",
-    label: "最短语音段",
-    unit: "s",
-    min: 0,
-    step: 0.1,
-    hint: "短于该时长的 VAD 片段不会进入 ASR。",
-  },
-  {
-    key: "max_segment_seconds",
-    label: "最长语音段",
-    unit: "s",
-    min: 0.1,
-    step: 1,
-    hint: "超长发言按该窗口切分，避免单次识别过大。",
-  },
-  {
-    key: "audio_buffer_seconds",
-    label: "轮转音频缓冲",
-    unit: "s",
-    min: 0.1,
-    step: 1,
-    hint: "必须覆盖最长语音段和起点前置音频。",
-  },
-  {
-    key: "speech_pre_roll_seconds",
-    label: "语音起点前置",
-    unit: "s",
-    min: 0,
-    step: 0.1,
-    hint: "为 VAD 起点补回前文，避免片段开头缺字。",
-  },
 ];
 
 const QUEUE_FIELDS: NumericField[] = [
@@ -252,10 +220,6 @@ export function RuntimeSettingsPanel({
     try {
       const payload: WorkflowSettingsUpdate = {
         min_chunk_bytes: workflow.min_chunk_bytes,
-        min_segment_seconds: workflow.min_segment_seconds,
-        max_segment_seconds: workflow.max_segment_seconds,
-        audio_buffer_seconds: workflow.audio_buffer_seconds,
-        speech_pre_roll_seconds: workflow.speech_pre_roll_seconds,
         default_language_code: workflow.default_language_code,
         audio_queue_capacity: workflow.audio_queue_capacity,
         segment_queue_capacity: workflow.segment_queue_capacity,
@@ -335,7 +299,7 @@ export function RuntimeSettingsPanel({
         <div>
           <h1>运行设置</h1>
           <p>
-            配置新会话使用的音频处理参数，以及各协议和共享推理的容量边界。
+            配置全局传输参数，以及各协议和共享推理的容量边界。
           </p>
         </div>
         <dl className="settings-meta">
@@ -373,8 +337,8 @@ export function RuntimeSettingsPanel({
       {workflow ? (
         <>
           {renderWorkflowSection(
-            "音频与分段",
-            "决定 PCM 重分块、VAD 片段边界与轮转缓冲的保留范围。",
+            "音频传输",
+            "控制进入处理链前的 PCM 数据对齐；VAD 算法参数在对应 DAG 节点中配置。",
             AUDIO_FIELDS,
           )}
 
@@ -519,7 +483,7 @@ export function RuntimeSettingsPanel({
           <section className="settings-section">
             <header>
               <h2>共享推理</h2>
-              <p>统一保护当前绑定的 ASR 引擎，避免多协议叠加压垮下游。</p>
+              <p>统一保护处理链中的 ASR 节点，避免多协议叠加压垮下游。</p>
             </header>
             <div className="settings-rows">
               <CapacityField

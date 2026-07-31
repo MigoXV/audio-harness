@@ -33,6 +33,8 @@ describe("audio harness API client", () => {
             database: "ready",
             data_plane: "not_ready",
             problems: ["ASR 未绑定"],
+            pipeline_revision: null,
+            nodes: [],
           },
           503,
         ),
@@ -74,10 +76,6 @@ describe("audio harness API client", () => {
   it("updates workflow settings with the complete revision snapshot", async () => {
     const response = {
       min_chunk_bytes: 640,
-      min_segment_seconds: 0.5,
-      max_segment_seconds: 60,
-      audio_buffer_seconds: 120,
-      speech_pre_roll_seconds: 0.3,
       default_language_code: "zh-CN",
       audio_queue_capacity: 32,
       segment_queue_capacity: 8,

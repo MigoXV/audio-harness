@@ -7,7 +7,7 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from audio_harness.config import WorkflowConfig
+from audio_harness.config import WorkflowRuntimeConfig
 from audio_harness.database.models import WorkflowSetting, utc_now
 
 _SETTING_ID = 1
@@ -27,7 +27,7 @@ class WorkflowSettingsValidationError(WorkflowSettingsError):
 
 @dataclass(frozen=True)
 class WorkflowSettingsSnapshot:
-    config: WorkflowConfig
+    config: WorkflowRuntimeConfig
     revision: int
     updated_at: datetime
 
@@ -38,13 +38,9 @@ SettingsListener = Callable[
 ]
 
 
-def _config_from_model(model: WorkflowSetting) -> WorkflowConfig:
-    return WorkflowConfig(
+def _config_from_model(model: WorkflowSetting) -> WorkflowRuntimeConfig:
+    return WorkflowRuntimeConfig(
         min_chunk_bytes=model.min_chunk_bytes,
-        min_segment_seconds=model.min_segment_seconds,
-        max_segment_seconds=model.max_segment_seconds,
-        audio_buffer_seconds=model.audio_buffer_seconds,
-        speech_pre_roll_seconds=model.speech_pre_roll_seconds,
         default_language_code=model.default_language_code,
         audio_queue_capacity=model.audio_queue_capacity,
         segment_queue_capacity=model.segment_queue_capacity,
@@ -98,7 +94,10 @@ class WorkflowSettingsStore:
             raise RuntimeError("工作流设置尚未初始化")
         return self._current
 
-    def _validate_message_limit(self, config: WorkflowConfig) -> None:
+    def _validate_message_limit(
+        self,
+        config: WorkflowRuntimeConfig,
+    ) -> None:
         if config.min_chunk_bytes > self._max_message_bytes:
             raise WorkflowSettingsValidationError(
                 "min_chunk_bytes 不能大于 max_message_bytes"
@@ -107,7 +106,7 @@ class WorkflowSettingsStore:
     async def update(
         self,
         *,
-        config: WorkflowConfig,
+        config: WorkflowRuntimeConfig,
         expected_revision: int,
     ) -> WorkflowSettingsSnapshot:
         self._validate_message_limit(config)

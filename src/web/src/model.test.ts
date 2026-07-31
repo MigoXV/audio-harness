@@ -1,16 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import type { EngineAsset } from "./api/types";
+import type {
+  EngineAsset,
+  PipelineDefinition,
+} from "./api/types";
 import {
   apiForKind,
-  bindingCandidates,
   capabilityLabel,
   engineState,
   kindLabel,
-  PIPELINE_STAGES,
-  requiredApi,
-  roleLabel,
+  nodeCandidates,
+  nodeTypeLabel,
   slugify,
+  topologicalNodes,
 } from "./model";
 
 const engine = (
@@ -40,35 +42,65 @@ const engine = (
   updated_at: "2026-01-01T00:00:00Z",
 });
 
-describe("engine model helpers", () => {
-  it("maps roles and kinds to compatible APIs", () => {
-    expect(requiredApi("asr")).toBe("ux_speech");
-    expect(requiredApi("vad")).toBe("ux_vad");
-    expect(requiredApi("semantic_vad")).toBe("ux_vad");
+describe("DAG model helpers", () => {
+  it("maps known node types and keeps unknown values visible", () => {
     expect(apiForKind("asr_vad")).toBeNull();
-    expect(requiredApi("tts")).toBeNull();
-  });
-
-  it("falls back safely for unknown capabilities and roles", () => {
     expect(kindLabel("speaker_diarization")).toBe("说话人分离");
     expect(capabilityLabel("future_capability")).toBe("future_capability");
-    expect(roleLabel("tts")).toBe("tts");
+    expect(nodeTypeLabel("custom_node")).toBe("custom_node");
   });
 
-  it("describes the fixed runtime execution order without a fake order field", () => {
-    expect(PIPELINE_STAGES.map((stage) => stage.role)).toEqual([
-      "vad",
-      "semantic_vad",
-      "asr",
-    ]);
+  it("only exposes enabled API-compatible node candidates", () => {
+    const engines = [
+      engine("asr-on", "ux_speech"),
+      engine("asr-off", "ux_speech", false),
+      engine("vad-on", "ux_vad"),
+    ];
     expect(
-      PIPELINE_STAGES.filter((stage) => stage.required).map(
-        (stage) => stage.role,
-      ),
-    ).toEqual(["vad", "asr"]);
+      nodeCandidates("ux_speech", engines).map((item) => item.id),
+    ).toEqual(["asr-on"]);
+    expect(
+      nodeCandidates("ux_vad", engines).map((item) => item.id),
+    ).toEqual(["vad-on"]);
   });
 
-  it("separates catalog status from live readiness", () => {
+  it("derives a stable topological order from real edges", () => {
+    const definition: PipelineDefinition = {
+      schema_version: 1,
+      nodes: ["output", "asr", "input"].map((id) => ({
+        id,
+        type: id === "input" ? "audio_input" : id,
+        display_name: null,
+        engine_id: null,
+        config: {},
+        failure_policy: "fail_pipeline",
+        position: { x: 0, y: 0 },
+      })),
+      edges: [
+        {
+          id: "input_asr",
+          source_node: "input",
+          source_port: "audio",
+          target_node: "asr",
+          target_port: "segments",
+        },
+        {
+          id: "asr_output",
+          source_node: "asr",
+          source_port: "events",
+          target_node: "output",
+          target_port: "events",
+        },
+      ],
+    };
+    expect(topologicalNodes(definition).map((node) => node.id)).toEqual([
+      "input",
+      "asr",
+      "output",
+    ]);
+  });
+
+  it("separates catalog status from live node readiness", () => {
     expect(engineState(engine("confirmed", "ux_speech"))).toEqual({
       label: "已确认",
       tone: "confirmed",
@@ -84,21 +116,9 @@ describe("engine model helpers", () => {
     });
   });
 
-  it("only exposes enabled compatible binding candidates", () => {
-    const engines = [
-      engine("asr-on", "ux_speech"),
-      engine("asr-off", "ux_speech", false),
-      engine("vad-on", "ux_vad"),
-    ];
-    expect(bindingCandidates("asr", engines).map((item) => item.id)).toEqual([
-      "asr-on",
-    ]);
-    expect(bindingCandidates("vad", engines).map((item) => item.id)).toEqual([
-      "vad-on",
-    ]);
-  });
-
   it("creates backend-compatible slugs", () => {
-    expect(slugify(" Qwen ASR / Production ")).toBe("qwen-asr-production");
+    expect(slugify(" Qwen ASR / Production ")).toBe(
+      "qwen-asr-production",
+    );
   });
 });

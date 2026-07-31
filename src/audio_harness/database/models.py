@@ -14,13 +14,12 @@ from sqlalchemy import (
     String,
     Text,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from audio_harness.assets import (
     EngineApi,
     EngineKind,
     EngineProtocol,
-    EngineRole,
     EngineStatus,
 )
 
@@ -76,30 +75,6 @@ class EngineAsset(Base):
         default=utc_now,
         onupdate=utc_now,
     )
-    bindings: Mapped[list["EngineBinding"]] = relationship(
-        back_populates="engine",
-        passive_deletes=True,
-    )
-
-
-class EngineBinding(Base):
-    __tablename__ = "engine_bindings"
-
-    role: Mapped[EngineRole] = mapped_column(
-        enum_type(EngineRole),
-        primary_key=True,
-    )
-    engine_id: Mapped[str] = mapped_column(
-        ForeignKey("engine_assets.id", ondelete="RESTRICT"),
-        index=True,
-    )
-    generation: Mapped[int] = mapped_column(Integer, default=1)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=utc_now,
-        onupdate=utc_now,
-    )
-    engine: Mapped[EngineAsset] = relationship(back_populates="bindings")
 
 
 class WorkflowSetting(Base):
@@ -107,10 +82,6 @@ class WorkflowSetting(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     min_chunk_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
-    min_segment_seconds: Mapped[float] = mapped_column(Float, nullable=False)
-    max_segment_seconds: Mapped[float] = mapped_column(Float, nullable=False)
-    audio_buffer_seconds: Mapped[float] = mapped_column(Float, nullable=False)
-    speech_pre_roll_seconds: Mapped[float] = mapped_column(Float, nullable=False)
     default_language_code: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
@@ -135,6 +106,53 @@ class CapacitySetting(Base):
     webrtc_max_sessions: Mapped[int] = mapped_column(Integer, nullable=False)
     max_asr_concurrency: Mapped[int] = mapped_column(Integer, nullable=False)
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+
+class PipelineWorkingCopy(Base):
+    __tablename__ = "pipeline_working_copy"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+
+class PipelineRevision(Base):
+    __tablename__ = "pipeline_revisions"
+
+    revision: Mapped[int] = mapped_column(Integer, primary_key=True)
+    definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    compiled_plan: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+    )
+    activated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+    )
+
+
+class PipelineActivation(Base):
+    __tablename__ = "pipeline_activation"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    active_revision: Mapped[int | None] = mapped_column(
+        ForeignKey("pipeline_revisions.revision", ondelete="RESTRICT"),
+        nullable=True,
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utc_now,

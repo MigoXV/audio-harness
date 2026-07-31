@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import grpc
 import pytest
 
 from audio_harness.capacity import ServingCapacity
-from audio_harness.config import AppConfig, CapacityConfig
+from audio_harness.config import (
+    AppConfig,
+    CapacityConfig,
+    WorkflowRuntimeConfig,
+)
 from audio_harness.domain import (
     AudioSegment,
-    EngineSet,
     RecognitionOptions,
     TranscriptionResult,
     VadBoundary,
@@ -22,6 +24,7 @@ from audio_harness.protos.asr import ux_speech_pb2_grpc as pb2_grpc
 from audio_harness.serving.grpc import SpeechServicer
 from audio_harness.sessions import TranscriptionSessionService
 from audio_harness.workflow_settings import WorkflowSettingsSnapshot
+from tests.graph_fakes import static_graph
 
 
 class CompleteVad:
@@ -61,16 +64,6 @@ class EchoAsr:
             )
 
 
-class StaticProvider:
-    @asynccontextmanager
-    async def lease(self):
-        yield EngineSet(
-            asr=EchoAsr(),
-            vad=CompleteVad(),
-            semantic_vad=None,
-        )
-
-
 class StaticSettings:
     def __init__(self, config) -> None:
         self._snapshot = WorkflowSettingsSnapshot(
@@ -88,7 +81,6 @@ def make_config() -> AppConfig:
         {
             "workflow": {
                 "min_chunk_bytes": 4,
-                "min_segment_seconds": 0,
             },
         }
     )
@@ -97,10 +89,20 @@ def make_config() -> AppConfig:
 async def start_server() -> tuple[grpc.aio.Server, int]:
     server = grpc.aio.server()
     config = make_config()
-    settings = StaticSettings(config.workflow)
+    settings = StaticSettings(
+        WorkflowRuntimeConfig(
+            min_chunk_bytes=4,
+            default_language_code=config.workflow.default_language_code,
+        )
+    )
     capacity = ServingCapacity(CapacityConfig())
+    engine_router, pipeline_store = static_graph(
+        asr=EchoAsr(),
+        vad=CompleteVad(),
+    )
     sessions = TranscriptionSessionService(
-        engine_provider=StaticProvider(),
+        engine_router=engine_router,
+        pipeline_store=pipeline_store,
         workflow_settings=settings,
         session_limiter=capacity.grpc_sessions,
         asr_limiter=capacity.asr,

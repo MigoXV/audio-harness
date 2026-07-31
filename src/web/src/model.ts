@@ -1,9 +1,10 @@
 import type {
   EngineApi,
   EngineAsset,
-  EngineBinding,
   EngineKind,
-  EngineRole,
+  NodeTypeDefinition,
+  PipelineDefinition,
+  PipelineNode,
   SupportedEngineKind,
 } from "./api/types";
 
@@ -21,10 +22,12 @@ const CAPABILITY_LABELS: Record<string, string> = {
   voice_conversion: "音色转换",
 };
 
-const ROLE_LABELS: Record<string, string> = {
-  asr: "语音识别",
-  vad: "物理 VAD",
+const NODE_TYPE_LABELS: Record<string, string> = {
+  audio_input: "音频输入",
+  physical_vad: "物理 VAD",
   semantic_vad: "语义 VAD",
+  asr: "语音识别",
+  session_output: "会话输出",
 };
 
 const KIND_LABELS: Record<string, string> = {
@@ -37,6 +40,15 @@ const STATUS_LABELS: Record<string, string> = {
   inactive: "已停用",
 };
 
+const KIND_APIS: Record<string, EngineApi> = {
+  asr: "ux_speech",
+  vad: "ux_vad",
+};
+
+const NODE_CAPABILITIES: Record<string, string> = {
+  physical_vad: "vad",
+};
+
 export const SUPPORTED_KIND_OPTIONS: ReadonlyArray<{
   value: SupportedEngineKind;
   label: string;
@@ -45,44 +57,12 @@ export const SUPPORTED_KIND_OPTIONS: ReadonlyArray<{
   { value: "vad", label: "VAD" },
 ];
 
-export interface PipelineStageDefinition {
-  role: EngineRole;
-  name: string;
-  capability: string;
-  required: boolean;
-  requiredApi: EngineApi;
-}
-
-export const PIPELINE_STAGES: readonly PipelineStageDefinition[] = [
-  {
-    role: "vad",
-    name: "物理 VAD",
-    capability: "vad",
-    required: true,
-    requiredApi: "ux_vad",
-  },
-  {
-    role: "semantic_vad",
-    name: "语义 VAD",
-    capability: "semantic_vad",
-    required: false,
-    requiredApi: "ux_vad",
-  },
-  {
-    role: "asr",
-    name: "语音识别",
-    capability: "asr",
-    required: true,
-    requiredApi: "ux_speech",
-  },
-];
-
 export function capabilityLabel(capability: string): string {
   return CAPABILITY_LABELS[capability] ?? capability;
 }
 
-export function roleLabel(role: string): string {
-  return ROLE_LABELS[role] ?? role;
+export function nodeTypeLabel(nodeType: string): string {
+  return NODE_TYPE_LABELS[nodeType] ?? nodeType;
 }
 
 export function kindLabel(kind: string): string {
@@ -97,35 +77,20 @@ export function protocolLabel(protocol: string): string {
   return protocol === "grpc" ? "gRPC" : protocol;
 }
 
-export function requiredApi(role: EngineRole): EngineApi | null {
-  if (role === "asr") {
-    return "ux_speech";
-  }
-  if (role === "vad" || role === "semantic_vad") {
-    return "ux_vad";
-  }
-  return null;
-}
-
 export function apiForKind(kind: EngineKind): EngineApi | null {
-  if (kind === "asr") {
-    return "ux_speech";
-  }
-  if (kind === "vad") {
-    return "ux_vad";
-  }
-  return null;
+  return KIND_APIS[kind] ?? null;
 }
 
-export function bindingCandidates(
-  role: EngineRole,
+export function nodeCandidates(
+  requiredApi: EngineApi | null,
   engines: EngineAsset[],
 ): EngineAsset[] {
-  const api = requiredApi(role);
-  if (api === null) {
+  if (requiredApi === null) {
     return [];
   }
-  return engines.filter((engine) => engine.enabled && engine.api === api);
+  return engines.filter(
+    (engine) => engine.enabled && engine.api === requiredApi,
+  );
 }
 
 export interface EngineState {
@@ -146,12 +111,65 @@ export function engineState(engine: EngineAsset): EngineState {
   return { label: statusLabel(engine.status), tone: "muted" };
 }
 
-export function stageDefinition(
-  binding: EngineBinding,
-): PipelineStageDefinition | null {
+export function nodeDisplayName(
+  node: PipelineNode,
+  nodeTypes: NodeTypeDefinition[] = [],
+): string {
   return (
-    PIPELINE_STAGES.find((stage) => stage.role === binding.role) ?? null
+    node.display_name ??
+    nodeTypes.find((item) => item.type === node.type)?.display_name ??
+    nodeTypeLabel(node.type)
   );
+}
+
+export function nodeCapability(nodeType: string): string {
+  return NODE_CAPABILITIES[nodeType] ?? nodeType;
+}
+
+export function topologicalNodes(
+  definition: PipelineDefinition,
+): PipelineNode[] {
+  const byId = new Map(definition.nodes.map((node) => [node.id, node]));
+  const indegree = new Map(
+    definition.nodes.map((node) => [node.id, 0]),
+  );
+  const outgoing = new Map<string, string[]>();
+  for (const edge of definition.edges) {
+    if (!byId.has(edge.source_node) || !byId.has(edge.target_node)) {
+      continue;
+    }
+    indegree.set(
+      edge.target_node,
+      (indegree.get(edge.target_node) ?? 0) + 1,
+    );
+    outgoing.set(edge.source_node, [
+      ...(outgoing.get(edge.source_node) ?? []),
+      edge.target_node,
+    ]);
+  }
+  const ready = Array.from(indegree)
+    .filter(([, count]) => count === 0)
+    .map(([id]) => id)
+    .sort();
+  const result: PipelineNode[] = [];
+  while (ready.length > 0) {
+    const id = ready.shift()!;
+    const node = byId.get(id);
+    if (node) {
+      result.push(node);
+    }
+    for (const target of outgoing.get(id) ?? []) {
+      const next = (indegree.get(target) ?? 1) - 1;
+      indegree.set(target, next);
+      if (next === 0) {
+        ready.push(target);
+        ready.sort();
+      }
+    }
+  }
+  return result.length === definition.nodes.length
+    ? result
+    : definition.nodes;
 }
 
 export function formatDate(value: string | null): string {

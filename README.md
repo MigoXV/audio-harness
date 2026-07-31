@@ -1,26 +1,31 @@
 # Audio Harness
 
-Audio Harness 是面向实时音频智能的可编排基础设施。当前第一版聚焦 ASR 与
-VAD：控制面用 SQLite 管理引擎数字资产、角色绑定和工作流策略；数据面用
-异步有界队列处理持续音频流，在物理 VAD 确认完整语音片段后，把整个片段交给
-ASR。服务同时提供 gRPC，以及兼容 OpenAI Realtime 转写事件的 WebSocket
-和 WebRTC 接口。
+Audio Harness 是面向实时音频智能的可编排基础设施。当前版本以有向无环图
+（DAG）描述语音处理链：控制面用 SQLite 管理引擎资产、处理链工作副本和
+不可变激活修订；数据面按已激活执行计划，为每个会话启动带有界边队列的异步
+Graph Runner。服务同时提供 gRPC，以及兼容 OpenAI Realtime 转写事件的
+WebSocket 和 WebRTC 接口。
 
 ## 架构
 
 ```text
-                 HTTP/HTTPS/WSS :8000
-                ┌───────────────────────┐
-                │ 引擎 CRUD / 角色绑定 │
-                │ 策略 / 容量 / Web UI │
-                └──────────┬────────────┘
-                           │ SQLite
-                           ▼
-音频客户端 ── gRPC :50051 ─┐
-                           ├─ 会话快照 ─ 环形缓冲 ─ VAD ─ 完整片段 ─ ASR
-Realtime WS ───── WSS :8000─┤                   │
-WebRTC ───── HTTPS/RTP :8000┘                   │
-                                               └─ 可选语义 VAD（仅 gRPC）
+                  HTTP/HTTPS/WSS :8000
+             ┌───────────────────────────┐
+             │ DAG 工作副本 / 引擎资产  │
+             │ 校验 / 激活修订 / Web UI │
+             └────────────┬──────────────┘
+                          │ SQLite
+                          ▼
+                 NetworkX 编译与校验
+                          │
+                          ▼
+                   不可变执行计划
+                          │
+音频客户端 ─ gRPC :50051 ─┐
+Realtime WS ─── WSS :8000 ─┼─ 会话 Graph Runner ─ 有界边队列 ─ 会话输出
+WebRTC ──── HTTPS/RTP :8000┘          │
+                         音频输入 → 物理 VAD → 可选语义 VAD → ASR
+                                      └────────事件──────────→ 输出
 ```
 
 主业务管线只依赖 `inferencers/contracts.py` 中的异步能力接口。各引擎的
@@ -28,10 +33,15 @@ gRPC 请求构造、响应解析、错误映射和通道生命周期封装在
 `inferencers/grpc/asr.py` 与 `inferencers/grpc/vad.py`，不会泄漏到工作流
 逻辑中，后续可以增加其他推理协议。
 
-每个新会话会获取不可变的引擎路由和工作流设置快照。控制面修改绑定或策略后，
-新会话立即使用新配置；活动会话继续使用开始时的配置。gRPC 与 Realtime 各自
-拥有独立的会话容量，但共享全局 ASR 并发限制；降低容量不会取消已经运行的
-任务。
+NetworkX 只参与控制面的结构校验、拓扑排序和执行计划编译，不进入音频热路径。
+节点端口带有载荷类型；输出可以扇出，多路输入只允许进入显式声明为聚合端口的
+节点。当前内置 `audio_input`、`physical_vad`、`semantic_vad`、`asr` 和
+`session_output` 五类节点，节点注册表保留了继续扩展新能力的边界。
+
+每个新会话获取同一份不可变处理链修订、引擎快照和全局运行设置。激活新修订
+后，后续会话使用新执行计划，活动会话继续使用开始时的计划。gRPC、Realtime
+WebSocket 和 WebRTC 统一执行同一张图；各协议拥有独立会话容量，但共享全局
+ASR 并发限制。
 
 对外协议统一位于 `audio_harness.serving`：`serving/grpc` 只处理 protobuf
 与 50051 生命周期，`serving/http` 组装 8000 上的 REST、Web 与 WebSocket，
@@ -62,7 +72,7 @@ set +a
 poetry run audio-harness serve
 ```
 
-当前原型不兼容旧的设置表。首次切换到本版本前，停止旧进程并备份旧数据库：
+升级前应停止旧进程并备份数据库：
 
 ```bash
 mkdir -p data-bin/sqlite/before-serving-refactor
@@ -70,7 +80,9 @@ mv data-bin/sqlite/audio-harness.db* \
   data-bin/sqlite/before-serving-refactor/
 ```
 
-服务启动时会自动从头创建 SQLite 并执行 Alembic 初始化。默认入口：
+服务启动时会自动执行 Alembic。升级迁移会把旧角色绑定转换成默认 DAG，把
+旧物理 VAD 参数迁入对应节点；旧绑定不完整时只创建工作副本，不会伪造一个
+可运行修订。默认入口：
 
 - gRPC 数据面：`0.0.0.0:50051`，第一版保持明文；
 - REST、Web 工作台与 Realtime：`https://0.0.0.0:8000`；
@@ -108,9 +120,10 @@ YAML 只保存 SQLite URL，监听与服务参数全部通过命令行或环境�
 
 ## 控制面
 
-`src/web` 是同源 React 配置工作台。它用于管理 ASR/VAD 引擎、设置
-`asr`、`vad`、`semantic_vad` 三个运行时角色，以及分别修改工作流与容量
-设置。开发模式：
+`src/web` 是同源 React 配置工作台。默认入口是处理链编排：查看当前工作副本
+和运行修订、编辑节点与类型兼容的连线、配置节点参数和引擎，并依次完成保存、
+校验和激活。完整引擎 CRUD 位于独立“引擎库”，运行设置只管理全局传输、队列
+和容量边界。开发模式：
 
 ```bash
 pnpm --dir src/web dev
@@ -126,29 +139,34 @@ Vite 页面位于 `http://127.0.0.1:5173`，会把 API 请求代理到管理端�
 | `POST` | `/api/v1/engines` | 创建 ASR/VAD 引擎资产 |
 | `GET` | `/api/v1/engines` | 分页、过滤和搜索资产 |
 | `GET/PATCH/DELETE` | `/api/v1/engines/{id}` | 查询、更新、删除资产 |
-| `GET` | `/api/v1/engine-bindings` | 查询运行时角色绑定 |
-| `PUT/DELETE` | `/api/v1/engine-bindings/{role}` | 探活切换或解除绑定 |
+| `GET` | `/api/v1/node-types` | 查询节点类型、端口和配置 Schema |
+| `GET` | `/api/v1/pipeline` | 查询处理链工作副本和当前激活修订 |
+| `PUT` | `/api/v1/pipeline/draft` | 携带工作副本 `revision` 保存整张图 |
+| `POST` | `/api/v1/pipeline/validate` | 编译并校验当前工作副本 |
+| `POST` | `/api/v1/pipeline/activate` | 准备引擎并原子激活不可变修订 |
+| `GET` | `/api/v1/pipeline/active` | 查询当前激活修订 |
+| `GET` | `/api/v1/pipeline/revisions/{revision}` | 查询指定历史修订 |
 | `GET` | `/api/v1/workflow-settings` | 读取完整工作流设置快照 |
 | `PUT` | `/api/v1/workflow-settings` | 携带 `revision` 原子更新设置 |
 | `GET` | `/api/v1/capacity-settings` | 读取协议与共享容量快照 |
 | `PUT` | `/api/v1/capacity-settings` | 携带 `revision` 原子更新容量 |
 
-绑定前会异步等待目标 gRPC 通道 ready。失败时返回 503 并保留旧绑定；停用、
-接口类型不匹配和删除已绑定资产等冲突返回 409。首次启动不会擅自绑定知识库
-中的历史引擎；必须至少绑定 `asr` 和 `vad`，`/health/ready` 才会就绪。
+保存工作副本不会改变数据面。校验会检查无环、端口类型、必需输入、非法隐式
+汇合、输入/输出可达性、节点配置、失败策略和引擎接口兼容性。激活阶段还会
+等待所有引用的 gRPC 引擎 ready，并再次确认资产修订未变化；任何失败都会保留
+当前运行修订。没有激活处理链时，`/health/ready` 返回未就绪。
 
 工作流策略由 SQLite 单例记录保存，默认值包括：
 
 | 策略 | 默认值 |
 | --- | ---: |
 | 输入重分块 | 640 字节 |
-| 最短 / 最长语音片段 | 0.5 / 60 秒 |
-| 每会话音频环形缓冲 | 120 秒 |
-| VAD 语音前滚 | 0.3 秒 |
 | 输入 / 片段 / 结果队列 | 32 / 8 / 32 |
 | 默认语言 | `zh-CN` |
 
-容量设置由独立 SQLite 单例记录保存：gRPC、Realtime WebSocket 和 WebRTC
+最短/最长片段、环形缓冲和语音前滚属于 `physical_vad` 节点配置，不再是
+全局工作流设置。容量设置由独立 SQLite 单例记录保存：gRPC、Realtime
+WebSocket 和 WebRTC
 默认各允许 64 个活动会话，所有协议共享 8 个 ASR 并发。两类设置的完整 PUT
 都使用各自的乐观锁；旧 `revision` 会返回 409，客户端应重新读取后再提交。
 
@@ -179,8 +197,8 @@ wss://127.0.0.1:8000/v1/realtime?model=gpt-4o-transcribe
 - `conversation.item.input_audio_transcription.delta`、`completed`、`failed`；
 - `error`。
 
-`model` 是兼容协议中的会话标识；实际推理由控制面当前绑定的本地 ASR/VAD
-引擎执行。语义 VAD 不参与 Realtime 第一版的 `server_vad` 管线。
+`model` 是兼容协议中的会话标识；实际推理由当前激活处理链引用的本地引擎
+执行。图中存在语义 VAD 节点时，Realtime 也会执行该节点。
 
 自定义诊断事件默认关闭。连接 URL 增加 `diagnostics=true` 后，会额外发送
 `audio_harness.vad_progress`；以后新增的 `audio_harness.*` 诊断事件也统一受
@@ -249,9 +267,8 @@ pnpm dev
 `StreamingRecognitionConfig`，后续包只能携带 `audio_content`。第一版支持
 单声道 PCM S16LE，未指定采样率时默认 16 kHz。
 
-VAD 判定完整片段后只发起一次 ASR 请求，避免底层引擎收到多条
-`audio_content`。120 秒可轮转环形缓冲和 0.3 秒语音前滚用于保留 VAD 起点
-之前的音频。示例：
+请求音频进入当前激活处理链。默认图由物理 VAD 形成完整片段，再交给可选的
+语义 VAD 和 ASR；环形缓冲与语音前滚参数由 `physical_vad` 节点配置。示例：
 
 ```bash
 poetry run python examples/grpc_client.py \

@@ -2,8 +2,6 @@ export type SupportedEngineKind = "asr" | "vad";
 export type EngineKind = SupportedEngineKind | (string & {});
 export type EngineApi = "ux_speech" | "ux_vad" | (string & {});
 export type EngineProtocol = "grpc" | (string & {});
-export type KnownEngineRole = "asr" | "vad" | "semantic_vad";
-export type EngineRole = KnownEngineRole | (string & {});
 export type EngineStatus =
   | "observed_running"
   | "confirmed_running"
@@ -59,11 +57,92 @@ export interface EngineWritePayload {
   details: Record<string, unknown>;
 }
 
-export interface EngineBinding {
-  role: EngineRole;
-  engine: EngineAsset | null;
-  generation: number;
-  updated_at: string | null;
+export type FailurePolicy = "fail_pipeline" | "fail_open";
+
+export interface NodePosition {
+  x: number;
+  y: number;
+}
+
+export interface PipelineNode {
+  id: string;
+  type: string;
+  display_name: string | null;
+  engine_id: string | null;
+  config: Record<string, unknown>;
+  failure_policy: FailurePolicy | null;
+  position: NodePosition;
+}
+
+export interface PipelineEdge {
+  id: string;
+  source_node: string;
+  source_port: string;
+  target_node: string;
+  target_port: string;
+}
+
+export interface PipelineDefinition {
+  schema_version: 1;
+  nodes: PipelineNode[];
+  edges: PipelineEdge[];
+}
+
+export interface PipelineDraft {
+  definition: PipelineDefinition;
+  revision: number;
+  updated_at: string;
+  active_revision: number | null;
+}
+
+export interface PipelineRevision {
+  definition: PipelineDefinition;
+  revision: number;
+  activated_at: string;
+  engine_revisions: Record<string, number>;
+}
+
+export interface PipelineDiagnostic {
+  code: string;
+  message: string;
+  node_id: string | null;
+  edge_id: string | null;
+  port: string | null;
+}
+
+export interface PipelineValidation {
+  valid: boolean;
+  diagnostics: PipelineDiagnostic[];
+  topological_order: string[];
+}
+
+export interface NodePortDefinition {
+  payload_type: string;
+  required: boolean;
+  aggregate: boolean;
+}
+
+export interface NodeTypeDefinition {
+  type: string;
+  display_name: string;
+  input_ports: Record<string, NodePortDefinition>;
+  output_ports: Record<string, NodePortDefinition>;
+  config_schema: Record<string, unknown>;
+  allowed_failure_policies: FailurePolicy[];
+  default_failure_policy: FailurePolicy;
+  required_api: EngineApi | null;
+  max_instances: number | null;
+  source: boolean;
+  sink: boolean;
+  version: number;
+}
+
+export interface HealthNodeStatus {
+  node_id: string;
+  node_type: string;
+  state: string;
+  engine_id: string | null;
+  reason: string | null;
 }
 
 export interface HealthStatus {
@@ -71,14 +150,12 @@ export interface HealthStatus {
   database: string;
   data_plane: string;
   problems: string[];
+  pipeline_revision: number | null;
+  nodes: HealthNodeStatus[];
 }
 
 export interface WorkflowSettings {
   min_chunk_bytes: number;
-  min_segment_seconds: number;
-  max_segment_seconds: number;
-  audio_buffer_seconds: number;
-  speech_pre_roll_seconds: number;
   default_language_code: string;
   audio_queue_capacity: number;
   segment_queue_capacity: number;
@@ -126,15 +203,25 @@ export interface AudioHarnessApi {
     filters?: EngineFilters,
     signal?: AbortSignal,
   ): Promise<EngineListResponse>;
+  getEngine(
+    engineId: string,
+    signal?: AbortSignal,
+  ): Promise<EngineAsset>;
   createEngine(payload: EngineWritePayload): Promise<EngineAsset>;
   updateEngine(
     engineId: string,
     payload: Partial<EngineWritePayload>,
   ): Promise<EngineAsset>;
   deleteEngine(engineId: string): Promise<void>;
-  listBindings(signal?: AbortSignal): Promise<EngineBinding[]>;
-  bind(role: EngineRole, engineId: string): Promise<EngineBinding>;
-  unbind(role: EngineRole): Promise<void>;
+  listNodeTypes(signal?: AbortSignal): Promise<NodeTypeDefinition[]>;
+  getPipeline(signal?: AbortSignal): Promise<PipelineDraft>;
+  updatePipelineDraft(
+    definition: PipelineDefinition,
+    expectedRevision: number,
+  ): Promise<PipelineDraft>;
+  validatePipeline(): Promise<PipelineValidation>;
+  activatePipeline(expectedRevision: number): Promise<PipelineRevision>;
+  getActivePipeline(signal?: AbortSignal): Promise<PipelineRevision>;
   getReadiness(signal?: AbortSignal): Promise<HealthStatus>;
   getWorkflowSettings(signal?: AbortSignal): Promise<WorkflowSettings>;
   updateWorkflowSettings(

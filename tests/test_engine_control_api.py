@@ -11,12 +11,18 @@ import pytest_asyncio
 
 from audio_harness.api.service import EngineCatalog
 from audio_harness.capacity import ServingCapacity
-from audio_harness.config import AppConfig, CapacityConfig, WorkflowConfig
+from audio_harness.config import (
+    AppConfig,
+    CapacityConfig,
+    WorkflowRuntimeConfig,
+)
 from audio_harness.database import Database, upgrade_database
 from audio_harness.engines.router import EngineRouter
 from audio_harness.inferencers.grpc import GrpcInferencerFactory
 from audio_harness.protos.asr import ux_speech_pb2 as pb2
 from audio_harness.protos.asr import ux_speech_pb2_grpc as pb2_grpc
+from audio_harness.pipelines.dag import default_node_registry
+from audio_harness.pipelines.service import PipelineStore
 from audio_harness.serving.grpc import SpeechServicer
 from audio_harness.serving.http import create_http_app
 from audio_harness.serving.webrtc import WebRtcCallAnswer
@@ -29,6 +35,7 @@ class ControlPlane:
     database: Database
     router: EngineRouter
     catalog: EngineCatalog
+    pipeline_store: PipelineStore
     workflow_settings: WorkflowSettingsStore
     client: httpx.AsyncClient
 
@@ -47,6 +54,12 @@ async def control_plane(tmp_path: Path):
         ),
     )
     catalog = EngineCatalog(database.session_factory, router)
+    pipeline_store = PipelineStore(
+        database.session_factory,
+        engine_router=router,
+        registry=default_node_registry(),
+    )
+    await pipeline_store.initialize()
     workflow_settings = WorkflowSettingsStore(
         database.session_factory,
         max_message_bytes=1024 * 1024,
@@ -56,6 +69,7 @@ async def control_plane(tmp_path: Path):
         database=database,
         catalog=catalog,
         engine_router=router,
+        pipeline_store=pipeline_store,
         workflow_settings=workflow_settings,
     )
     async with httpx.AsyncClient(
@@ -66,6 +80,7 @@ async def control_plane(tmp_path: Path):
             database,
             router,
             catalog,
+            pipeline_store,
             workflow_settings,
             client,
         )
@@ -107,7 +122,7 @@ def engine_payload(
 
 
 @pytest.mark.asyncio
-async def test_migration_seeds_all_assets_without_bindings(
+async def test_migration_seeds_assets_and_unconfigured_pipeline(
     control_plane: ControlPlane,
 ) -> None:
     response = await control_plane.client.get("/api/v1/engines?limit=200")
@@ -119,15 +134,21 @@ async def test_migration_seeds_all_assets_without_bindings(
     assert {item["kind"] for item in body["items"]} == {"asr", "vad"}
     assert sum(item["kind"] == "asr" for item in body["items"]) == 5
 
-    bindings = (
+    pipeline = await control_plane.client.get("/api/v1/pipeline")
+    assert pipeline.status_code == 200
+    assert pipeline.json()["active_revision"] is None
+    nodes = pipeline.json()["definition"]["nodes"]
+    assert {
+        node["type"] for node in nodes
+    } == {"audio_input", "physical_vad", "asr", "session_output"}
+    assert all(
+        node["engine_id"] is None
+        for node in nodes
+        if node["type"] in {"physical_vad", "asr"}
+    )
+    assert (
         await control_plane.client.get("/api/v1/engine-bindings")
-    ).json()
-    assert [item["role"] for item in bindings] == [
-        "asr",
-        "vad",
-        "semantic_vad",
-    ]
-    assert all(item["engine"] is None for item in bindings)
+    ).status_code == 404
 
     ready = await control_plane.client.get("/health/ready")
     assert ready.status_code == 503
@@ -135,8 +156,7 @@ async def test_migration_seeds_all_assets_without_bindings(
 
     workflow = await control_plane.client.get("/api/v1/workflow-settings")
     assert workflow.status_code == 200
-    assert workflow.json()["audio_buffer_seconds"] == 120
-    assert workflow.json()["speech_pre_roll_seconds"] == 0.3
+    assert workflow.json()["min_chunk_bytes"] == 640
     assert workflow.json()["revision"] == 1
     capacity = await control_plane.client.get("/api/v1/capacity-settings")
     assert capacity.status_code == 200
@@ -161,16 +181,16 @@ async def test_workflow_settings_update_and_revision_conflict(
         "/api/v1/workflow-settings",
         json={
             **current_payload,
-            "audio_buffer_seconds": 180,
+            "min_chunk_bytes": 800,
         },
     )
     assert updated.status_code == 200
-    assert updated.json()["audio_buffer_seconds"] == 180
+    assert updated.json()["min_chunk_bytes"] == 800
     assert updated.json()["revision"] == 2
 
     stale = await control_plane.client.put(
         "/api/v1/workflow-settings",
-        json={**current_payload, "audio_buffer_seconds": 150},
+        json={**current_payload, "min_chunk_bytes": 900},
     )
     assert stale.status_code == 409
     assert stale.json()["error"]["code"] == "workflow_revision_conflict"
@@ -184,9 +204,7 @@ async def test_workflow_settings_update_and_revision_conflict(
         "/api/v1/workflow-settings",
         json={
             **updated_payload,
-            "audio_buffer_seconds": 60,
-            "max_segment_seconds": 60,
-            "speech_pre_roll_seconds": 0.3,
+            "min_chunk_bytes": 801,
         },
     )
     assert invalid.status_code == 422
@@ -378,11 +396,11 @@ async def test_asr_vad_kind_is_no_longer_accepted(
 
 
 @pytest.mark.asyncio
-async def test_binding_probes_and_preserves_old_binding_on_failure(
+async def test_pipeline_activation_probes_and_preserves_active_revision(
     control_plane: ControlPlane,
     reachable_grpc_target: str,
 ) -> None:
-    good = await control_plane.client.post(
+    asr = await control_plane.client.post(
         "/api/v1/engines",
         json=engine_payload(
             slug="reachable-asr",
@@ -391,13 +409,52 @@ async def test_binding_probes_and_preserves_old_binding_on_failure(
             target=reachable_grpc_target,
         ),
     )
-    good_id = good.json()["id"]
-    bound = await control_plane.client.put(
-        "/api/v1/engine-bindings/asr",
-        json={"engine_id": good_id},
+    vad = await control_plane.client.post(
+        "/api/v1/engines",
+        json=engine_payload(
+            slug="reachable-vad",
+            api="ux_vad",
+            kind="vad",
+            target=reachable_grpc_target,
+        ),
     )
-    assert bound.status_code == 200
-    assert bound.json()["engine"]["id"] == good_id
+    draft = (
+        await control_plane.client.get("/api/v1/pipeline")
+    ).json()
+    definition = draft["definition"]
+    for node in definition["nodes"]:
+        if node["type"] == "asr":
+            node["engine_id"] = asr.json()["id"]
+        if node["type"] == "physical_vad":
+            node["engine_id"] = vad.json()["id"]
+    saved = await control_plane.client.put(
+        "/api/v1/pipeline/draft",
+        json={
+            "expected_revision": draft["revision"],
+            "definition": definition,
+        },
+    )
+    assert saved.status_code == 200
+    validation = await control_plane.client.post(
+        "/api/v1/pipeline/validate"
+    )
+    assert validation.json()["valid"] is True
+    activated = await control_plane.client.post(
+        "/api/v1/pipeline/activate",
+        json={"expected_revision": saved.json()["revision"]},
+    )
+    assert activated.status_code == 200
+    assert activated.json()["revision"] == 1
+    assert activated.json()["engine_revisions"] == {
+        "asr": 1,
+        "physical_vad": 1,
+    }
+
+    disabled = await control_plane.client.patch(
+        f"/api/v1/engines/{asr.json()['id']}",
+        json={"enabled": False},
+    )
+    assert disabled.status_code == 409
 
     bad = await control_plane.client.post(
         "/api/v1/engines",
@@ -409,33 +466,29 @@ async def test_binding_probes_and_preserves_old_binding_on_failure(
             connect_timeout_seconds=0.05,
         ),
     )
-    failed = await control_plane.client.put(
-        "/api/v1/engine-bindings/asr",
-        json={"engine_id": bad.json()["id"]},
+    failed_definition = saved.json()["definition"]
+    next(
+        node
+        for node in failed_definition["nodes"]
+        if node["type"] == "asr"
+    )["engine_id"] = bad.json()["id"]
+    next_draft = await control_plane.client.put(
+        "/api/v1/pipeline/draft",
+        json={
+            "expected_revision": saved.json()["revision"],
+            "definition": failed_definition,
+        },
+    )
+    failed = await control_plane.client.post(
+        "/api/v1/pipeline/activate",
+        json={"expected_revision": next_draft.json()["revision"]},
     )
     assert failed.status_code == 503
-    current = await control_plane.client.get(
-        "/api/v1/engine-bindings/asr"
-    )
-    assert current.json()["engine"]["id"] == good_id
-
-    incompatible = await control_plane.client.post(
-        "/api/v1/engines",
-        json=engine_payload(
-            slug="vad-for-asr",
-            api="ux_vad",
-            kind="vad",
-            target=reachable_grpc_target,
-        ),
-    )
-    response = await control_plane.client.put(
-        "/api/v1/engine-bindings/asr",
-        json={"engine_id": incompatible.json()["id"]},
-    )
-    assert response.status_code == 409
+    current = await control_plane.client.get("/api/v1/pipeline/active")
+    assert current.json()["revision"] == 1
 
     protected = await control_plane.client.delete(
-        f"/api/v1/engines/{good_id}"
+        f"/api/v1/engines/{asr.json()['id']}"
     )
     assert protected.status_code == 409
 
@@ -447,7 +500,8 @@ async def test_unbound_data_plane_returns_failed_precondition(
     server = grpc.aio.server()
     capacity = ServingCapacity(CapacityConfig())
     sessions = TranscriptionSessionService(
-        engine_provider=control_plane.router,
+        engine_router=control_plane.router,
+        pipeline_store=control_plane.pipeline_store,
         workflow_settings=control_plane.workflow_settings,
         session_limiter=capacity.grpc_sessions,
         asr_limiter=capacity.asr,
@@ -455,9 +509,8 @@ async def test_unbound_data_plane_returns_failed_precondition(
     pb2_grpc.add_UxSpeechServicer_to_server(
         SpeechServicer(
             config=AppConfig(
-                workflow=WorkflowConfig(
+                workflow=WorkflowRuntimeConfig(
                     min_chunk_bytes=4,
-                    min_segment_seconds=0,
                 )
             ),
             session_service=sessions,
@@ -528,47 +581,102 @@ async def test_hot_switch_keeps_existing_lease(
                 target=f"127.0.0.1:{first_port}",
             ),
         )
-        await control_plane.client.put(
-            "/api/v1/engine-bindings/asr",
-            json={"engine_id": first.json()["id"]},
+        draft = (
+            await control_plane.client.get("/api/v1/pipeline")
+        ).json()
+        for node in draft["definition"]["nodes"]:
+            if node["type"] == "asr":
+                node["engine_id"] = first.json()["id"]
+            if node["type"] == "physical_vad":
+                node["engine_id"] = vad.json()["id"]
+        saved = (
+            await control_plane.client.put(
+                "/api/v1/pipeline/draft",
+                json={
+                    "expected_revision": draft["revision"],
+                    "definition": draft["definition"],
+                },
+            )
+        ).json()
+        activated = await control_plane.client.post(
+            "/api/v1/pipeline/activate",
+            json={"expected_revision": saved["revision"]},
         )
-        await control_plane.client.put(
-            "/api/v1/engine-bindings/vad",
-            json={"engine_id": vad.json()["id"]},
-        )
+        assert activated.status_code == 200
         ready = await control_plane.client.get("/health/ready")
         assert ready.status_code == 200
         assert ready.json()["data_plane"] == "ready"
 
-        async with control_plane.router.lease() as old_lease:
-            assert old_lease.asr.endpoint.target.endswith(str(first_port))
-            switched = await control_plane.client.put(
-                "/api/v1/engine-bindings/asr",
-                json={"engine_id": second.json()["id"]},
+        old_plan = control_plane.pipeline_store.current().plan
+        async with control_plane.router.lease_snapshots(
+            old_plan.engine_snapshots
+        ) as old_lease:
+            old_asr = old_lease[(first.json()["id"], 1)]
+            assert old_asr.endpoint.target.endswith(str(first_port))
+            next_definition = saved["definition"]
+            next(
+                node
+                for node in next_definition["nodes"]
+                if node["type"] == "asr"
+            )["engine_id"] = second.json()["id"]
+            switched_draft = (
+                await control_plane.client.put(
+                    "/api/v1/pipeline/draft",
+                    json={
+                        "expected_revision": saved["revision"],
+                        "definition": next_definition,
+                    },
+                )
+            ).json()
+            switched = await control_plane.client.post(
+                "/api/v1/pipeline/activate",
+                json={
+                    "expected_revision": switched_draft["revision"]
+                },
             )
             assert switched.status_code == 200
-            assert old_lease.asr.endpoint.target.endswith(str(first_port))
-            async with control_plane.router.lease() as new_lease:
-                assert new_lease.asr.endpoint.target.endswith(str(second_port))
+            assert old_asr.endpoint.target.endswith(str(first_port))
+            new_plan = control_plane.pipeline_store.current().plan
+            async with control_plane.router.lease_snapshots(
+                new_plan.engine_snapshots
+            ) as new_lease:
+                new_asr = new_lease[(second.json()["id"], 1)]
+                assert new_asr.endpoint.target.endswith(str(second_port))
 
-        async with control_plane.router.lease() as pinned_lease:
-            updated = await control_plane.client.patch(
-                f"/api/v1/engines/{second.json()['id']}",
-                json={"target": f"127.0.0.1:{first_port}"},
-            )
-            assert updated.status_code == 200
-            assert updated.json()["revision"] == 2
-            assert pinned_lease.asr.endpoint.target.endswith(str(second_port))
-            async with control_plane.router.lease() as updated_lease:
-                assert updated_lease.asr.endpoint.target.endswith(
-                    str(first_port)
+                updated = await control_plane.client.patch(
+                    f"/api/v1/engines/{second.json()['id']}",
+                    json={"target": f"127.0.0.1:{first_port}"},
                 )
+                assert updated.status_code == 200
+                assert updated.json()["revision"] == 2
+                assert new_asr.endpoint.target.endswith(str(second_port))
+                still_ready = await control_plane.client.get(
+                    "/health/ready"
+                )
+                assert still_ready.status_code == 200
+                active_before_reactivation = (
+                    await control_plane.client.get(
+                        "/api/v1/pipeline/active"
+                    )
+                ).json()
+                assert active_before_reactivation[
+                    "engine_revisions"
+                ]["asr"] == 1
 
-        disabled = await control_plane.client.patch(
-            f"/api/v1/engines/{second.json()['id']}",
-            json={"enabled": False},
-        )
-        assert disabled.status_code == 409
+            reactivated = await control_plane.client.post(
+                "/api/v1/pipeline/activate",
+                json={
+                    "expected_revision": switched_draft["revision"]
+                },
+            )
+            assert reactivated.status_code == 200
+            assert reactivated.json()["engine_revisions"]["asr"] == 2
+            latest_plan = control_plane.pipeline_store.current().plan
+            async with control_plane.router.lease_snapshots(
+                latest_plan.engine_snapshots
+            ) as latest_lease:
+                latest_asr = latest_lease[(second.json()["id"], 2)]
+                assert latest_asr.endpoint.target.endswith(str(first_port))
     finally:
         await first_server.stop(0)
         await second_server.stop(0)

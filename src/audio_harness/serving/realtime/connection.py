@@ -17,6 +17,7 @@ from openai.types.realtime import (
 from pydantic import TypeAdapter, ValidationError
 
 from audio_harness.domain import CapacityExceededError
+from audio_harness.pipelines.service import PipelineStore
 from audio_harness.serving.realtime.session import (
     ENGINE_SAMPLE_RATE,
     INPUT_SAMPLE_RATE,
@@ -85,6 +86,7 @@ class _RealtimeConnection:
         model: str,
         session_service: TranscriptionSessionService,
         workflow_settings: WorkflowSettingsStore,
+        pipeline_store: PipelineStore,
         max_message_bytes: int,
         diagnostics_enabled: bool,
     ) -> None:
@@ -97,6 +99,7 @@ class _RealtimeConnection:
             send_event=self._send,
             session_service=session_service,
             workflow_settings=workflow_settings,
+            pipeline_store=pipeline_store,
             model=model,
             audio_event_handler=self._handle_audio_append,
             diagnostics_enabled=diagnostics_enabled,
@@ -185,6 +188,7 @@ class RealtimeTranscriptionService:
         *,
         session_service: TranscriptionSessionService,
         workflow_settings: WorkflowSettingsStore,
+        pipeline_store: PipelineStore,
         api_key: str,
         max_message_bytes: int,
     ) -> None:
@@ -192,6 +196,7 @@ class RealtimeTranscriptionService:
             raise ValueError("Realtime API Key 不能为空")
         self.session_service = session_service
         self.workflow_settings = workflow_settings
+        self.pipeline_store = pipeline_store
         self.api_key = api_key
         self.max_message_bytes = max_message_bytes
 
@@ -217,6 +222,7 @@ class RealtimeTranscriptionService:
                 model=model.strip(),
                 session_service=self.session_service,
                 workflow_settings=self.workflow_settings,
+                pipeline_store=self.pipeline_store,
                 max_message_bytes=self.max_message_bytes,
                 diagnostics_enabled=diagnostics_enabled,
             )

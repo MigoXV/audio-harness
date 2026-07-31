@@ -23,8 +23,6 @@ from openai.types.realtime import RealtimeTranscriptionSessionCreateRequest
 from pydantic import ValidationError
 
 from audio_harness.api.schemas import (
-    BindingRead,
-    BindingUpdate,
     CapacitySettingsRead,
     CapacitySettingsUpdate,
     EngineCreate,
@@ -32,7 +30,16 @@ from audio_harness.api.schemas import (
     EnginePatch,
     EngineRead,
     ErrorResponse,
+    HealthNodeRead,
     HealthResponse,
+    NodePortRead,
+    NodeTypeRead,
+    PipelineActivateRequest,
+    PipelineDiagnosticRead,
+    PipelineDraftRead,
+    PipelineDraftUpdate,
+    PipelineRevisionRead,
+    PipelineValidationRead,
     WorkflowSettingsRead,
     WorkflowSettingsUpdate,
 )
@@ -45,19 +52,28 @@ from audio_harness.api.service import (
 from audio_harness.assets import (
     EngineApi,
     EngineAssetData,
-    EngineBindingData,
     EngineKind,
-    EngineRole,
 )
 from audio_harness.capacity_settings import (
     CapacityRevisionConflictError,
     CapacitySettingsSnapshot,
     CapacitySettingsStore,
 )
-from audio_harness.config import CapacityConfig, WorkflowConfig
+from audio_harness.config import CapacityConfig, WorkflowRuntimeConfig
 from audio_harness.database.session import Database
 from audio_harness.domain import CapacityExceededError, EngineUnavailableError
 from audio_harness.engines.router import EngineRouter
+from audio_harness.pipelines.dag import (
+    GraphValidationError,
+    default_node_registry,
+)
+from audio_harness.pipelines.service import (
+    PipelineActivationError,
+    PipelineError,
+    PipelineRevisionConflictError,
+    PipelineRevisionNotFoundError,
+    PipelineStore,
+)
 from audio_harness.serving.realtime import RealtimeTranscriptionService
 from audio_harness.serving.webrtc import WebRtcCallService
 from audio_harness.serving.webrtc.service import WebRtcCallNotFoundError
@@ -96,19 +112,6 @@ def engine_response(asset: EngineAssetData) -> EngineRead:
     )
 
 
-def binding_response(binding: EngineBindingData) -> BindingRead:
-    return BindingRead(
-        role=binding.role,
-        engine=(
-            engine_response(binding.engine)
-            if binding.engine is not None
-            else None
-        ),
-        generation=binding.generation,
-        updated_at=binding.updated_at,
-    )
-
-
 def _error(status_code: int, code: str, message: str, details=None) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
@@ -127,6 +130,7 @@ def create_http_app(
     database: Database,
     catalog: EngineCatalog,
     engine_router: EngineRouter,
+    pipeline_store: PipelineStore | None = None,
     workflow_settings: WorkflowSettingsStore | None = None,
     capacity_settings: CapacitySettingsStore | None = None,
     realtime_service: RealtimeTranscriptionService | None = None,
@@ -141,8 +145,13 @@ def create_http_app(
     capacity_settings = capacity_settings or CapacitySettingsStore(
         database.session_factory
     )
+    pipeline_store = pipeline_store or PipelineStore(
+        database.session_factory,
+        engine_router=engine_router,
+        registry=default_node_registry(),
+    )
     app = FastAPI(
-        title="Audio Harness Engine Control API",
+        title="Audio Harness Orchestration API",
         version="1.0.0",
     )
     router = APIRouter(prefix="/api/v1")
@@ -194,6 +203,48 @@ def create_http_app(
     ) -> JSONResponse:
         return _error(503, "engine_unavailable", str(exc))
 
+    @app.exception_handler(PipelineRevisionConflictError)
+    async def handle_pipeline_conflict(
+        _request: Request,
+        exc: PipelineRevisionConflictError,
+    ) -> JSONResponse:
+        return _error(409, exc.code, str(exc))
+
+    @app.exception_handler(PipelineRevisionNotFoundError)
+    async def handle_pipeline_not_found(
+        _request: Request,
+        exc: PipelineRevisionNotFoundError,
+    ) -> JSONResponse:
+        return _error(404, exc.code, str(exc))
+
+    @app.exception_handler(PipelineActivationError)
+    async def handle_pipeline_activation(
+        _request: Request,
+        exc: PipelineActivationError,
+    ) -> JSONResponse:
+        return _error(503, exc.code, str(exc))
+
+    @app.exception_handler(GraphValidationError)
+    async def handle_graph_validation(
+        _request: Request,
+        exc: GraphValidationError,
+    ) -> JSONResponse:
+        return _error(
+            422,
+            "pipeline_invalid",
+            "处理链校验失败",
+            [
+                {
+                    "code": item.code,
+                    "message": item.message,
+                    "node_id": item.node_id,
+                    "edge_id": item.edge_id,
+                    "port": item.port,
+                }
+                for item in exc.diagnostics
+            ],
+        )
+
     @app.exception_handler(RequestValidationError)
     async def handle_validation(
         _request: Request,
@@ -210,6 +261,13 @@ def create_http_app(
     async def handle_catalog_error(
         _request: Request,
         exc: CatalogError,
+    ) -> JSONResponse:
+        return _error(400, exc.code, str(exc))
+
+    @app.exception_handler(PipelineError)
+    async def handle_pipeline_error(
+        _request: Request,
+        exc: PipelineError,
     ) -> JSONResponse:
         return _error(400, exc.code, str(exc))
 
@@ -274,41 +332,157 @@ def create_http_app(
         await catalog.delete_asset(asset_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+    def draft_response(
+        draft,
+    ) -> PipelineDraftRead:
+        active = pipeline_store.current_or_none()
+        return PipelineDraftRead(
+            definition=draft.definition,
+            revision=draft.revision,
+            updated_at=draft.updated_at,
+            active_revision=active.revision if active is not None else None,
+        )
+
+    def revision_response(
+        snapshot,
+    ) -> PipelineRevisionRead:
+        return PipelineRevisionRead(
+            definition=snapshot.definition,
+            revision=snapshot.revision,
+            activated_at=snapshot.activated_at,
+            engine_revisions={
+                node_id: engine.revision
+                for node_id, node in snapshot.plan.nodes.items()
+                if (engine := node.engine_snapshot) is not None
+            },
+        )
+
     @router.get(
-        "/engine-bindings",
-        response_model=list[BindingRead],
+        "/node-types",
+        response_model=list[NodeTypeRead],
     )
-    async def list_engine_bindings() -> list[BindingRead]:
+    async def list_node_types() -> list[NodeTypeRead]:
         return [
-            binding_response(binding)
-            for binding in await catalog.list_bindings()
+            NodeTypeRead(
+                type=node_type.type,
+                display_name=node_type.display_name,
+                input_ports={
+                    name: NodePortRead(
+                        payload_type=port.payload_type,
+                        required=port.required,
+                        aggregate=port.aggregate,
+                    )
+                    for name, port in node_type.input_ports.items()
+                },
+                output_ports={
+                    name: NodePortRead(
+                        payload_type=port.payload_type,
+                        required=port.required,
+                        aggregate=port.aggregate,
+                    )
+                    for name, port in node_type.output_ports.items()
+                },
+                config_schema=node_type.config_model.model_json_schema(),
+                allowed_failure_policies=[
+                    policy.value
+                    for policy in node_type.allowed_failure_policies
+                ],
+                default_failure_policy=(
+                    node_type.default_failure_policy.value
+                ),
+                required_api=(
+                    node_type.required_api.value
+                    if node_type.required_api is not None
+                    else None
+                ),
+                max_instances=node_type.max_instances,
+                source=node_type.source,
+                sink=node_type.sink,
+                version=node_type.version,
+            )
+            for node_type in pipeline_store.registry.all()
         ]
 
     @router.get(
-        "/engine-bindings/{role}",
-        response_model=BindingRead,
+        "/pipeline",
+        response_model=PipelineDraftRead,
     )
-    async def get_engine_binding(role: EngineRole) -> BindingRead:
-        return binding_response(await catalog.get_binding(role))
+    async def get_pipeline() -> PipelineDraftRead:
+        return draft_response(await pipeline_store.get_draft())
 
     @router.put(
-        "/engine-bindings/{role}",
-        response_model=BindingRead,
+        "/pipeline/draft",
+        response_model=PipelineDraftRead,
         responses=errors,
     )
-    async def put_engine_binding(
-        role: EngineRole,
-        payload: BindingUpdate,
-    ) -> BindingRead:
-        return binding_response(await catalog.bind(role, payload.engine_id))
+    async def put_pipeline_draft(
+        payload: PipelineDraftUpdate,
+    ) -> PipelineDraftRead:
+        return draft_response(
+            await pipeline_store.update_draft(
+                definition=payload.definition,
+                expected_revision=payload.expected_revision,
+            )
+        )
 
-    @router.delete(
-        "/engine-bindings/{role}",
-        status_code=status.HTTP_204_NO_CONTENT,
+    @router.post(
+        "/pipeline/validate",
+        response_model=PipelineValidationRead,
     )
-    async def delete_engine_binding(role: EngineRole) -> Response:
-        await catalog.unbind(role)
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    async def validate_pipeline() -> PipelineValidationRead:
+        try:
+            plan = await pipeline_store.validate_draft()
+        except GraphValidationError as exc:
+            return PipelineValidationRead(
+                valid=False,
+                diagnostics=[
+                    PipelineDiagnosticRead(
+                        code=item.code,
+                        message=item.message,
+                        node_id=item.node_id,
+                        edge_id=item.edge_id,
+                        port=item.port,
+                    )
+                    for item in exc.diagnostics
+                ],
+            )
+        return PipelineValidationRead(
+            valid=True,
+            diagnostics=[],
+            topological_order=list(plan.topological_order),
+        )
+
+    @router.post(
+        "/pipeline/activate",
+        response_model=PipelineRevisionRead,
+        responses=errors,
+    )
+    async def activate_pipeline(
+        payload: PipelineActivateRequest,
+    ) -> PipelineRevisionRead:
+        return revision_response(
+            await pipeline_store.activate(
+                expected_revision=payload.expected_revision
+            )
+        )
+
+    @router.get(
+        "/pipeline/active",
+        response_model=PipelineRevisionRead,
+    )
+    async def get_active_pipeline() -> PipelineRevisionRead:
+        return revision_response(pipeline_store.current())
+
+    @router.get(
+        "/pipeline/revisions/{revision}",
+        response_model=PipelineRevisionRead,
+    )
+    async def get_pipeline_revision(
+        revision: int,
+    ) -> PipelineRevisionRead:
+        return revision_response(
+            await pipeline_store.get_revision(revision)
+        )
 
     def workflow_response(
         snapshot: WorkflowSettingsSnapshot,
@@ -334,7 +508,7 @@ def create_http_app(
     async def put_workflow_settings(
         payload: WorkflowSettingsUpdate,
     ) -> WorkflowSettingsRead:
-        config = WorkflowConfig.model_validate(
+        config = WorkflowRuntimeConfig.model_validate(
             payload.model_dump(exclude={"revision"})
         )
         snapshot = await workflow_settings.update(
@@ -391,6 +565,8 @@ def create_http_app(
     )
     async def readiness() -> Response:
         problems: list[str] = []
+        nodes: list[HealthNodeRead] = []
+        pipeline_revision: int | None = None
         database_status = "ready"
         try:
             await database.ping()
@@ -400,8 +576,42 @@ def create_http_app(
         data_ready = False
         if database_status == "ready":
             try:
-                data_ready, data_problems = await engine_router.readiness()
-                problems.extend(data_problems)
+                active = pipeline_store.current_or_none()
+                if active is None:
+                    problems.append("当前没有已激活的处理链")
+                else:
+                    pipeline_revision = active.revision
+                    data_ready, data_problems = (
+                        await engine_router.readiness(
+                            active.plan.engine_snapshots
+                        )
+                    )
+                    problems.extend(data_problems)
+                    for node_id in active.plan.topological_order:
+                        node = active.plan.nodes[node_id]
+                        snapshot = node.engine_snapshot
+                        reason: str | None = None
+                        state = "ready"
+                        if snapshot is not None:
+                            ready, node_problems = (
+                                await engine_router.readiness((snapshot,))
+                            )
+                            if not ready:
+                                state = "not_ready"
+                                reason = "; ".join(node_problems)
+                        nodes.append(
+                            HealthNodeRead(
+                                node_id=node_id,
+                                node_type=node.node_type.type,
+                                state=state,
+                                engine_id=(
+                                    snapshot.id
+                                    if snapshot is not None
+                                    else None
+                                ),
+                                reason=reason,
+                            )
+                        )
             except Exception:
                 problems.append("数据面状态读取失败")
         response = HealthResponse(
@@ -409,6 +619,8 @@ def create_http_app(
             database=database_status,
             data_plane="ready" if data_ready else "not_ready",
             problems=problems,
+            pipeline_revision=pipeline_revision,
+            nodes=nodes,
         )
         return JSONResponse(
             status_code=200 if not problems else 503,

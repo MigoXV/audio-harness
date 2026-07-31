@@ -13,8 +13,10 @@ import type {
   AudioHarnessApi,
   CapacitySettings,
   EngineAsset,
-  EngineBinding,
   EngineFilters,
+  NodeTypeDefinition,
+  PipelineDefinition,
+  PipelineDraft,
   WorkflowSettings,
 } from "./api/types";
 
@@ -47,6 +49,233 @@ function asset(
     updated_at: "2026-01-01T00:00:00Z",
   };
 }
+
+const nodeTypes: NodeTypeDefinition[] = [
+  {
+    type: "audio_input",
+    display_name: "音频输入",
+    input_ports: {},
+    output_ports: {
+      audio: { payload_type: "audio_chunk", required: true, aggregate: false },
+    },
+    config_schema: { type: "object", properties: {} },
+    allowed_failure_policies: ["fail_pipeline"],
+    default_failure_policy: "fail_pipeline",
+    required_api: null,
+    max_instances: 1,
+    source: true,
+    sink: false,
+    version: 1,
+  },
+  {
+    type: "physical_vad",
+    display_name: "物理 VAD",
+    input_ports: {
+      audio: { payload_type: "audio_chunk", required: true, aggregate: false },
+    },
+    output_ports: {
+      segments: {
+        payload_type: "audio_segment",
+        required: true,
+        aggregate: false,
+      },
+      events: {
+        payload_type: "session_event",
+        required: false,
+        aggregate: false,
+      },
+    },
+    config_schema: {
+      type: "object",
+      properties: {
+        min_segment_seconds: {
+          type: "number",
+          default: 0.5,
+          minimum: 0,
+        },
+      },
+    },
+    allowed_failure_policies: ["fail_pipeline"],
+    default_failure_policy: "fail_pipeline",
+    required_api: "ux_vad",
+    max_instances: 1,
+    source: false,
+    sink: false,
+    version: 1,
+  },
+  {
+    type: "semantic_vad",
+    display_name: "语义 VAD",
+    input_ports: {
+      segments: {
+        payload_type: "audio_segment",
+        required: true,
+        aggregate: false,
+      },
+    },
+    output_ports: {
+      segments: {
+        payload_type: "audio_segment",
+        required: true,
+        aggregate: false,
+      },
+      events: {
+        payload_type: "session_event",
+        required: false,
+        aggregate: false,
+      },
+    },
+    config_schema: { type: "object", properties: {} },
+    allowed_failure_policies: ["fail_open", "fail_pipeline"],
+    default_failure_policy: "fail_open",
+    required_api: "ux_vad",
+    max_instances: 1,
+    source: false,
+    sink: false,
+    version: 1,
+  },
+  {
+    type: "asr",
+    display_name: "语音识别",
+    input_ports: {
+      segments: {
+        payload_type: "audio_segment",
+        required: true,
+        aggregate: false,
+      },
+    },
+    output_ports: {
+      events: {
+        payload_type: "session_event",
+        required: true,
+        aggregate: false,
+      },
+    },
+    config_schema: { type: "object", properties: {} },
+    allowed_failure_policies: ["fail_pipeline"],
+    default_failure_policy: "fail_pipeline",
+    required_api: "ux_speech",
+    max_instances: 1,
+    source: false,
+    sink: false,
+    version: 1,
+  },
+  {
+    type: "session_output",
+    display_name: "会话输出",
+    input_ports: {
+      events: {
+        payload_type: "session_event",
+        required: true,
+        aggregate: true,
+      },
+    },
+    output_ports: {},
+    config_schema: { type: "object", properties: {} },
+    allowed_failure_policies: ["fail_pipeline"],
+    default_failure_policy: "fail_pipeline",
+    required_api: null,
+    max_instances: 1,
+    source: false,
+    sink: true,
+    version: 1,
+  },
+];
+
+const pipeline: PipelineDefinition = {
+  schema_version: 1,
+  nodes: [
+    {
+      id: "input",
+      type: "audio_input",
+      display_name: null,
+      engine_id: null,
+      config: {},
+      failure_policy: "fail_pipeline",
+      position: { x: 0, y: 120 },
+    },
+    {
+      id: "physical",
+      type: "physical_vad",
+      display_name: null,
+      engine_id: null,
+      config: { min_segment_seconds: 0.5 },
+      failure_policy: "fail_pipeline",
+      position: { x: 240, y: 120 },
+    },
+    {
+      id: "semantic",
+      type: "semantic_vad",
+      display_name: null,
+      engine_id: "vad-engine",
+      config: {},
+      failure_policy: "fail_open",
+      position: { x: 480, y: 120 },
+    },
+    {
+      id: "asr",
+      type: "asr",
+      display_name: null,
+      engine_id: "asr-engine",
+      config: {},
+      failure_policy: "fail_pipeline",
+      position: { x: 720, y: 120 },
+    },
+    {
+      id: "output",
+      type: "session_output",
+      display_name: null,
+      engine_id: null,
+      config: {},
+      failure_policy: "fail_pipeline",
+      position: { x: 960, y: 120 },
+    },
+  ],
+  edges: [
+    {
+      id: "input_physical",
+      source_node: "input",
+      source_port: "audio",
+      target_node: "physical",
+      target_port: "audio",
+    },
+    {
+      id: "physical_semantic",
+      source_node: "physical",
+      source_port: "segments",
+      target_node: "semantic",
+      target_port: "segments",
+    },
+    {
+      id: "semantic_asr",
+      source_node: "semantic",
+      source_port: "segments",
+      target_node: "asr",
+      target_port: "segments",
+    },
+    {
+      id: "physical_output",
+      source_node: "physical",
+      source_port: "events",
+      target_node: "output",
+      target_port: "events",
+    },
+    {
+      id: "semantic_output",
+      source_node: "semantic",
+      source_port: "events",
+      target_node: "output",
+      target_port: "events",
+    },
+    {
+      id: "asr_output",
+      source_node: "asr",
+      source_port: "events",
+      target_node: "output",
+      target_port: "events",
+    },
+  ],
+};
 
 function fakeApi() {
   const assets = [
@@ -81,27 +310,14 @@ function fakeApi() {
       };
     },
   );
-  const bindings: EngineBinding[] = [
-    {
-      role: "asr",
-      engine: assets[0],
-      generation: 2,
-      updated_at: "2026-01-01T00:00:00Z",
-    },
-    { role: "vad", engine: null, generation: 0, updated_at: null },
-    {
-      role: "semantic_vad",
-      engine: null,
-      generation: 0,
-      updated_at: null,
-    },
-  ];
+  let currentDraft: PipelineDraft = {
+    definition: pipeline,
+    revision: 1,
+    updated_at: "2026-01-01T00:00:00Z",
+    active_revision: 1,
+  };
   const workflow: WorkflowSettings = {
     min_chunk_bytes: 640,
-    min_segment_seconds: 0.5,
-    max_segment_seconds: 60,
-    audio_buffer_seconds: 120,
-    speech_pre_roll_seconds: 0.3,
     default_language_code: "zh-CN",
     audio_queue_capacity: 32,
     segment_queue_capacity: 8,
@@ -119,22 +335,58 @@ function fakeApi() {
   };
   const api: AudioHarnessApi = {
     listEngines,
+    getEngine: vi.fn(async (engineId) => {
+      const engine = assets.find((item) => item.id === engineId);
+      if (!engine) {
+        throw new Error("engine not found");
+      }
+      return engine;
+    }),
     createEngine: vi.fn(),
     updateEngine: vi.fn(),
     deleteEngine: vi.fn(),
-    listBindings: vi.fn(async () => bindings),
-    bind: vi.fn(async (role, engineId) => ({
-      role,
-      engine: assets.find((item) => item.id === engineId) ?? null,
-      generation: 1,
-      updated_at: "2026-01-02T00:00:00Z",
+    listNodeTypes: vi.fn(async () => nodeTypes),
+    getPipeline: vi.fn(async () => currentDraft),
+    updatePipelineDraft: vi.fn(async (definition, expectedRevision) => {
+      currentDraft = {
+        definition,
+        revision: expectedRevision + 1,
+        updated_at: "2026-01-02T00:00:00Z",
+        active_revision: currentDraft.active_revision,
+      };
+      return currentDraft;
+    }),
+    validatePipeline: vi.fn(async () => ({
+      valid: true,
+      diagnostics: [],
+      topological_order: ["input", "physical", "semantic", "asr", "output"],
     })),
-    unbind: vi.fn(),
+    activatePipeline: vi.fn(async () => ({
+      definition: currentDraft.definition,
+      revision: 2,
+      activated_at: "2026-01-02T00:00:00Z",
+      engine_revisions: {
+        physical: 1,
+        semantic: 1,
+        asr: 1,
+      },
+    })),
+    getActivePipeline: vi.fn(async () => ({
+      definition: pipeline,
+      revision: 1,
+      activated_at: "2026-01-01T00:00:00Z",
+      engine_revisions: {
+        semantic: 1,
+        asr: 1,
+      },
+    })),
     getReadiness: vi.fn(async () => ({
       status: "not_ready",
       database: "ready",
       data_plane: "not_ready",
-      problems: ["缺少 vad 绑定"],
+      problems: ["物理 VAD 尚未选择引擎"],
+      pipeline_revision: 1,
+      nodes: [],
     })),
     getWorkflowSettings: vi.fn(async () => workflow),
     updateWorkflowSettings: vi.fn(async (payload) => ({
@@ -173,30 +425,28 @@ function stage(name: string): HTMLElement {
   return section;
 }
 
-describe("Audio Harness workbench", () => {
-  it("opens on orchestration and shows the real fixed processing order", async () => {
-    const { api, listEngines } = fakeApi();
+describe("Audio Harness DAG workbench", () => {
+  it("opens on orchestration and derives the stage order from graph edges", async () => {
+    const { api } = fakeApi();
     renderApp(api);
 
     expect(
       await screen.findByRole("heading", { name: "默认语音处理链" }),
     ).toBeVisible();
-    const headings = screen
-      .getAllByRole("heading", { level: 3 })
-      .map((heading) => heading.textContent);
-    expect(headings).toEqual(["物理 VAD", "语义 VAD", "语音识别"]);
+    expect(
+      (await screen.findAllByRole("heading", { level: 3 })).map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(["物理 VAD", "语义 VAD", "语音识别"]);
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
-    expect(listEngines).not.toHaveBeenCalled();
   });
 
-  it("uses real navigation routes for orchestration, library and settings", async () => {
+  it("uses real routes for orchestration, library and settings", async () => {
     const { api } = fakeApi();
     renderApp(api, ["/orchestration"]);
 
     fireEvent.click(screen.getByRole("link", { name: "引擎库" }));
-    expect(
-      await screen.findByRole("heading", { name: "引擎库" }),
-    ).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "引擎库" })).toBeVisible();
     expect(screen.getByRole("table")).toBeVisible();
 
     fireEvent.click(screen.getByRole("link", { name: "运行设置" }));
@@ -205,86 +455,109 @@ describe("Audio Harness workbench", () => {
     ).toBeVisible();
   });
 
-  it("loads only enabled API-compatible candidates when a stage opens", async () => {
+  it("loads only enabled API-compatible candidates for a DAG node", async () => {
     const { api, listEngines } = fakeApi();
     renderApp(api, ["/orchestration"]);
-    await screen.findByRole("heading", { name: "默认语音处理链" });
+    await screen.findByRole("heading", { name: "物理 VAD" });
 
     fireEvent.click(
       within(stage("物理 VAD")).getByRole("button", {
         name: "选择引擎",
       }),
     );
-
     const dialog = await screen.findByRole("dialog", {
       name: "选择物理 VAD引擎",
     });
     expect(await within(dialog).findByText("FireRed VAD")).toBeVisible();
     expect(within(dialog).queryByText("Qwen ASR")).not.toBeInTheDocument();
     expect(listEngines).toHaveBeenCalledWith(
-      expect.objectContaining({
-        api: "ux_vad",
-        enabled: true,
-      }),
+      expect.objectContaining({ api: "ux_vad", enabled: true }),
       expect.any(AbortSignal),
     );
   });
 
-  it("makes validation and immediate application explicit", async () => {
+  it("opens the real topology editor", async () => {
     const { api } = fakeApi();
     renderApp(api, ["/orchestration"]);
-    await screen.findByRole("heading", { name: "默认语音处理链" });
+    await screen.findByRole("heading", { name: "物理 VAD" });
 
-    fireEvent.click(
-      within(stage("物理 VAD")).getByRole("button", {
-        name: "选择引擎",
-      }),
-    );
-    const dialog = await screen.findByRole("dialog", {
-      name: "选择物理 VAD引擎",
-    });
-    const candidate = await within(dialog).findByText("FireRed VAD");
-    fireEvent.click(candidate);
+    fireEvent.click(screen.getByRole("button", { name: "编辑拓扑" }));
     expect(
-      within(dialog).getByText(/成功后立即替换当前绑定并用于后续会话/),
+      await screen.findByRole("heading", { name: "编辑处理链拓扑" }),
     ).toBeVisible();
+    expect(screen.getByText("连接类型兼容的端口；服务端校验结果是最终依据。"))
+      .toBeVisible();
+
+    expect(
+      screen.getByRole("button", { name: "保存工作副本" }),
+    ).toBeVisible();
+  });
+
+  it("saves, validates and activates a changed work copy explicitly", async () => {
+    const { api } = fakeApi();
+    renderApp(api, ["/orchestration"]);
+    await screen.findByRole("heading", { name: "物理 VAD" });
+
     fireEvent.click(
-      within(dialog).getByRole("button", { name: "确认绑定" }),
+      within(stage("物理 VAD")).getByRole("button", { name: "选择引擎" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(await within(dialog).findByText("FireRed VAD"));
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "应用到节点" }),
     );
 
+    expect(await screen.findByText("当前有未保存的本地修改")).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "保存工作副本" }),
+    );
     await waitFor(() => {
-      expect(api.bind).toHaveBeenCalledWith("vad", "vad-engine");
+      expect(api.updatePipelineDraft).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nodes: expect.arrayContaining([
+            expect.objectContaining({
+              id: "physical",
+              engine_id: "vad-engine",
+            }),
+          ]),
+        }),
+        1,
+      );
     });
+
+    fireEvent.click(screen.getByRole("button", { name: "校验处理链" }));
+    await waitFor(() => expect(api.validatePipeline).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "激活修订" }));
+    await waitFor(() => expect(api.activatePipeline).toHaveBeenCalledWith(2));
   });
 
   it("keeps candidate failures scoped inside the picker", async () => {
-    const { api } = fakeApi();
-    api.listEngines = vi.fn(() =>
-      Promise.reject(new TypeError("Failed to fetch")),
-    );
+    const { api, listEngines } = fakeApi();
+    listEngines.mockImplementationOnce(async () => ({
+      items: [],
+      total: 0,
+      limit: 200,
+      offset: 0,
+    }));
+    listEngines.mockRejectedValue(new TypeError("Failed to fetch"));
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
     renderApp(api, ["/orchestration"]);
-    await screen.findByRole("heading", { name: "默认语音处理链" });
+    await screen.findByRole("heading", { name: "物理 VAD" });
 
     fireEvent.click(
-      within(stage("物理 VAD")).getByRole("button", {
-        name: "选择引擎",
-      }),
+      within(stage("物理 VAD")).getByRole("button", { name: "选择引擎" }),
     );
     const dialog = await screen.findByRole("dialog");
     expect(
       await within(dialog).findByText("候选引擎加载失败"),
     ).toBeVisible();
     expect(within(dialog).queryByText("Failed to fetch")).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: "默认语音处理链" }),
-    ).toBeVisible();
     consoleError.mockRestore();
   });
 
-  it("keeps unbind in the more menu and confirms its real impact", async () => {
+  it("keeps node removal in the more menu and confirms work-copy impact", async () => {
     const { api } = fakeApi();
     renderApp(api, ["/orchestration"]);
     await screen.findByText("Qwen ASR");
@@ -292,12 +565,11 @@ describe("Audio Harness workbench", () => {
     const asr = stage("语音识别");
     fireEvent.click(within(asr).getByRole("button", { name: /更多/ }));
     fireEvent.click(
-      within(asr).getByRole("menuitem", { name: "解除绑定" }),
+      within(asr).getByRole("menuitem", { name: "移除节点" }),
     );
     expect(
-      screen.getByRole("alertdialog", { name: "解除语音识别绑定" }),
-    ).toHaveTextContent("数据面会进入未就绪状态");
-    expect(api.unbind).not.toHaveBeenCalled();
+      screen.getByRole("alertdialog", { name: "移除“语音识别”节点" }),
+    ).toHaveTextContent("保存和激活前不会影响当前运行修订");
   });
 
   it("preserves create and delete flows in the independent library", async () => {
@@ -306,16 +578,13 @@ describe("Audio Harness workbench", () => {
     const table = await screen.findByRole("table");
 
     fireEvent.click(screen.getByRole("button", { name: "新建引擎" }));
-    expect(
-      screen.getByRole("heading", { name: "新建引擎" }),
-    ).toBeVisible();
+    expect(screen.getByRole("heading", { name: "新建引擎" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
 
     const qwen = await within(table).findByText("Qwen ASR");
-    const row = qwen.closest<HTMLElement>('[role="row"]');
-    expect(row).not.toBeNull();
-    fireEvent.click(within(row!).getByRole("button", { name: /更多/ }));
-    fireEvent.click(within(row!).getByRole("menuitem", { name: "删除" }));
+    const row = qwen.closest<HTMLElement>('[role="row"]')!;
+    fireEvent.click(within(row).getByRole("button", { name: /更多/ }));
+    fireEvent.click(within(row).getByRole("menuitem", { name: "删除" }));
     expect(
       screen.getByRole("alertdialog", { name: "删除“Qwen ASR”" }),
     ).toBeVisible();
@@ -355,24 +624,18 @@ describe("Audio Harness workbench", () => {
     consoleError.mockRestore();
   });
 
-  it("preserves workflow and capacity saving on the settings route", async () => {
+  it("preserves global workflow and capacity saving", async () => {
     const { api } = fakeApi();
     renderApp(api, ["/settings"]);
+    await screen.findByRole("heading", { name: "运行设置" });
 
-    expect(
-      await screen.findByRole("heading", { name: "运行设置" }),
-    ).toBeVisible();
-    fireEvent.change(screen.getByLabelText("轮转音频缓冲"), {
-      target: { value: "180" },
+    fireEvent.change(screen.getByLabelText("输入重分块"), {
+      target: { value: "1280" },
     });
     fireEvent.click(screen.getByRole("button", { name: "保存处理策略" }));
-
     await waitFor(() => {
       expect(api.updateWorkflowSettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          audio_buffer_seconds: 180,
-          revision: 1,
-        }),
+        expect.objectContaining({ min_chunk_bytes: 1280, revision: 1 }),
       );
     });
 
@@ -382,15 +645,12 @@ describe("Audio Harness workbench", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存容量策略" }));
     await waitFor(() => {
       expect(api.updateCapacitySettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          max_asr_concurrency: 4,
-          revision: 1,
-        }),
+        expect.objectContaining({ max_asr_concurrency: 4, revision: 1 }),
       );
     });
   });
 
-  it("shows a safe page for unknown frontend routes", async () => {
+  it("shows a safe page for unknown frontend routes", () => {
     const { api } = fakeApi();
     renderApp(api, ["/missing"]);
     expect(

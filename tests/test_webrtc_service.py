@@ -4,7 +4,6 @@ import asyncio
 import fractions
 import json
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import numpy as np
@@ -20,10 +19,13 @@ from openai.types.realtime import RealtimeServerEvent
 from pydantic import TypeAdapter
 
 from audio_harness.capacity import ServingCapacity
-from audio_harness.config import CapacityConfig, WebRtcConfig, WorkflowConfig
+from audio_harness.config import (
+    CapacityConfig,
+    WebRtcConfig,
+    WorkflowRuntimeConfig,
+)
 from audio_harness.domain import (
     AudioSegment,
-    EngineSet,
     RecognitionOptions,
     TranscriptionResult,
     VadBoundary,
@@ -32,6 +34,7 @@ from audio_harness.domain import (
 from audio_harness.serving.webrtc import WebRtcCallService
 from audio_harness.sessions import TranscriptionSessionService
 from audio_harness.workflow_settings import WorkflowSettingsSnapshot
+from tests.graph_fakes import static_graph
 
 _SERVER_EVENT_ADAPTER = TypeAdapter(RealtimeServerEvent)
 
@@ -71,22 +74,11 @@ class _FinalAsr:
         )
 
 
-class _StaticProvider:
-    @asynccontextmanager
-    async def lease(self):
-        yield EngineSet(
-            asr=_FinalAsr(),
-            vad=_ImmediateVad(),
-            semantic_vad=None,
-        )
-
-
 class _StaticSettings:
     def __init__(self) -> None:
         self._snapshot = WorkflowSettingsSnapshot(
-            config=WorkflowConfig(
+            config=WorkflowRuntimeConfig(
                 min_chunk_bytes=6400,
-                min_segment_seconds=0,
             ),
             revision=1,
             updated_at=datetime.now(timezone.utc),
@@ -120,8 +112,15 @@ class _FiniteAudioTrack(AudioStreamTrack):
 def _build_service() -> tuple[WebRtcCallService, ServingCapacity]:
     settings = _StaticSettings()
     capacity = ServingCapacity(CapacityConfig())
+    vad = _ImmediateVad()
+    engine_router, pipeline_store = static_graph(
+        asr=_FinalAsr(),
+        vad=vad,
+        semantic_vad=vad,
+    )
     sessions = TranscriptionSessionService(
-        engine_provider=_StaticProvider(),
+        engine_router=engine_router,
+        pipeline_store=pipeline_store,
         workflow_settings=settings,
         session_limiter=capacity.webrtc_sessions,
         asr_limiter=capacity.asr,
@@ -131,6 +130,7 @@ def _build_service() -> tuple[WebRtcCallService, ServingCapacity]:
             config=WebRtcConfig(),
             session_service=sessions,
             workflow_settings=settings,
+            pipeline_store=pipeline_store,
             api_key="local-test-key",
             max_message_bytes=1024 * 1024,
         ),

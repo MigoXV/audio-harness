@@ -13,22 +13,24 @@ import {
 import type {
   AudioHarnessApi,
   EngineAsset,
-  EngineBinding,
+  NodeTypeDefinition,
+  PipelineNode,
 } from "../api/types";
 import {
   capabilityLabel,
   engineState,
   formatDate,
+  nodeCapability,
+  nodeDisplayName,
   protocolLabel,
-  roleLabel,
-  type PipelineStageDefinition,
 } from "../model";
 import { InlineFeedback } from "./InlineFeedback";
 
 interface EnginePickerDrawerProps {
   api: AudioHarnessApi;
-  binding: EngineBinding;
-  definition: PipelineStageDefinition | null;
+  node: PipelineNode;
+  nodeType: NodeTypeDefinition;
+  currentEngine: EngineAsset | null;
   busy: boolean;
   error?: string;
   onApply: (engineId: string) => Promise<boolean>;
@@ -46,8 +48,9 @@ function focusableElements(root: HTMLElement): HTMLElement[] {
 
 export function EnginePickerDrawer({
   api,
-  binding,
-  definition,
+  node,
+  nodeType,
+  currentEngine,
   busy,
   error,
   onApply,
@@ -56,7 +59,7 @@ export function EnginePickerDrawer({
 }: EnginePickerDrawerProps) {
   const [query, setQuery] = useState("");
   const [candidates, setCandidates] = useState<EngineAsset[]>([]);
-  const [selectedId, setSelectedId] = useState(binding.engine?.id ?? "");
+  const [selectedId, setSelectedId] = useState(currentEngine?.id ?? "");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [catalogEmpty, setCatalogEmpty] = useState(false);
@@ -69,9 +72,9 @@ export function EnginePickerDrawer({
       : null,
   );
 
-  const requiredApi = definition?.requiredApi ?? binding.engine?.api ?? null;
-  const stageName = definition?.name ?? roleLabel(binding.role);
-  const rawCapability = definition?.capability ?? binding.role;
+  const requiredApi = nodeType.required_api;
+  const stageName = nodeDisplayName(node, [nodeType]);
+  const rawCapability = nodeCapability(node.type);
 
   useEffect(() => {
     const previousFocus = previousFocusRef.current;
@@ -161,7 +164,7 @@ export function EnginePickerDrawer({
   };
 
   const apply = async () => {
-    if (!selectedId || selectedId === binding.engine?.id || busy) {
+    if (!selectedId || selectedId === currentEngine?.id || busy) {
       return;
     }
     if (await onApply(selectedId)) {
@@ -305,7 +308,7 @@ export function EnginePickerDrawer({
 
         <footer className="picker-actions">
           <p>
-            系统将验证连接；成功后立即替换当前绑定并用于后续会话，失败时保留原绑定。
+            选择后会更新当前工作副本；保存、验证并激活后，才会用于后续会话。
           </p>
           {selected && (
             <span>
@@ -327,16 +330,12 @@ export function EnginePickerDrawer({
               disabled={
                 busy ||
                 !selectedId ||
-                selectedId === binding.engine?.id ||
+                selectedId === currentEngine?.id ||
                 loading
               }
               onClick={() => void apply()}
             >
-              {busy
-                ? "正在验证并应用…"
-                : binding.engine
-                  ? "确认更换"
-                  : "确认绑定"}
+              {busy ? "正在应用…" : "应用到节点"}
             </button>
           </div>
         </footer>

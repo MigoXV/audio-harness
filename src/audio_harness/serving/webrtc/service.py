@@ -24,6 +24,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from audio_harness.config import WebRtcConfig
 from audio_harness.domain import CapacityExceededError
+from audio_harness.pipelines.service import PipelineStore
 from audio_harness.serving.realtime.session import (
     RealtimeTranscriptionSession,
     default_transcription_session,
@@ -62,6 +63,7 @@ class WebRtcCall:
         webrtc_config: WebRtcConfig,
         session_service: TranscriptionSessionService,
         workflow_settings: WorkflowSettingsStore,
+        pipeline_store: PipelineStore,
         reservation: TranscriptionSessionReservation,
         reservation_context: Any,
         initial_session: RealtimeTranscriptionSessionCreateRequest,
@@ -86,6 +88,7 @@ class WebRtcCall:
             send_event=self._send_event,
             session_service=session_service,
             workflow_settings=workflow_settings,
+            pipeline_store=pipeline_store,
             model="gpt-4o-transcribe",
             initial_session=initial_session,
             reservation=reservation,
@@ -311,12 +314,14 @@ class WebRtcCallService:
         config: WebRtcConfig,
         session_service: TranscriptionSessionService,
         workflow_settings: WorkflowSettingsStore,
+        pipeline_store: PipelineStore,
         api_key: str,
         max_message_bytes: int,
     ) -> None:
         self._config = config
         self._session_service = session_service
         self._workflow_settings = workflow_settings
+        self._pipeline_store = pipeline_store
         self._api_key = api_key
         self._max_message_bytes = max_message_bytes
         self._calls: dict[str, WebRtcCall] = {}
@@ -361,11 +366,12 @@ class WebRtcCallService:
         if len(offer_sdp.encode("utf-8")) > self._max_message_bytes:
             raise ValueError("sdp 超过 max_message_bytes")
         workflow = self._workflow_settings.current().config
+        physical_vad = self._pipeline_store.physical_vad_config()
         initial_session = session or default_transcription_session(
             model="gpt-4o-transcribe",
             language=workflow.default_language_code,
             prefix_padding_ms=round(
-                workflow.speech_pre_roll_seconds * 1000
+                physical_vad.speech_pre_roll_seconds * 1000
             ),
         )
         call_id = f"call_{uuid4().hex}"
@@ -380,6 +386,7 @@ class WebRtcCallService:
             webrtc_config=self._config,
             session_service=self._session_service,
             workflow_settings=self._workflow_settings,
+            pipeline_store=self._pipeline_store,
             reservation=reservation,
             reservation_context=reservation_context,
             initial_session=initial_session,

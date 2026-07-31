@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 
 import {
+  ApiError,
   errorMessage,
   reportRequestError,
 } from "../api/client";
 import type {
   AudioHarnessApi,
   EngineAsset,
-  EngineBinding,
   EngineWritePayload,
+  PipelineDefinition,
 } from "../api/types";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { EngineDrawer } from "../components/EngineDrawer";
@@ -17,6 +18,7 @@ import {
   type EngineListFilters,
 } from "../components/EngineList";
 import { InlineFeedback } from "../components/InlineFeedback";
+import { nodeDisplayName } from "../model";
 
 interface EngineLibraryPageProps {
   api: AudioHarnessApi;
@@ -39,8 +41,10 @@ export function EngineLibraryPage({
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<string[]>([]);
-  const [bindings, setBindings] = useState<EngineBinding[]>([]);
-  const [bindingsError, setBindingsError] = useState<string | null>(null);
+  const [pipelineReferences, setPipelineReferences] = useState<
+    Array<{ label: string; definition: PipelineDefinition }>
+  >([]);
+  const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [localRefresh, setLocalRefresh] = useState(0);
   const [drawer, setDrawer] = useState<"create" | "edit" | null>(null);
   const [drawerEngine, setDrawerEngine] = useState<EngineAsset | null>(null);
@@ -66,20 +70,22 @@ export function EngineLibraryPage({
   );
 
   const usageByEngine = useMemo(() => {
-    if (bindingsError) {
+    if (pipelineError) {
       return null;
     }
     const usage = new Map<string, string[]>();
-    for (const binding of bindings) {
-      if (!binding.engine) {
-        continue;
+    for (const reference of pipelineReferences) {
+      for (const node of reference.definition.nodes) {
+        if (!node.engine_id) {
+          continue;
+        }
+        const nodes = usage.get(node.engine_id) ?? [];
+        nodes.push(`${reference.label} · ${nodeDisplayName(node)}`);
+        usage.set(node.engine_id, nodes);
       }
-      const roles = usage.get(binding.engine.id) ?? [];
-      roles.push(binding.role);
-      usage.set(binding.engine.id, roles);
     }
     return usage;
-  }, [bindings, bindingsError]);
+  }, [pipelineError, pipelineReferences]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -123,15 +129,32 @@ export function EngineLibraryPage({
   useEffect(() => {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => {
-      setBindingsError(null);
-      void api
-        .listBindings(controller.signal)
-        .then(setBindings)
+      setPipelineError(null);
+      void Promise.all([
+        api.getPipeline(controller.signal),
+        api.getActivePipeline(controller.signal).catch((reason) => {
+          if (
+            reason instanceof ApiError &&
+            reason.code === "pipeline_not_active"
+          ) {
+            return null;
+          }
+          throw reason;
+        }),
+      ])
+        .then(([draft, active]) => {
+          setPipelineReferences([
+            { label: "工作副本", definition: draft.definition },
+            ...(active
+              ? [{ label: `运行修订 ${active.revision}`, definition: active.definition }]
+              : []),
+          ]);
+        })
         .catch((reason) => {
           if (!controller.signal.aborted) {
             reportRequestError("读取引擎使用情况失败", reason);
-            setBindingsError(
-              errorMessage(reason, "暂时无法读取当前绑定使用情况。"),
+            setPipelineError(
+              errorMessage(reason, "暂时无法读取处理链引用关系。"),
             );
           }
         });
@@ -249,11 +272,11 @@ export function EngineLibraryPage({
         </div>
       )}
 
-      {bindingsError && (
+      {pipelineError && (
         <div className="page-notice">
           <InlineFeedback
             title="使用情况暂不可用"
-            message={bindingsError}
+            message={pipelineError}
             actionLabel="重新加载"
             onAction={refresh}
           />

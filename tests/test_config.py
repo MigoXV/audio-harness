@@ -27,8 +27,6 @@ database:
 
     assert config.database.url == "sqlite+aiosqlite:///./data/test.db"
     assert config.workflow.min_chunk_bytes == 640
-    assert config.workflow.audio_buffer_seconds == 120
-    assert config.workflow.speech_pre_roll_seconds == 0.3
     assert config.grpc.port == 50051
     assert config.http.port == 8000
     assert config.limits.max_message_bytes == 4 * 1024 * 1024
@@ -49,28 +47,6 @@ def test_rejects_non_async_sqlite_database() -> None:
         AppConfig.model_validate(
             {
                 "database": {"url": "sqlite:///./data/test.db"},
-            }
-        )
-
-
-def test_rejects_negative_speech_pre_roll() -> None:
-    with pytest.raises(ValidationError, match="speech_pre_roll_seconds"):
-        AppConfig.model_validate(
-            {
-                "workflow": {"speech_pre_roll_seconds": -0.1},
-            }
-        )
-
-
-def test_rejects_audio_buffer_shorter_than_segment_window() -> None:
-    with pytest.raises(ValidationError, match="audio_buffer_seconds"):
-        AppConfig.model_validate(
-            {
-                "workflow": {
-                    "audio_buffer_seconds": 60,
-                    "max_segment_seconds": 60,
-                    "speech_pre_roll_seconds": 0.3,
-                },
             }
         )
 

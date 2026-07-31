@@ -59,6 +59,23 @@ class WorkflowConfig(StrictModel):
         return self
 
 
+class WorkflowRuntimeConfig(StrictModel):
+    min_chunk_bytes: int = Field(default=640, ge=2)
+    default_language_code: str = Field(default="zh-CN", min_length=1)
+    audio_queue_capacity: int = Field(default=32, gt=0)
+    segment_queue_capacity: int = Field(default=8, gt=0)
+    result_queue_capacity: int = Field(default=32, gt=0)
+
+    @field_validator("min_chunk_bytes")
+    @classmethod
+    def validate_pcm_alignment(cls, value: int) -> int:
+        if value % 2:
+            raise ValueError(
+                "min_chunk_bytes 必须为偶数，以保持 PCM S16LE 对齐"
+            )
+        return value
+
+
 class GrpcConfig(StrictModel):
     host: str = "0.0.0.0"
     port: int = Field(default=50051, ge=1, le=65535)
@@ -148,7 +165,9 @@ class DatabaseConfig(StrictModel):
 
 class AppConfig(StrictModel):
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
-    workflow: WorkflowConfig = Field(default_factory=WorkflowConfig)
+    workflow: WorkflowRuntimeConfig = Field(
+        default_factory=WorkflowRuntimeConfig
+    )
     grpc: GrpcConfig = Field(default_factory=GrpcConfig)
     http: HttpConfig = Field(default_factory=HttpConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)

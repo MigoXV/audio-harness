@@ -1,5 +1,5 @@
 import type { EngineAsset } from "../api/types";
-import { engineState, formatDate, kindLabel, roleLabel } from "../model";
+import { engineState, formatDate, kindLabel } from "../model";
 import { ActionMenu } from "./ActionMenu";
 import { InlineFeedback } from "./InlineFeedback";
 
@@ -230,12 +230,12 @@ export function EngineList({
 
           {loading && engines.length === 0 && <LoadingRows />}
           {engines.map((engine) => {
-            const roles = usageByEngine?.get(engine.id);
+            const references = usageByEngine?.get(engine.id);
             const usage =
               usageByEngine === null
                 ? "—"
-                : roles && roles.length > 0
-                  ? roles.map(roleLabel).join("、")
+                : references && references.length > 0
+                  ? references.join("、")
                   : "未使用";
             return (
               <EngineRow

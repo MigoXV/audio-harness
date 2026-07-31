@@ -9,6 +9,8 @@ from audio_harness.config import AppConfig, CapacityConfig
 from audio_harness.database import Database
 from audio_harness.engines.router import EngineRouter
 from audio_harness.inferencers.grpc import GrpcInferencerFactory
+from audio_harness.pipelines.dag import default_node_registry
+from audio_harness.pipelines.service import PipelineStore
 from audio_harness.serving.grpc import GrpcServer, SpeechServicer
 from audio_harness.serving.http import create_http_app
 from audio_harness.serving.realtime import RealtimeTranscriptionService
@@ -35,6 +37,11 @@ class AudioHarnessHost:
             self.database.session_factory,
             self.engine_router,
         )
+        self.pipeline_store = PipelineStore(
+            self.database.session_factory,
+            engine_router=self.engine_router,
+            registry=default_node_registry(),
+        )
         self.workflow_settings = WorkflowSettingsStore(
             self.database.session_factory,
             max_message_bytes=max_message_bytes,
@@ -45,19 +52,22 @@ class AudioHarnessHost:
         self.capacity = ServingCapacity(CapacityConfig())
         self.capacity_settings.subscribe(self.capacity.apply)
         self.grpc_sessions = TranscriptionSessionService(
-            engine_provider=self.engine_router,
+            engine_router=self.engine_router,
+            pipeline_store=self.pipeline_store,
             workflow_settings=self.workflow_settings,
             session_limiter=self.capacity.grpc_sessions,
             asr_limiter=self.capacity.asr,
         )
         self.realtime_sessions = TranscriptionSessionService(
-            engine_provider=self.engine_router,
+            engine_router=self.engine_router,
+            pipeline_store=self.pipeline_store,
             workflow_settings=self.workflow_settings,
             session_limiter=self.capacity.realtime_sessions,
             asr_limiter=self.capacity.asr,
         )
         self.webrtc_sessions = TranscriptionSessionService(
-            engine_provider=self.engine_router,
+            engine_router=self.engine_router,
+            pipeline_store=self.pipeline_store,
             workflow_settings=self.workflow_settings,
             session_limiter=self.capacity.webrtc_sessions,
             asr_limiter=self.capacity.asr,
@@ -67,6 +77,7 @@ class AudioHarnessHost:
         self.realtime_service = RealtimeTranscriptionService(
             session_service=self.realtime_sessions,
             workflow_settings=self.workflow_settings,
+            pipeline_store=self.pipeline_store,
             api_key=config.realtime.api_key.get_secret_value(),
             max_message_bytes=max_message_bytes,
         )
@@ -74,6 +85,7 @@ class AudioHarnessHost:
             config=config.webrtc,
             session_service=self.webrtc_sessions,
             workflow_settings=self.workflow_settings,
+            pipeline_store=self.pipeline_store,
             api_key=config.realtime.api_key.get_secret_value(),
             max_message_bytes=max_message_bytes,
         )
@@ -81,6 +93,7 @@ class AudioHarnessHost:
             database=self.database,
             catalog=self.catalog,
             engine_router=self.engine_router,
+            pipeline_store=self.pipeline_store,
             workflow_settings=self.workflow_settings,
             capacity_settings=self.capacity_settings,
             realtime_service=self.realtime_service,
@@ -105,7 +118,12 @@ class AudioHarnessHost:
             await self.workflow_settings.initialize()
             initial_capacity = await self.capacity_settings.initialize()
             await self.capacity.apply(initial_capacity)
-            await self.engine_router.prewarm()
+            await self.pipeline_store.initialize()
+            active = self.pipeline_store.current_or_none()
+            if active is not None:
+                await self.engine_router.prepare_all(
+                    active.plan.engine_snapshots
+                )
             await self.grpc_server.start()
             self._started = True
         except Exception:

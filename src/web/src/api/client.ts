@@ -3,11 +3,13 @@ import type {
   CapacitySettings,
   CapacitySettingsUpdate,
   EngineAsset,
-  EngineBinding,
   EngineFilters,
   EngineListResponse,
-  EngineRole,
   HealthStatus,
+  NodeTypeDefinition,
+  PipelineDraft,
+  PipelineRevision,
+  PipelineValidation,
   WorkflowSettings,
   WorkflowSettingsUpdate,
 } from "./types";
@@ -93,6 +95,12 @@ export const apiClient: AudioHarnessApi = {
     );
   },
 
+  getEngine(engineId, signal) {
+    return request<EngineAsset>(`/api/v1/engines/${engineId}`, {
+      signal,
+    });
+  },
+
   createEngine(payload) {
     return request<EngineAsset>("/api/v1/engines", {
       method: "POST",
@@ -113,20 +121,40 @@ export const apiClient: AudioHarnessApi = {
     });
   },
 
-  listBindings(signal) {
-    return request<EngineBinding[]>("/api/v1/engine-bindings", { signal });
+  listNodeTypes(signal) {
+    return request<NodeTypeDefinition[]>("/api/v1/node-types", { signal });
   },
 
-  bind(role, engineId) {
-    return request<EngineBinding>(`/api/v1/engine-bindings/${role}`, {
+  getPipeline(signal) {
+    return request<PipelineDraft>("/api/v1/pipeline", { signal });
+  },
+
+  updatePipelineDraft(definition, expectedRevision) {
+    return request<PipelineDraft>("/api/v1/pipeline/draft", {
       method: "PUT",
-      body: JSON.stringify({ engine_id: engineId }),
+      body: JSON.stringify({
+        definition,
+        expected_revision: expectedRevision,
+      }),
     });
   },
 
-  async unbind(role: EngineRole) {
-    await request<void>(`/api/v1/engine-bindings/${role}`, {
-      method: "DELETE",
+  validatePipeline() {
+    return request<PipelineValidation>("/api/v1/pipeline/validate", {
+      method: "POST",
+    });
+  },
+
+  activatePipeline(expectedRevision) {
+    return request<PipelineRevision>("/api/v1/pipeline/activate", {
+      method: "POST",
+      body: JSON.stringify({ expected_revision: expectedRevision }),
+    });
+  },
+
+  getActivePipeline(signal) {
+    return request<PipelineRevision>("/api/v1/pipeline/active", {
+      signal,
     });
   },
 

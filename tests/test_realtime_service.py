@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import numpy as np
@@ -14,10 +13,9 @@ from pydantic import TypeAdapter
 from starlette.websockets import WebSocketDisconnect
 
 from audio_harness.capacity import ServingCapacity
-from audio_harness.config import CapacityConfig, WorkflowConfig
+from audio_harness.config import CapacityConfig, WorkflowRuntimeConfig
 from audio_harness.domain import (
     AudioSegment,
-    EngineSet,
     RecognitionOptions,
     TranscriptionResult,
     VadBoundary,
@@ -29,6 +27,7 @@ from audio_harness.serving.realtime.connection import (
 )
 from audio_harness.sessions import TranscriptionSessionService
 from audio_harness.workflow_settings import WorkflowSettingsSnapshot
+from tests.graph_fakes import static_graph
 
 _SERVER_EVENT_ADAPTER = TypeAdapter(RealtimeServerEvent)
 
@@ -84,21 +83,8 @@ class FinalAsr:
         )
 
 
-class StaticProvider:
-    def __init__(self, vad: ImmediateVad | ProgressVad | None = None) -> None:
-        self._vad = vad or ImmediateVad()
-
-    @asynccontextmanager
-    async def lease(self):
-        yield EngineSet(
-            asr=FinalAsr(),
-            vad=self._vad,
-            semantic_vad=None,
-        )
-
-
 class StaticSettings:
-    def __init__(self, config: WorkflowConfig) -> None:
+    def __init__(self, config: WorkflowRuntimeConfig) -> None:
         self._snapshot = WorkflowSettingsSnapshot(
             config=config,
             revision=1,
@@ -110,14 +96,20 @@ class StaticSettings:
 
 
 def build_app(vad: ImmediateVad | ProgressVad | None = None) -> FastAPI:
-    config = WorkflowConfig(
+    config = WorkflowRuntimeConfig(
         min_chunk_bytes=6400,
-        min_segment_seconds=0,
     )
     settings = StaticSettings(config)
     capacity = ServingCapacity(CapacityConfig())
+    selected_vad = vad or ImmediateVad()
+    engine_router, pipeline_store = static_graph(
+        asr=FinalAsr(),
+        vad=selected_vad,
+        semantic_vad=selected_vad,
+    )
     sessions = TranscriptionSessionService(
-        engine_provider=StaticProvider(vad),
+        engine_router=engine_router,
+        pipeline_store=pipeline_store,
         workflow_settings=settings,
         session_limiter=capacity.realtime_sessions,
         asr_limiter=capacity.asr,
@@ -125,6 +117,7 @@ def build_app(vad: ImmediateVad | ProgressVad | None = None) -> FastAPI:
     service = RealtimeTranscriptionService(
         session_service=sessions,
         workflow_settings=settings,
+        pipeline_store=pipeline_store,
         api_key="local-test-key",
         max_message_bytes=1024 * 1024,
     )

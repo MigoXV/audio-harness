@@ -9,10 +9,10 @@ from audio_harness.assets import (
     EngineApi,
     EngineKind,
     EngineProtocol,
-    EngineRole,
     EngineStatus,
 )
-from audio_harness.config import CapacityConfig, WorkflowConfig
+from audio_harness.config import CapacityConfig, WorkflowRuntimeConfig
+from audio_harness.pipelines.dag import PipelineDefinition
 
 
 class StrictSchema(BaseModel):
@@ -114,17 +114,6 @@ class EngineList(StrictSchema):
     offset: int
 
 
-class BindingUpdate(StrictSchema):
-    engine_id: str = Field(min_length=1)
-
-
-class BindingRead(StrictSchema):
-    role: EngineRole
-    engine: EngineRead | None
-    generation: int
-    updated_at: datetime | None
-
-
 class ErrorBody(StrictSchema):
     code: str
     message: str
@@ -135,18 +124,28 @@ class ErrorResponse(StrictSchema):
     error: ErrorBody
 
 
+class HealthNodeRead(StrictSchema):
+    node_id: str
+    node_type: str
+    state: str
+    engine_id: str | None = None
+    reason: str | None = None
+
+
 class HealthResponse(StrictSchema):
     status: str
     database: str
     data_plane: str
     problems: list[str] = Field(default_factory=list)
+    pipeline_revision: int | None = None
+    nodes: list[HealthNodeRead] = Field(default_factory=list)
 
 
-class WorkflowSettingsUpdate(WorkflowConfig):
+class WorkflowSettingsUpdate(WorkflowRuntimeConfig):
     revision: int = Field(ge=1)
 
 
-class WorkflowSettingsRead(WorkflowConfig):
+class WorkflowSettingsRead(WorkflowRuntimeConfig):
     revision: int
     updated_at: datetime
 
@@ -158,3 +157,61 @@ class CapacitySettingsUpdate(CapacityConfig):
 class CapacitySettingsRead(CapacityConfig):
     revision: int
     updated_at: datetime
+
+
+class PipelineDraftUpdate(StrictSchema):
+    expected_revision: int = Field(ge=1)
+    definition: PipelineDefinition
+
+
+class PipelineActivateRequest(StrictSchema):
+    expected_revision: int = Field(ge=1)
+
+
+class PipelineDraftRead(StrictSchema):
+    definition: PipelineDefinition
+    revision: int
+    updated_at: datetime
+    active_revision: int | None
+
+
+class PipelineRevisionRead(StrictSchema):
+    definition: PipelineDefinition
+    revision: int
+    activated_at: datetime
+    engine_revisions: dict[str, int]
+
+
+class PipelineDiagnosticRead(StrictSchema):
+    code: str
+    message: str
+    node_id: str | None = None
+    edge_id: str | None = None
+    port: str | None = None
+
+
+class PipelineValidationRead(StrictSchema):
+    valid: bool
+    diagnostics: list[PipelineDiagnosticRead]
+    topological_order: list[str] = Field(default_factory=list)
+
+
+class NodePortRead(StrictSchema):
+    payload_type: str
+    required: bool
+    aggregate: bool
+
+
+class NodeTypeRead(StrictSchema):
+    type: str
+    display_name: str
+    input_ports: dict[str, NodePortRead]
+    output_ports: dict[str, NodePortRead]
+    config_schema: dict[str, Any]
+    allowed_failure_policies: list[str]
+    default_failure_policy: str
+    required_api: str | None
+    max_instances: int | None
+    source: bool
+    sink: bool
+    version: int

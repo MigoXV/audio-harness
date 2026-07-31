@@ -26,18 +26,6 @@ class EngineStatus(str, Enum):
     INACTIVE = "inactive"
 
 
-class EngineRole(str, Enum):
-    ASR = "asr"
-    VAD = "vad"
-    SEMANTIC_VAD = "semantic_vad"
-
-    @property
-    def required_api(self) -> EngineApi:
-        if self is EngineRole.ASR:
-            return EngineApi.UX_SPEECH
-        return EngineApi.UX_VAD
-
-
 @dataclass(frozen=True)
 class EngineSnapshot:
     id: str
@@ -84,11 +72,3 @@ class EngineAssetData:
             connect_timeout_seconds=self.connect_timeout_seconds,
             request_timeout_seconds=self.request_timeout_seconds,
         )
-
-
-@dataclass(frozen=True)
-class EngineBindingData:
-    role: EngineRole
-    engine: EngineAssetData | None
-    generation: int
-    updated_at: datetime | None

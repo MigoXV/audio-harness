@@ -44,6 +44,7 @@ from audio_harness.domain import (
     TranscriptionResult,
     VadUpdate,
 )
+from audio_harness.pipelines.service import PipelineStore
 from audio_harness.sessions import (
     TranscriptionSession,
     TranscriptionSessionReservation,
@@ -161,6 +162,7 @@ class RealtimeTranscriptionSession:
         send_event: EventSender,
         session_service: TranscriptionSessionService,
         workflow_settings: WorkflowSettingsStore,
+        pipeline_store: PipelineStore,
         model: str,
         initial_session: RealtimeTranscriptionSessionCreateRequest | None = None,
         reservation: TranscriptionSessionReservation | None = None,
@@ -170,6 +172,7 @@ class RealtimeTranscriptionSession:
         self._send_event = send_event
         self._session_service = session_service
         self._workflow_config = workflow_settings.current().config
+        self._physical_vad_config = pipeline_store.physical_vad_config()
         self._reservation = reservation
         self._audio_event_handler = audio_event_handler
         self._diagnostics_enabled = diagnostics_enabled
@@ -185,7 +188,7 @@ class RealtimeTranscriptionSession:
             model=self.model,
             language=self.language,
             prefix_padding_ms=round(
-                self._workflow_config.speech_pre_roll_seconds * 1000
+                self._physical_vad_config.speech_pre_roll_seconds * 1000
             ),
         )
         self._transcription: TranscriptionSession | None = None
@@ -336,7 +339,7 @@ class RealtimeTranscriptionSession:
             model=self.model,
             language=self.language,
             prefix_padding_ms=round(
-                self._workflow_config.speech_pre_roll_seconds * 1000
+                self._physical_vad_config.speech_pre_roll_seconds * 1000
             ),
         )
         await self._send_event(
@@ -358,14 +361,12 @@ class RealtimeTranscriptionSession:
                 options=options,
                 include_vad_events=True,
                 include_vad_progress=self._diagnostics_enabled,
-                use_semantic_vad=False,
             )
         else:
             self._session_context = self._session_service.open(
                 options,
                 include_vad_events=True,
                 include_vad_progress=self._diagnostics_enabled,
-                use_semantic_vad=False,
             )
             self._transcription = await self._session_context.__aenter__()
         self._workflow_task = asyncio.create_task(
