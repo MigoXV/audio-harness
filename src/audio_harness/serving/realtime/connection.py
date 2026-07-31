@@ -86,6 +86,7 @@ class _RealtimeConnection:
         session_service: TranscriptionSessionService,
         workflow_settings: WorkflowSettingsStore,
         max_message_bytes: int,
+        diagnostics_enabled: bool,
     ) -> None:
         self.websocket = websocket
         self.max_message_bytes = max_message_bytes
@@ -98,7 +99,7 @@ class _RealtimeConnection:
             workflow_settings=workflow_settings,
             model=model,
             audio_event_handler=self._handle_audio_append,
-            include_vad_progress=True,
+            diagnostics_enabled=diagnostics_enabled,
         )
 
     async def _send(self, event) -> None:
@@ -194,7 +195,13 @@ class RealtimeTranscriptionService:
         self.api_key = api_key
         self.max_message_bytes = max_message_bytes
 
-    async def handle(self, websocket: WebSocket, *, model: str) -> None:
+    async def handle(
+        self,
+        websocket: WebSocket,
+        *,
+        model: str,
+        diagnostics_enabled: bool = False,
+    ) -> None:
         authorization = websocket.headers.get("authorization", "")
         expected = f"Bearer {self.api_key}"
         if not hmac.compare_digest(authorization, expected):
@@ -211,6 +218,7 @@ class RealtimeTranscriptionService:
                 session_service=self.session_service,
                 workflow_settings=self.workflow_settings,
                 max_message_bytes=self.max_message_bytes,
+                diagnostics_enabled=diagnostics_enabled,
             )
             await connection.run()
         except CapacityExceededError:

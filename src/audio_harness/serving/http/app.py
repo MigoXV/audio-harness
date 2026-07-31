@@ -8,6 +8,7 @@ from fastapi import (
     APIRouter,
     FastAPI,
     Header,
+    HTTPException,
     Query,
     Request,
     Response,
@@ -16,7 +17,7 @@ from fastapi import (
 )
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from openai.types.realtime import RealtimeTranscriptionSessionCreateRequest
 from pydantic import ValidationError
@@ -420,8 +421,13 @@ def create_http_app(
         async def realtime_transcription(
             websocket: WebSocket,
             model: str = Query(min_length=1),
+            diagnostics: bool = Query(default=False),
         ) -> None:
-            await realtime_service.handle(websocket, model=model)
+            await realtime_service.handle(
+                websocket,
+                model=model,
+                diagnostics_enabled=diagnostics,
+            )
 
     if webrtc_service is not None:
 
@@ -429,6 +435,7 @@ def create_http_app(
         async def create_realtime_call(
             request: Request,
             authorization: str = Header(default=""),
+            diagnostics: bool = Query(default=False),
         ) -> Response:
             if not webrtc_service.authorize(authorization):
                 return _error(401, "unauthorized", "Unauthorized")
@@ -487,6 +494,7 @@ def create_http_app(
                 answer = await webrtc_service.create_call(
                     offer_sdp=offer_sdp,
                     session=session_config,
+                    diagnostics_enabled=diagnostics,
                 )
             except UnicodeDecodeError:
                 return _error(
@@ -535,15 +543,55 @@ def create_http_app(
         else Path(__file__).resolve().parents[3] / "web" / "dist"
     )
     if (resolved_web_dist / "index.html").is_file():
-        app.mount(
-            "/",
-            StaticFiles(directory=resolved_web_dist, html=True),
-            name="web",
+        assets_dir = resolved_web_dist / "assets"
+        if assets_dir.is_dir():
+            app.mount(
+                "/assets",
+                StaticFiles(directory=assets_dir),
+                name="web-assets",
+            )
+
+        @app.get(
+            "/{spa_path:path}",
+            response_class=FileResponse,
+            include_in_schema=False,
         )
+        async def web_spa(spa_path: str) -> FileResponse:
+            first_segment = spa_path.partition("/")[0]
+            if first_segment in {
+                "api",
+                "docs",
+                "health",
+                "openapi.json",
+                "redoc",
+                "v1",
+            }:
+                raise HTTPException(status_code=404)
+            candidate = (resolved_web_dist / spa_path).resolve()
+            try:
+                candidate.relative_to(resolved_web_dist.resolve())
+            except ValueError:
+                raise HTTPException(status_code=404) from None
+            if candidate.is_file() and candidate.name != "index.html":
+                return FileResponse(candidate)
+            return FileResponse(resolved_web_dist / "index.html")
     else:
 
-        @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-        async def web_not_built() -> HTMLResponse:
+        @app.get(
+            "/{spa_path:path}",
+            response_class=HTMLResponse,
+            include_in_schema=False,
+        )
+        async def web_not_built(spa_path: str) -> HTMLResponse:
+            if spa_path.partition("/")[0] in {
+                "api",
+                "docs",
+                "health",
+                "openapi.json",
+                "redoc",
+                "v1",
+            }:
+                raise HTTPException(status_code=404)
             return HTMLResponse(
                 content=(
                     "<!doctype html><html lang=\"zh-CN\"><head>"

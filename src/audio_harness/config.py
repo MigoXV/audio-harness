@@ -34,7 +34,7 @@ class EngineEndpoint(StrictModel):
 
 
 class WorkflowConfig(StrictModel):
-    min_chunk_bytes: int = Field(default=6400, ge=2)
+    min_chunk_bytes: int = Field(default=640, ge=2)
     min_segment_seconds: float = Field(default=0.5, ge=0)
     max_segment_seconds: float = Field(default=60.0, gt=0)
     audio_buffer_seconds: float = Field(default=120.0, gt=0)

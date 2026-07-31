@@ -141,7 +141,7 @@ Vite 页面位于 `http://127.0.0.1:5173`，会把 API 请求代理到管理端�
 
 | 策略 | 默认值 |
 | --- | ---: |
-| 输入重分块 | 6400 字节 |
+| 输入重分块 | 640 字节 |
 | 最短 / 最长语音片段 | 0.5 / 60 秒 |
 | 每会话音频环形缓冲 | 120 秒 |
 | VAD 语音前滚 | 0.3 秒 |
@@ -182,6 +182,14 @@ wss://127.0.0.1:8000/v1/realtime?model=gpt-4o-transcribe
 `model` 是兼容协议中的会话标识；实际推理由控制面当前绑定的本地 ASR/VAD
 引擎执行。语义 VAD 不参与 Realtime 第一版的 `server_vad` 管线。
 
+自定义诊断事件默认关闭。连接 URL 增加 `diagnostics=true` 后，会额外发送
+`audio_harness.vad_progress`；以后新增的 `audio_harness.*` 诊断事件也统一受
+此开关控制：
+
+```text
+wss://127.0.0.1:8000/v1/realtime?model=gpt-4o-transcribe&diagnostics=true
+```
+
 ## OpenAI Realtime WebRTC
 
 WebRTC 使用官方 calls 形态。应用后端以 Bearer Token 提交 multipart 表单，
@@ -191,6 +199,9 @@ WebRTC 使用官方 calls 形态。应用后端以 Bearer Token 提交 multipart
 POST /v1/realtime/calls
 POST /v1/realtime/calls/{call_id}/hangup
 ```
+
+创建 call 时同样可通过 `/v1/realtime/calls?diagnostics=true` 开启诊断事件；
+默认不会在 `oai-events` DataChannel 中发送自定义诊断事件。
 
 浏览器音频通过 RTP 发送，服务端连续重采样为 16 kHz PCM 后进入同一套
 VAD + ASR 工作流；协议事件通过名为 `oai-events` 的 DataChannel 返回。第一版

@@ -49,7 +49,7 @@ def upgrade() -> None:
         [
             {
                 "id": 1,
-                "min_chunk_bytes": 6400,
+                "min_chunk_bytes": 640,
                 "min_segment_seconds": 0.5,
                 "max_segment_seconds": 60.0,
                 "audio_buffer_seconds": 120.0,

@@ -13,7 +13,8 @@
       ],
       "envFile": "${workspaceFolder}/.env",
       "console": "integratedTerminal",
-      "justMyCode": true
+      "justMyCode": true,
+      "preLaunchTask": "Audio Harness: build web"
     }
   ]
 }

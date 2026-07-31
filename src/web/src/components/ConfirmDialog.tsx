@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 interface ConfirmDialogProps {
   open: boolean;
   title: string;
@@ -17,6 +19,22 @@ export function ConfirmDialog({
   onCancel,
   onConfirm,
 }: ConfirmDialogProps) {
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    previousFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    confirmRef.current?.focus();
+    const previousFocus = previousFocusRef.current;
+    return () => previousFocus?.focus();
+  }, [open]);
+
   if (!open) {
     return null;
   }
@@ -28,9 +46,14 @@ export function ConfirmDialog({
         aria-modal="true"
         aria-labelledby="confirm-title"
         aria-describedby="confirm-description"
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && !busy) {
+            event.preventDefault();
+            onCancel();
+          }
+        }}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <p className="eyebrow">CONFIRM ACTION</p>
         <h2 id="confirm-title">{title}</h2>
         <p id="confirm-description">{description}</p>
         <div className="dialog-actions">
@@ -43,6 +66,7 @@ export function ConfirmDialog({
             取消
           </button>
           <button
+            ref={confirmRef}
             className="button button-danger"
             type="button"
             onClick={onConfirm}

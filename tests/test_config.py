@@ -26,7 +26,7 @@ database:
     config = AppConfig.load(config_path)
 
     assert config.database.url == "sqlite+aiosqlite:///./data/test.db"
-    assert config.workflow.min_chunk_bytes == 6400
+    assert config.workflow.min_chunk_bytes == 640
     assert config.workflow.audio_buffer_seconds == 120
     assert config.workflow.speech_pre_roll_seconds == 0.3
     assert config.grpc.port == 50051

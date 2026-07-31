@@ -65,6 +65,7 @@ class WebRtcCall:
         reservation: TranscriptionSessionReservation,
         reservation_context: Any,
         initial_session: RealtimeTranscriptionSessionCreateRequest,
+        diagnostics_enabled: bool,
         on_closed: Callable[[str], Awaitable[None]],
     ) -> None:
         self.call_id = call_id
@@ -88,6 +89,7 @@ class WebRtcCall:
             model="gpt-4o-transcribe",
             initial_session=initial_session,
             reservation=reservation,
+            diagnostics_enabled=diagnostics_enabled,
         )
         self._chunk_bytes = workflow_settings.current().config.min_chunk_bytes
         self._install_handlers()
@@ -273,9 +275,14 @@ class WebRtcCall:
         channel = self._data_channel
         if channel is None or channel.readyState != "open":
             raise RuntimeError("oai-events DataChannel 尚未打开")
+        payload = (
+            event.model_dump(mode="json", exclude_none=True)
+            if hasattr(event, "model_dump")
+            else event
+        )
         channel.send(
             json.dumps(
-                event.model_dump(mode="json", exclude_none=True),
+                payload,
                 ensure_ascii=False,
             )
         )
@@ -345,6 +352,7 @@ class WebRtcCallService:
         *,
         offer_sdp: str,
         session: RealtimeTranscriptionSessionCreateRequest | None,
+        diagnostics_enabled: bool = False,
     ) -> WebRtcCallAnswer:
         if self._closed:
             raise RuntimeError("WebRTC 服务正在关闭")
@@ -375,6 +383,7 @@ class WebRtcCallService:
             reservation=reservation,
             reservation_context=reservation_context,
             initial_session=initial_session,
+            diagnostics_enabled=diagnostics_enabled,
             on_closed=self._discard,
         )
         try:

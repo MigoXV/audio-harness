@@ -173,12 +173,23 @@ export const apiClient: AudioHarnessApi = {
   },
 };
 
-export function errorMessage(error: unknown): string {
+export function errorMessage(
+  error: unknown,
+  fallback = "操作未完成，请稍后重试。",
+): string {
   if (error instanceof ApiError) {
     return error.message;
   }
-  if (error instanceof Error) {
-    return error.message;
+  if (
+    error instanceof TypeError ||
+    (error instanceof Error &&
+      /failed to fetch|network|load failed/i.test(error.message))
+  ) {
+    return "暂时无法连接管理服务，请稍后重试。";
   }
-  return "发生未知错误";
+  return fallback;
+}
+
+export function reportRequestError(context: string, error: unknown): void {
+  console.error(`[Audio Harness] ${context}`, error);
 }

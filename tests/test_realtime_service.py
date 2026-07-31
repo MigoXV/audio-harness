@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 import pytest
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Query, WebSocket
 from fastapi.testclient import TestClient
 from openai.types.realtime import RealtimeServerEvent
 from pydantic import TypeAdapter
@@ -131,8 +131,16 @@ def build_app(vad: ImmediateVad | ProgressVad | None = None) -> FastAPI:
     app = FastAPI()
 
     @app.websocket("/v1/realtime")
-    async def realtime(websocket: WebSocket, model: str) -> None:
-        await service.handle(websocket, model=model)
+    async def realtime(
+        websocket: WebSocket,
+        model: str,
+        diagnostics: bool = Query(default=False),
+    ) -> None:
+        await service.handle(
+            websocket,
+            model=model,
+            diagnostics_enabled=diagnostics,
+        )
 
     return app
 
@@ -196,7 +204,12 @@ def test_realtime_server_vad_event_sequence_uses_sdk_models() -> None:
                     "audio": base64.b64encode(audio).decode("ascii"),
                 }
             )
-            events = [receive_official_event(websocket) for _ in range(6)]
+            events = [
+                _SERVER_EVENT_ADAPTER.validate_python(
+                    websocket.receive_json()
+                )
+                for _ in range(6)
+            ]
             assert [event.type for event in events] == [
                 "input_audio_buffer.speech_started",
                 "input_audio_buffer.speech_stopped",
@@ -217,7 +230,7 @@ def test_realtime_server_vad_event_sequence_uses_sdk_models() -> None:
 def test_realtime_emits_vad_progress_for_every_vad_update() -> None:
     with TestClient(build_app(ProgressVad())) as client:
         with client.websocket_connect(
-            "/v1/realtime?model=gpt-4o-transcribe",
+            "/v1/realtime?model=gpt-4o-transcribe&diagnostics=true",
             headers={"Authorization": "Bearer local-test-key"},
         ) as websocket:
             assert receive_official_event(websocket).type == "session.created"

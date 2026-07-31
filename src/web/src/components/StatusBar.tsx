@@ -1,22 +1,24 @@
+import { NavLink } from "react-router-dom";
+
 import type { HealthStatus } from "../api/types";
 
 interface StatusBarProps {
   health: HealthStatus | null;
   loading: boolean;
   onRefresh: () => void;
-  onCreate?: () => void;
-  subtitle?: string;
 }
 
 function HealthMark({
   label,
   ready,
+  title,
 }: {
   label: string;
   ready: boolean | null;
+  title: string;
 }) {
   return (
-    <span className="health-mark">
+    <span className="health-mark" title={title}>
       <span
         aria-hidden="true"
         className={`health-dot ${
@@ -32,8 +34,6 @@ export function StatusBar({
   health,
   loading,
   onRefresh,
-  onCreate,
-  subtitle = "引擎配置工作台",
 }: StatusBarProps) {
   return (
     <header className="topbar">
@@ -41,21 +41,46 @@ export function StatusBar({
         <span className="brand-mark" aria-hidden="true">
           AH
         </span>
-        <div>
-          <strong>Audio Harness</strong>
-          <span>{subtitle}</span>
-        </div>
+        <strong>Audio Harness</strong>
       </div>
+
+      <nav className="primary-navigation" aria-label="控制面导航">
+        <NavLink to="/orchestration">编排</NavLink>
+        <NavLink to="/engines">引擎库</NavLink>
+        <NavLink to="/settings">运行设置</NavLink>
+      </nav>
 
       <div className="topbar-actions">
         <div className="health-cluster" aria-label="服务健康状态">
           <HealthMark
-            label="SQLite"
+            label={
+              health
+                ? health.database === "ready"
+                  ? "管理服务正常"
+                  : "管理服务异常"
+                : "管理服务状态未知"
+            }
             ready={health ? health.database === "ready" : null}
+            title={
+              health
+                ? `元数据存储：SQLite；状态：${health.database}`
+                : "元数据存储：SQLite；当前无法确认状态"
+            }
           />
           <HealthMark
-            label="数据面"
+            label={
+              health
+                ? health.data_plane === "ready"
+                  ? "数据面已连接"
+                  : "数据面未就绪"
+                : "数据面状态未知"
+            }
             ready={health ? health.data_plane === "ready" : null}
+            title={
+              health
+                ? `数据面状态：${health.data_plane}`
+                : "当前无法确认数据面状态"
+            }
           />
         </div>
         <button
@@ -66,15 +91,6 @@ export function StatusBar({
         >
           {loading ? "刷新中…" : "刷新"}
         </button>
-        {onCreate && (
-          <button
-            className="button button-primary"
-            type="button"
-            onClick={onCreate}
-          >
-            新建引擎
-          </button>
-        )}
       </div>
     </header>
   );

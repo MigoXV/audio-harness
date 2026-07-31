@@ -1,4 +1,10 @@
-import { useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 
 import type {
   EngineApi,
@@ -9,11 +15,13 @@ import type {
 } from "../api/types";
 import {
   apiForKind,
-  KIND_LABELS,
+  kindLabel,
   slugify,
-  STATUS_LABELS,
+  statusLabel,
+  SUPPORTED_KIND_OPTIONS,
   toDateTimeLocal,
 } from "../model";
+import { InlineFeedback } from "./InlineFeedback";
 
 interface EngineDrawerProps {
   engine: EngineAsset | null;
@@ -92,6 +100,20 @@ function FieldError({ children }: { children?: string }) {
   return children ? <span className="field-error">{children}</span> : null;
 }
 
+const STATUS_OPTIONS: EngineStatus[] = [
+  "observed_running",
+  "confirmed_running",
+  "inactive",
+];
+
+function focusableElements(root: HTMLElement): HTMLElement[] {
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [href], [tabindex]:not([tabindex="-1"])',
+    ),
+  );
+}
+
 export function EngineDrawer({
   engine,
   busy,
@@ -102,6 +124,41 @@ export function EngineDrawer({
   const [values, setValues] = useState(() => initialValues(engine));
   const [slugTouched, setSlugTouched] = useState(Boolean(engine));
   const [validation, setValidation] = useState<Record<string, string>>({});
+  const drawerRef = useRef<HTMLElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  );
+
+  useEffect(() => {
+    const previousFocus = previousFocusRef.current;
+    return () => previousFocus?.focus();
+  }, []);
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === "Escape" && !busy) {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (event.key !== "Tab" || !drawerRef.current) {
+      return;
+    }
+    const focusable = focusableElements(drawerRef.current);
+    if (focusable.length === 0) {
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   const update = <Key extends keyof FormValues>(
     key: Key,
@@ -130,7 +187,7 @@ export function EngineDrawer({
     setValues((current) => ({
       ...current,
       kind,
-      api: apiForKind(kind),
+      api: apiForKind(kind) ?? current.api,
     }));
   };
 
@@ -207,13 +264,21 @@ export function EngineDrawer({
     <div className="drawer-backdrop" role="presentation" onMouseDown={onClose}>
       <aside
         className="engine-drawer"
+        ref={drawerRef}
+        role="dialog"
+        aria-modal="true"
         aria-labelledby="drawer-title"
+        onKeyDown={handleKeyDown}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="drawer-heading">
           <div>
-            <p className="eyebrow">{engine ? "EDIT ASSET" : "NEW ASSET"}</p>
             <h2 id="drawer-title">{engine ? "编辑引擎" : "新建引擎"}</h2>
+            <p>
+              {engine
+                ? "更新资产信息和运行时连接参数。"
+                : "注册一个可用于语音处理流程的引擎实例。"}
+            </p>
           </div>
           <button
             className="drawer-close"
@@ -228,6 +293,10 @@ export function EngineDrawer({
 
         <form className="engine-form" onSubmit={handleSubmit}>
           <div className="form-section">
+            <div className="form-section-heading">
+              <h3>基本信息</h3>
+              <p>用于识别和检索该引擎资产。</p>
+            </div>
             <div className="form-grid">
               <label className="field field-span-2">
                 <span>名称</span>
@@ -254,23 +323,56 @@ export function EngineDrawer({
                 <FieldError>{validation.slug}</FieldError>
               </label>
               <label className="field">
-                <span>引擎类型</span>
+                <span>能力类型</span>
                 <select
                   value={values.kind}
                   onChange={(event) =>
                     handleKind(event.target.value as EngineKind)
                   }
                 >
-                  {Object.entries(KIND_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
+                  {!SUPPORTED_KIND_OPTIONS.some(
+                    (option) => option.value === values.kind,
+                  ) && (
+                    <option value={values.kind}>
+                      {kindLabel(values.kind)}
+                    </option>
+                  )}
+                  {SUPPORTED_KIND_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
                     </option>
                   ))}
                 </select>
               </label>
+              <label className="field field-span-2">
+                <span>描述</span>
+                <textarea
+                  rows={3}
+                  value={values.description}
+                  onChange={(event) =>
+                    update("description", event.target.value)
+                  }
+                  placeholder="说明该引擎适用的场景或用途"
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="form-section">
+            <div className="form-section-heading">
+              <h3>连接信息</h3>
+              <p>
+                连接会在绑定时验证；已绑定资产修改运行参数时也会先验证再保存。
+              </p>
+            </div>
+            <div className="form-grid">
               <label className="field">
                 <span>接口</span>
                 <input value={values.api} readOnly aria-readonly="true" />
+              </label>
+              <label className="field">
+                <span>协议</span>
+                <input value="gRPC" readOnly aria-readonly="true" />
               </label>
               <label className="field field-span-2">
                 <span>gRPC 地址</span>
@@ -309,17 +411,31 @@ export function EngineDrawer({
                 />
                 <FieldError>{validation.requestTimeout}</FieldError>
               </label>
+            </div>
+          </div>
+
+          <div className="form-section">
+            <div className="form-section-heading">
+              <h3>状态记录</h3>
+              <p>这是资产目录记录，不代表持续实时健康检查。</p>
+            </div>
+            <div className="form-grid">
               <label className="field">
-                <span>运行状态</span>
+                <span>目录状态</span>
                 <select
                   value={values.status}
                   onChange={(event) =>
                     update("status", event.target.value as EngineStatus)
                   }
                 >
-                  {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
+                  {!STATUS_OPTIONS.includes(values.status) && (
+                    <option value={values.status}>
+                      {statusLabel(values.status)}
+                    </option>
+                  )}
+                  {STATUS_OPTIONS.map((status) => (
+                    <option key={status} value={status}>
+                      {statusLabel(status)}
                     </option>
                   ))}
                 </select>
@@ -333,31 +449,6 @@ export function EngineDrawer({
                 <span aria-hidden="true" className="switch-control" />
                 <span>允许绑定和运行</span>
               </label>
-            </div>
-          </div>
-
-          <details className="advanced-section">
-            <summary>高级数字资产信息</summary>
-            <div className="form-grid">
-              <label className="field field-span-2">
-                <span>镜像</span>
-                <input
-                  value={values.image}
-                  onChange={(event) => update("image", event.target.value)}
-                  maxLength={500}
-                  placeholder="registry.example.com/asr:version"
-                />
-              </label>
-              <label className="field field-span-2">
-                <span>描述</span>
-                <textarea
-                  rows={3}
-                  value={values.description}
-                  onChange={(event) =>
-                    update("description", event.target.value)
-                  }
-                />
-              </label>
               <label className="field field-span-2">
                 <span>状态依据</span>
                 <input
@@ -368,13 +459,28 @@ export function EngineDrawer({
                 />
               </label>
               <label className="field">
-                <span>状态观测时间</span>
+                <span>状态记录时间</span>
                 <input
                   type="datetime-local"
                   value={values.statusObservedAt}
                   onChange={(event) =>
                     update("statusObservedAt", event.target.value)
                   }
+                />
+              </label>
+            </div>
+          </div>
+
+          <details className="advanced-section">
+            <summary>高级信息</summary>
+            <div className="form-grid">
+              <label className="field field-span-2">
+                <span>镜像</span>
+                <input
+                  value={values.image}
+                  onChange={(event) => update("image", event.target.value)}
+                  maxLength={500}
+                  placeholder="registry.example.com/asr:version"
                 />
               </label>
               <label className="field">
@@ -399,7 +505,9 @@ export function EngineDrawer({
             </div>
           </details>
 
-          {error && <div className="inline-error">{error}</div>}
+          {error && (
+            <InlineFeedback title="引擎保存失败" message={error} />
+          )}
 
           <div className="drawer-actions">
             <span>{engine ? `当前 revision ${engine.revision}` : "协议固定为 gRPC"}</span>

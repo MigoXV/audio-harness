@@ -4,7 +4,12 @@ import type { EngineAsset } from "./api/types";
 import {
   apiForKind,
   bindingCandidates,
+  capabilityLabel,
+  engineState,
+  kindLabel,
+  PIPELINE_STAGES,
   requiredApi,
+  roleLabel,
   slugify,
 } from "./model";
 
@@ -40,7 +45,43 @@ describe("engine model helpers", () => {
     expect(requiredApi("asr")).toBe("ux_speech");
     expect(requiredApi("vad")).toBe("ux_vad");
     expect(requiredApi("semantic_vad")).toBe("ux_vad");
-    expect(apiForKind("asr_vad")).toBe("ux_speech");
+    expect(apiForKind("asr_vad")).toBeNull();
+    expect(requiredApi("tts")).toBeNull();
+  });
+
+  it("falls back safely for unknown capabilities and roles", () => {
+    expect(kindLabel("speaker_diarization")).toBe("说话人分离");
+    expect(capabilityLabel("future_capability")).toBe("future_capability");
+    expect(roleLabel("tts")).toBe("tts");
+  });
+
+  it("describes the fixed runtime execution order without a fake order field", () => {
+    expect(PIPELINE_STAGES.map((stage) => stage.role)).toEqual([
+      "vad",
+      "semantic_vad",
+      "asr",
+    ]);
+    expect(
+      PIPELINE_STAGES.filter((stage) => stage.required).map(
+        (stage) => stage.role,
+      ),
+    ).toEqual(["vad", "asr"]);
+  });
+
+  it("separates catalog status from live readiness", () => {
+    expect(engineState(engine("confirmed", "ux_speech"))).toEqual({
+      label: "已确认",
+      tone: "confirmed",
+    });
+    expect(
+      engineState({
+        ...engine("disabled", "ux_speech"),
+        enabled: false,
+      }),
+    ).toEqual({
+      label: "已停用",
+      tone: "muted",
+    });
   });
 
   it("only exposes enabled compatible binding candidates", () => {

@@ -116,6 +116,8 @@ async def test_migration_seeds_all_assets_without_bindings(
     assert body["total"] == 11
     assert len(body["items"]) == 11
     assert sum(item["enabled"] for item in body["items"]) == 8
+    assert {item["kind"] for item in body["items"]} == {"asr", "vad"}
+    assert sum(item["kind"] == "asr" for item in body["items"]) == 5
 
     bindings = (
         await control_plane.client.get("/api/v1/engine-bindings")
@@ -234,14 +236,22 @@ async def test_webrtc_calls_http_contract(
     class FakeWebRtcService:
         offer_sdp = ""
         session = None
+        diagnostics_enabled = False
         hung_up = ""
 
         def authorize(self, authorization: str) -> bool:
             return authorization == "Bearer test-key"
 
-        async def create_call(self, *, offer_sdp, session):
+        async def create_call(
+            self,
+            *,
+            offer_sdp,
+            session,
+            diagnostics_enabled=False,
+        ):
             self.offer_sdp = offer_sdp
             self.session = session
+            self.diagnostics_enabled = diagnostics_enabled
             return WebRtcCallAnswer(call_id="call_test", sdp="answer-sdp")
 
         async def hangup(self, call_id: str) -> None:
@@ -280,6 +290,7 @@ async def test_webrtc_calls_http_contract(
 
         created = await client.post(
             "/v1/realtime/calls",
+            params={"diagnostics": "true"},
             headers={"Authorization": "Bearer test-key"},
             files={
                 "sdp": (None, "offer-sdp", "application/sdp"),
@@ -295,6 +306,7 @@ async def test_webrtc_calls_http_contract(
         assert created.headers["location"] == "/v1/realtime/calls/call_test"
         assert service.offer_sdp == "offer-sdp"
         assert service.session.type == "transcription"
+        assert service.diagnostics_enabled is True
 
         hung_up = await client.post(
             "/v1/realtime/calls/call_test/hangup",
@@ -346,6 +358,23 @@ async def test_engine_crud_filters_and_conflicts(
     assert deleted.status_code == 204
     missing = await control_plane.client.get(f"/api/v1/engines/{asset_id}")
     assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_asr_vad_kind_is_no_longer_accepted(
+    control_plane: ControlPlane,
+    reachable_grpc_target: str,
+) -> None:
+    response = await control_plane.client.post(
+        "/api/v1/engines",
+        json=engine_payload(
+            slug="legacy-asr-vad",
+            api="ux_speech",
+            kind="asr_vad",
+            target=reachable_grpc_target,
+        ),
+    )
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio

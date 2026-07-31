@@ -1,11 +1,14 @@
-export type EngineKind = "asr" | "vad" | "asr_vad";
-export type EngineApi = "ux_speech" | "ux_vad";
-export type EngineProtocol = "grpc";
-export type EngineRole = "asr" | "vad" | "semantic_vad";
+export type SupportedEngineKind = "asr" | "vad";
+export type EngineKind = SupportedEngineKind | (string & {});
+export type EngineApi = "ux_speech" | "ux_vad" | (string & {});
+export type EngineProtocol = "grpc" | (string & {});
+export type KnownEngineRole = "asr" | "vad" | "semantic_vad";
+export type EngineRole = KnownEngineRole | (string & {});
 export type EngineStatus =
   | "observed_running"
   | "confirmed_running"
-  | "inactive";
+  | "inactive"
+  | (string & {});
 
 export interface EngineAsset {
   id: string;
@@ -112,7 +115,7 @@ export type CapacitySettingsUpdate = Omit<
 export interface EngineFilters {
   limit?: number;
   offset?: number;
-  kind?: EngineKind;
+  kind?: string;
   api?: EngineApi;
   enabled?: boolean;
   q?: string;

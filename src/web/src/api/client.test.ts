@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { apiClient } from "./client";
+import { apiClient, errorMessage } from "./client";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -14,6 +14,15 @@ afterEach(() => {
 });
 
 describe("audio harness API client", () => {
+  it("converts browser network errors into user-facing Chinese", () => {
+    expect(errorMessage(new TypeError("Failed to fetch"))).toBe(
+      "暂时无法连接管理服务，请稍后重试。",
+    );
+    expect(errorMessage(new Error("internal stack detail"))).toBe(
+      "操作未完成，请稍后重试。",
+    );
+  });
+
   it("treats readiness 503 as a valid not-ready state", async () => {
     vi.stubGlobal(
       "fetch",
@@ -64,7 +73,7 @@ describe("audio harness API client", () => {
 
   it("updates workflow settings with the complete revision snapshot", async () => {
     const response = {
-      min_chunk_bytes: 6400,
+      min_chunk_bytes: 640,
       min_segment_seconds: 0.5,
       max_segment_seconds: 60,
       audio_buffer_seconds: 120,

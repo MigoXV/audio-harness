@@ -9,7 +9,6 @@ from typing import Any
 class EngineKind(str, Enum):
     ASR = "asr"
     VAD = "vad"
-    ASR_VAD = "asr_vad"
 
 
 class EngineApi(str, Enum):

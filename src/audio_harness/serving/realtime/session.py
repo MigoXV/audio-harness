@@ -165,14 +165,14 @@ class RealtimeTranscriptionSession:
         initial_session: RealtimeTranscriptionSessionCreateRequest | None = None,
         reservation: TranscriptionSessionReservation | None = None,
         audio_event_handler: AudioEventHandler | None = None,
-        include_vad_progress: bool = False,
+        diagnostics_enabled: bool = False,
     ) -> None:
         self._send_event = send_event
         self._session_service = session_service
         self._workflow_config = workflow_settings.current().config
         self._reservation = reservation
         self._audio_event_handler = audio_event_handler
-        self._include_vad_progress = include_vad_progress
+        self._diagnostics_enabled = diagnostics_enabled
         self.model = model
         self.language = self._workflow_config.default_language_code
         if initial_session is not None:
@@ -357,14 +357,14 @@ class RealtimeTranscriptionSession:
             self._transcription = self._reservation.create(
                 options=options,
                 include_vad_events=True,
-                include_vad_progress=self._include_vad_progress,
+                include_vad_progress=self._diagnostics_enabled,
                 use_semantic_vad=False,
             )
         else:
             self._session_context = self._session_service.open(
                 options,
                 include_vad_events=True,
-                include_vad_progress=self._include_vad_progress,
+                include_vad_progress=self._diagnostics_enabled,
                 use_semantic_vad=False,
             )
             self._transcription = await self._session_context.__aenter__()
