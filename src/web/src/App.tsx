@@ -10,6 +10,7 @@ import type {
   HealthStatus,
 } from "./api/types";
 import { BindingPanel } from "./components/BindingPanel";
+import { CapacitySettingsPanel } from "./components/CapacitySettingsPanel";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { EngineDrawer } from "./components/EngineDrawer";
 import {
@@ -17,6 +18,7 @@ import {
   type EngineListFilters,
 } from "./components/EngineList";
 import { StatusBar } from "./components/StatusBar";
+import { WorkflowSettingsPanel } from "./components/WorkflowSettingsPanel";
 import { ROLE_LABELS } from "./model";
 
 interface AppProps {
@@ -30,6 +32,9 @@ type Confirmation =
 const PAGE_SIZE = 50;
 
 export function App({ api = apiClient }: AppProps) {
+  const [view, setView] = useState<
+    "engines" | "workflow" | "capacity"
+  >("engines");
   const [engines, setEngines] = useState<EngineAsset[]>([]);
   const [total, setTotal] = useState(0);
   const [filters, setFilters] = useState<EngineListFilters>({
@@ -300,7 +305,14 @@ export function App({ api = apiClient }: AppProps) {
         health={health}
         loading={listLoading || supportLoading}
         onRefresh={refreshAll}
-        onCreate={openCreate}
+        onCreate={view === "engines" ? openCreate : undefined}
+        subtitle={
+          view === "engines"
+            ? "引擎配置工作台"
+            : view === "workflow"
+              ? "工作流控制面"
+              : "容量控制面"
+        }
       />
 
       {notice && (
@@ -316,33 +328,63 @@ export function App({ api = apiClient }: AppProps) {
         </div>
       )}
 
-      <main className="workbench">
-        <EngineList
-          engines={engines}
-          total={total}
-          filters={filters}
-          loading={listLoading}
-          error={listError}
-          selectedId={selectedEngine?.id ?? null}
-          onFiltersChange={setFilters}
-          onSelect={setSelectedEngine}
-          onEdit={openEdit}
-          onDelete={(engine) => setConfirmation({ type: "delete", engine })}
-          onLoadMore={() => void loadMore()}
-        />
-        <BindingPanel
-          bindings={bindings}
-          candidates={candidates}
-          health={health}
-          loading={supportLoading}
-          pendingRole={pendingRole}
-          selectedEngine={selectedEngine}
-          onBind={(role, engineId) => void bind(role, engineId)}
-          onUnbind={(binding) =>
-            setConfirmation({ type: "unbind", binding })
-          }
-        />
-      </main>
+      <nav className="workspace-tabs" aria-label="控制面导航">
+        <button
+          className={view === "engines" ? "is-active" : ""}
+          type="button"
+          onClick={() => setView("engines")}
+        >
+          引擎
+        </button>
+        <button
+          className={view === "workflow" ? "is-active" : ""}
+          type="button"
+          onClick={() => setView("workflow")}
+        >
+          工作流
+        </button>
+        <button
+          className={view === "capacity" ? "is-active" : ""}
+          type="button"
+          onClick={() => setView("capacity")}
+        >
+          容量
+        </button>
+      </nav>
+
+      {view === "engines" ? (
+        <main className="workbench">
+          <EngineList
+            engines={engines}
+            total={total}
+            filters={filters}
+            loading={listLoading}
+            error={listError}
+            selectedId={selectedEngine?.id ?? null}
+            onFiltersChange={setFilters}
+            onSelect={setSelectedEngine}
+            onEdit={openEdit}
+            onDelete={(engine) => setConfirmation({ type: "delete", engine })}
+            onLoadMore={() => void loadMore()}
+          />
+          <BindingPanel
+            bindings={bindings}
+            candidates={candidates}
+            health={health}
+            loading={supportLoading}
+            pendingRole={pendingRole}
+            selectedEngine={selectedEngine}
+            onBind={(role, engineId) => void bind(role, engineId)}
+            onUnbind={(binding) =>
+              setConfirmation({ type: "unbind", binding })
+            }
+          />
+        </main>
+      ) : view === "workflow" ? (
+        <WorkflowSettingsPanel api={api} refreshVersion={refreshVersion} />
+      ) : (
+        <CapacitySettingsPanel api={api} refreshVersion={refreshVersion} />
+      )}
 
       {drawer && (
         <EngineDrawer

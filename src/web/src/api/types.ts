@@ -70,6 +70,45 @@ export interface HealthStatus {
   problems: string[];
 }
 
+export interface WorkflowSettings {
+  min_chunk_bytes: number;
+  min_segment_seconds: number;
+  max_segment_seconds: number;
+  audio_buffer_seconds: number;
+  speech_pre_roll_seconds: number;
+  default_language_code: string;
+  audio_queue_capacity: number;
+  segment_queue_capacity: number;
+  result_queue_capacity: number;
+  revision: number;
+  updated_at: string;
+}
+
+export type WorkflowSettingsUpdate = Omit<
+  WorkflowSettings,
+  "updated_at"
+>;
+
+export interface CapacitySettings {
+  grpc: {
+    max_sessions: number;
+  };
+  realtime: {
+    max_sessions: number;
+  };
+  webrtc: {
+    max_sessions: number;
+  };
+  max_asr_concurrency: number;
+  revision: number;
+  updated_at: string;
+}
+
+export type CapacitySettingsUpdate = Omit<
+  CapacitySettings,
+  "updated_at"
+>;
+
 export interface EngineFilters {
   limit?: number;
   offset?: number;
@@ -94,4 +133,12 @@ export interface AudioHarnessApi {
   bind(role: EngineRole, engineId: string): Promise<EngineBinding>;
   unbind(role: EngineRole): Promise<void>;
   getReadiness(signal?: AbortSignal): Promise<HealthStatus>;
+  getWorkflowSettings(signal?: AbortSignal): Promise<WorkflowSettings>;
+  updateWorkflowSettings(
+    payload: WorkflowSettingsUpdate,
+  ): Promise<WorkflowSettings>;
+  getCapacitySettings(signal?: AbortSignal): Promise<CapacitySettings>;
+  updateCapacitySettings(
+    payload: CapacitySettingsUpdate,
+  ): Promise<CapacitySettings>;
 }

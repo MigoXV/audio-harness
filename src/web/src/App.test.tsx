@@ -4,9 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import type {
   AudioHarnessApi,
+  CapacitySettings,
   EngineAsset,
   EngineBinding,
   EngineFilters,
+  WorkflowSettings,
 } from "./api/types";
 
 function asset(
@@ -66,6 +68,27 @@ function fakeApi() {
       updated_at: null,
     },
   ];
+  const workflow: WorkflowSettings = {
+    min_chunk_bytes: 6400,
+    min_segment_seconds: 0.5,
+    max_segment_seconds: 60,
+    audio_buffer_seconds: 120,
+    speech_pre_roll_seconds: 0.3,
+    default_language_code: "zh-CN",
+    audio_queue_capacity: 32,
+    segment_queue_capacity: 8,
+    result_queue_capacity: 32,
+    revision: 1,
+    updated_at: "2026-01-01T00:00:00Z",
+  };
+  const capacity: CapacitySettings = {
+    grpc: { max_sessions: 64 },
+    realtime: { max_sessions: 64 },
+    webrtc: { max_sessions: 64 },
+    max_asr_concurrency: 8,
+    revision: 1,
+    updated_at: "2026-01-01T00:00:00Z",
+  };
   const api: AudioHarnessApi = {
     listEngines,
     createEngine: vi.fn(),
@@ -79,6 +102,18 @@ function fakeApi() {
       database: "ready",
       data_plane: "not_ready",
       problems: ["ASR 未绑定", "VAD 未绑定"],
+    })),
+    getWorkflowSettings: vi.fn(async () => workflow),
+    updateWorkflowSettings: vi.fn(async (payload) => ({
+      ...payload,
+      revision: payload.revision + 1,
+      updated_at: "2026-01-02T00:00:00Z",
+    })),
+    getCapacitySettings: vi.fn(async () => capacity),
+    updateCapacitySettings: vi.fn(async (payload) => ({
+      ...payload,
+      revision: payload.revision + 1,
+      updated_at: "2026-01-02T00:00:00Z",
     })),
   };
   return { api, listEngines };
@@ -126,6 +161,59 @@ describe("Audio Harness workbench", () => {
         expect.objectContaining({ q: "qwen" }),
         expect.any(AbortSignal),
       );
+    });
+  });
+
+  it("edits and saves workflow settings as one revision", async () => {
+    const { api } = fakeApi();
+    render(<App api={api} />);
+    await screen.findAllByText("Qwen ASR");
+
+    fireEvent.click(screen.getByRole("button", { name: "工作流" }));
+    expect(await screen.findByRole("heading", { name: "工作流设置" })).toBeVisible();
+
+    fireEvent.change(screen.getByLabelText("轮转音频缓冲"), {
+      target: { value: "180" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+
+    await waitFor(() => {
+      expect(api.updateWorkflowSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          audio_buffer_seconds: 180,
+          revision: 1,
+        }),
+      );
+    });
+    expect(
+      await screen.findByText("工作流设置已保存；新会话立即使用这份配置。"),
+    ).toBeVisible();
+  });
+
+  it("edits protocol and shared capacity separately", async () => {
+    const { api } = fakeApi();
+    render(<App api={api} />);
+    await screen.findAllByText("Qwen ASR");
+
+    fireEvent.click(screen.getByRole("button", { name: "容量" }));
+    expect(await screen.findByRole("heading", { name: "容量设置" })).toBeVisible();
+
+    fireEvent.change(screen.getByLabelText("Realtime 最大会话"), {
+      target: { value: "32" },
+    });
+    fireEvent.change(screen.getByLabelText("最大 ASR 并发"), {
+      target: { value: "4" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+
+    await waitFor(() => {
+      expect(api.updateCapacitySettings).toHaveBeenCalledWith({
+        grpc: { max_sessions: 64 },
+        realtime: { max_sessions: 32 },
+        webrtc: { max_sessions: 64 },
+        max_asr_concurrency: 4,
+        revision: 1,
+      });
     });
   });
 });

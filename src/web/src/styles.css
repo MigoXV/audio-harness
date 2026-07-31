@@ -81,6 +81,32 @@ code {
   min-height: 100vh;
 }
 
+.workspace-tabs {
+  height: 42px;
+  display: flex;
+  align-items: flex-end;
+  gap: 22px;
+  padding: 0 28px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.workspace-tabs button {
+  height: 42px;
+  padding: 0 1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 620;
+}
+
+.workspace-tabs button.is-active {
+  border-bottom-color: var(--accent);
+  color: var(--ink);
+}
+
 .topbar {
   height: 62px;
   display: flex;
@@ -253,7 +279,209 @@ code {
 .workbench {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 390px;
-  min-height: calc(100vh - 62px);
+  min-height: calc(100vh - 104px);
+}
+
+.settings-workspace {
+  width: min(1040px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 42px 0 96px;
+}
+
+.settings-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 40px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.eyebrow {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.settings-heading h1 {
+  margin: 7px 0 8px;
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+
+.settings-heading p,
+.settings-section header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.settings-meta {
+  min-width: 210px;
+  margin: 2px 0 0;
+}
+
+.settings-meta div {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 5px 0;
+  border-bottom: 1px dotted var(--line);
+  font-size: 10px;
+}
+
+.settings-meta dt {
+  color: var(--faint);
+}
+
+.settings-meta dd {
+  margin: 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-section {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 44px;
+  padding: 30px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-section header h2 {
+  margin: 0 0 7px;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.settings-rows {
+  border-top: 1px solid var(--line-strong);
+}
+
+.settings-row {
+  min-height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-copy strong {
+  font-size: 12px;
+  font-weight: 620;
+}
+
+.settings-copy small {
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.number-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.number-control input,
+.language-input {
+  height: 32px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.number-control input {
+  width: 112px;
+  padding: 4px 8px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.number-control span {
+  width: 54px;
+  color: var(--faint);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+}
+
+.language-input {
+  width: 174px;
+  padding: 4px 9px;
+}
+
+.settings-feedback {
+  margin-top: 20px;
+}
+
+.settings-success {
+  padding: 10px 12px;
+  border-left: 2px solid var(--success);
+  background: var(--accent-soft);
+  color: #245b45;
+  font-size: 12px;
+}
+
+.settings-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line-strong);
+  background: rgba(251, 252, 249, 0.96);
+  backdrop-filter: blur(8px);
+}
+
+.settings-actions > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.settings-actions > div {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 760px) {
+  .settings-workspace {
+    width: min(100% - 28px, 1040px);
+    padding-top: 28px;
+  }
+
+  .settings-heading,
+  .settings-section {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-heading {
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .settings-meta {
+    width: 100%;
+  }
+
+  .settings-section {
+    gap: 18px;
+  }
 }
 
 .engine-workspace {

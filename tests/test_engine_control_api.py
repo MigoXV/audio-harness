@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -8,15 +9,19 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from audio_harness.api import create_management_app
 from audio_harness.api.service import EngineCatalog
-from audio_harness.config import AppConfig, WorkflowConfig
+from audio_harness.capacity import ServingCapacity
+from audio_harness.config import AppConfig, CapacityConfig, WorkflowConfig
 from audio_harness.database import Database, upgrade_database
 from audio_harness.engines.router import EngineRouter
 from audio_harness.inferencers.grpc import GrpcInferencerFactory
 from audio_harness.protos.asr import ux_speech_pb2 as pb2
 from audio_harness.protos.asr import ux_speech_pb2_grpc as pb2_grpc
-from audio_harness.servicers.speech import SpeechServicer
+from audio_harness.serving.grpc import SpeechServicer
+from audio_harness.serving.http import create_http_app
+from audio_harness.serving.webrtc import WebRtcCallAnswer
+from audio_harness.sessions import TranscriptionSessionService
+from audio_harness.workflow_settings import WorkflowSettingsStore
 
 
 @dataclass
@@ -24,6 +29,7 @@ class ControlPlane:
     database: Database
     router: EngineRouter
     catalog: EngineCatalog
+    workflow_settings: WorkflowSettingsStore
     client: httpx.AsyncClient
 
 
@@ -41,16 +47,28 @@ async def control_plane(tmp_path: Path):
         ),
     )
     catalog = EngineCatalog(database.session_factory, router)
-    app = create_management_app(
+    workflow_settings = WorkflowSettingsStore(
+        database.session_factory,
+        max_message_bytes=1024 * 1024,
+    )
+    await workflow_settings.initialize()
+    app = create_http_app(
         database=database,
         catalog=catalog,
         engine_router=router,
+        workflow_settings=workflow_settings,
     )
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as client:
-        yield ControlPlane(database, router, catalog, client)
+        yield ControlPlane(
+            database,
+            router,
+            catalog,
+            workflow_settings,
+            client,
+        )
     await router.close()
     await database.close()
 
@@ -112,6 +130,178 @@ async def test_migration_seeds_all_assets_without_bindings(
     ready = await control_plane.client.get("/health/ready")
     assert ready.status_code == 503
     assert ready.json()["data_plane"] == "not_ready"
+
+    workflow = await control_plane.client.get("/api/v1/workflow-settings")
+    assert workflow.status_code == 200
+    assert workflow.json()["audio_buffer_seconds"] == 120
+    assert workflow.json()["speech_pre_roll_seconds"] == 0.3
+    assert workflow.json()["revision"] == 1
+    capacity = await control_plane.client.get("/api/v1/capacity-settings")
+    assert capacity.status_code == 200
+    assert capacity.json()["grpc"]["max_sessions"] == 64
+    assert capacity.json()["realtime"]["max_sessions"] == 64
+    assert capacity.json()["webrtc"]["max_sessions"] == 64
+
+
+@pytest.mark.asyncio
+async def test_workflow_settings_update_and_revision_conflict(
+    control_plane: ControlPlane,
+) -> None:
+    current = (
+        await control_plane.client.get("/api/v1/workflow-settings")
+    ).json()
+    current_payload = {
+        key: value
+        for key, value in current.items()
+        if key != "updated_at"
+    }
+    updated = await control_plane.client.put(
+        "/api/v1/workflow-settings",
+        json={
+            **current_payload,
+            "audio_buffer_seconds": 180,
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["audio_buffer_seconds"] == 180
+    assert updated.json()["revision"] == 2
+
+    stale = await control_plane.client.put(
+        "/api/v1/workflow-settings",
+        json={**current_payload, "audio_buffer_seconds": 150},
+    )
+    assert stale.status_code == 409
+    assert stale.json()["error"]["code"] == "workflow_revision_conflict"
+
+    updated_payload = {
+        key: value
+        for key, value in updated.json().items()
+        if key != "updated_at"
+    }
+    invalid = await control_plane.client.put(
+        "/api/v1/workflow-settings",
+        json={
+            **updated_payload,
+            "audio_buffer_seconds": 60,
+            "max_segment_seconds": 60,
+            "speech_pre_roll_seconds": 0.3,
+        },
+    )
+    assert invalid.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_capacity_settings_update_and_revision_conflict(
+    control_plane: ControlPlane,
+) -> None:
+    current = (
+        await control_plane.client.get("/api/v1/capacity-settings")
+    ).json()
+    payload = {
+        key: value
+        for key, value in current.items()
+        if key != "updated_at"
+    }
+    updated = await control_plane.client.put(
+        "/api/v1/capacity-settings",
+        json={
+            **payload,
+            "grpc": {"max_sessions": 12},
+            "realtime": {"max_sessions": 24},
+            "webrtc": {"max_sessions": 18},
+            "max_asr_concurrency": 3,
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["grpc"]["max_sessions"] == 12
+    assert updated.json()["realtime"]["max_sessions"] == 24
+    assert updated.json()["webrtc"]["max_sessions"] == 18
+    assert updated.json()["max_asr_concurrency"] == 3
+    assert updated.json()["revision"] == 2
+
+    stale = await control_plane.client.put(
+        "/api/v1/capacity-settings",
+        json=payload,
+    )
+    assert stale.status_code == 409
+    assert stale.json()["error"]["code"] == "capacity_revision_conflict"
+
+
+@pytest.mark.asyncio
+async def test_webrtc_calls_http_contract(
+    control_plane: ControlPlane,
+) -> None:
+    class FakeWebRtcService:
+        offer_sdp = ""
+        session = None
+        hung_up = ""
+
+        def authorize(self, authorization: str) -> bool:
+            return authorization == "Bearer test-key"
+
+        async def create_call(self, *, offer_sdp, session):
+            self.offer_sdp = offer_sdp
+            self.session = session
+            return WebRtcCallAnswer(call_id="call_test", sdp="answer-sdp")
+
+        async def hangup(self, call_id: str) -> None:
+            self.hung_up = call_id
+
+    service = FakeWebRtcService()
+    app = create_http_app(
+        database=control_plane.database,
+        catalog=control_plane.catalog,
+        engine_router=control_plane.router,
+        workflow_settings=control_plane.workflow_settings,
+        webrtc_service=service,
+    )
+    session = {
+        "type": "transcription",
+        "audio": {
+            "input": {
+                "format": {"type": "audio/pcm", "rate": 24000},
+                "transcription": {
+                    "model": "gpt-4o-transcribe",
+                    "language": "zh-CN",
+                },
+                "turn_detection": {"type": "server_vad"},
+            }
+        },
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        unauthorized = await client.post(
+            "/v1/realtime/calls",
+            files={"sdp": (None, "offer-sdp")},
+        )
+        assert unauthorized.status_code == 401
+
+        created = await client.post(
+            "/v1/realtime/calls",
+            headers={"Authorization": "Bearer test-key"},
+            files={
+                "sdp": (None, "offer-sdp", "application/sdp"),
+                "session": (
+                    None,
+                    json.dumps(session),
+                    "application/json",
+                ),
+            },
+        )
+        assert created.status_code == 201
+        assert created.text == "answer-sdp"
+        assert created.headers["location"] == "/v1/realtime/calls/call_test"
+        assert service.offer_sdp == "offer-sdp"
+        assert service.session.type == "transcription"
+
+        hung_up = await client.post(
+            "/v1/realtime/calls/call_test/hangup",
+            headers={"Authorization": "Bearer test-key"},
+        )
+        assert hung_up.status_code == 200
+        assert service.hung_up == "call_test"
 
 
 @pytest.mark.asyncio
@@ -226,6 +416,13 @@ async def test_unbound_data_plane_returns_failed_precondition(
     control_plane: ControlPlane,
 ) -> None:
     server = grpc.aio.server()
+    capacity = ServingCapacity(CapacityConfig())
+    sessions = TranscriptionSessionService(
+        engine_provider=control_plane.router,
+        workflow_settings=control_plane.workflow_settings,
+        session_limiter=capacity.grpc_sessions,
+        asr_limiter=capacity.asr,
+    )
     pb2_grpc.add_UxSpeechServicer_to_server(
         SpeechServicer(
             config=AppConfig(
@@ -234,7 +431,8 @@ async def test_unbound_data_plane_returns_failed_precondition(
                     min_segment_seconds=0,
                 )
             ),
-            engine_provider=control_plane.router,
+            session_service=sessions,
+            workflow_settings=control_plane.workflow_settings,
         ),
         server,
     )

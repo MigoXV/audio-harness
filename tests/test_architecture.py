@@ -24,6 +24,7 @@ def test_business_modules_do_not_import_grpc_or_protobuf_adapters() -> None:
         SOURCE_ROOT / "domain.py",
         SOURCE_ROOT / "engines" / "router.py",
         SOURCE_ROOT / "api" / "service.py",
+        SOURCE_ROOT / "sessions" / "transcription.py",
         *sorted((SOURCE_ROOT / "pipelines").rglob("*.py")),
     ]
     forbidden_prefixes = (
@@ -31,6 +32,8 @@ def test_business_modules_do_not_import_grpc_or_protobuf_adapters() -> None:
         "google.protobuf",
         "audio_harness.protos",
         "audio_harness.inferencers.grpc",
+        "fastapi",
+        "openai.types.realtime",
     )
 
     violations: list[str] = []

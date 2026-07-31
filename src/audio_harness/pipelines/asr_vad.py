@@ -11,6 +11,8 @@ from audio_harness.domain import (
     AsyncVadEngine,
     AudioSegment,
     RecognitionOptions,
+    SpeechStarted,
+    SpeechStopped,
     TranscriptionResult,
     VadUpdate,
 )
@@ -144,7 +146,12 @@ class AsrVadWorkflow:
         self,
         audio_chunks: AsyncIterator[bytes],
         options: RecognitionOptions,
-    ) -> AsyncIterator[TranscriptionResult]:
+        *,
+        include_vad_events: bool = False,
+        include_vad_progress: bool = False,
+    ) -> AsyncIterator[
+        TranscriptionResult | SpeechStarted | SpeechStopped | VadUpdate
+    ]:
         jobs: asyncio.Queue[object] = asyncio.Queue(
             maxsize=self.config.segment_queue_capacity
         )
@@ -152,7 +159,14 @@ class AsrVadWorkflow:
             maxsize=self.config.result_queue_capacity
         )
         segmenter = asyncio.create_task(
-            self._segment_audio(audio_chunks, options, jobs),
+            self._segment_audio(
+                audio_chunks,
+                options,
+                jobs,
+                results,
+                include_vad_events=include_vad_events,
+                include_vad_progress=include_vad_progress,
+            ),
             name="audio-harness-segmenter",
         )
         worker = asyncio.create_task(
@@ -171,7 +185,15 @@ class AsrVadWorkflow:
                     break
                 if isinstance(item, _Failure):
                     raise item.error
-                assert isinstance(item, TranscriptionResult)
+                assert isinstance(
+                    item,
+                    (
+                        TranscriptionResult,
+                        SpeechStarted,
+                        SpeechStopped,
+                        VadUpdate,
+                    ),
+                )
                 yield item
         finally:
             if not supervisor.done():
@@ -212,6 +234,10 @@ class AsrVadWorkflow:
         audio_chunks: AsyncIterator[bytes],
         options: RecognitionOptions,
         jobs: asyncio.Queue[object],
+        results: asyncio.Queue[object],
+        *,
+        include_vad_events: bool,
+        include_vad_progress: bool,
     ) -> None:
         sample_rate = options.sample_rate
         min_samples = int(round(self.config.min_segment_seconds * sample_rate))
@@ -323,6 +349,8 @@ class AsrVadWorkflow:
         async for update in self.vad.stream_detect(recorded_chunks(), sample_rate):
                 if not isinstance(update, VadUpdate):
                     raise TypeError(f"非法 VAD 更新类型: {type(update)!r}")
+                if include_vad_progress:
+                    await results.put(update)
                 last_processed = max(last_processed, update.processed_samples)
                 processed = min(last_processed, audio.end_sample)
 
@@ -338,11 +366,26 @@ class AsrVadWorkflow:
                         )
                         if active_start is None:
                             active_start = start
+                            if include_vad_events:
+                                await results.put(
+                                    SpeechStarted(
+                                        start_sample=start,
+                                        sample_rate=sample_rate,
+                                    )
+                                )
                         else:
                             active_start = min(active_start, start)
                     if boundary.end_sample is not None:
                         end = min(max(boundary.end_sample, 0), audio.end_sample)
                         if active_start is not None and end > active_start:
+                            if include_vad_events:
+                                await results.put(
+                                    SpeechStopped(
+                                        start_sample=active_start,
+                                        end_sample=end,
+                                        sample_rate=sample_rate,
+                                    )
+                                )
                             await process_physical(active_start, end)
                         active_start = None
 
@@ -374,6 +417,14 @@ class AsrVadWorkflow:
 
         stream_end = audio.end_sample
         if active_start is not None and stream_end > active_start:
+            if include_vad_events:
+                await results.put(
+                    SpeechStopped(
+                        start_sample=active_start,
+                        end_sample=stream_end,
+                        sample_rate=sample_rate,
+                    )
+                )
             await process_physical(active_start, stream_end)
         await jobs.put(_END)
 

@@ -12,6 +12,7 @@ from audio_harness.assets import (
     EngineRole,
     EngineStatus,
 )
+from audio_harness.config import CapacityConfig, WorkflowConfig
 
 
 class StrictSchema(BaseModel):
@@ -139,3 +140,21 @@ class HealthResponse(StrictSchema):
     database: str
     data_plane: str
     problems: list[str] = Field(default_factory=list)
+
+
+class WorkflowSettingsUpdate(WorkflowConfig):
+    revision: int = Field(ge=1)
+
+
+class WorkflowSettingsRead(WorkflowConfig):
+    revision: int
+    updated_at: datetime
+
+
+class CapacitySettingsUpdate(CapacityConfig):
+    revision: int = Field(ge=1)
+
+
+class CapacitySettingsRead(CapacityConfig):
+    revision: int
+    updated_at: datetime

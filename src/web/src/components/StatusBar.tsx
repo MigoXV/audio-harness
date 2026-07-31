@@ -4,7 +4,8 @@ interface StatusBarProps {
   health: HealthStatus | null;
   loading: boolean;
   onRefresh: () => void;
-  onCreate: () => void;
+  onCreate?: () => void;
+  subtitle?: string;
 }
 
 function HealthMark({
@@ -32,6 +33,7 @@ export function StatusBar({
   loading,
   onRefresh,
   onCreate,
+  subtitle = "引擎配置工作台",
 }: StatusBarProps) {
   return (
     <header className="topbar">
@@ -41,7 +43,7 @@ export function StatusBar({
         </span>
         <div>
           <strong>Audio Harness</strong>
-          <span>引擎配置工作台</span>
+          <span>{subtitle}</span>
         </div>
       </div>
 
@@ -64,9 +66,15 @@ export function StatusBar({
         >
           {loading ? "刷新中…" : "刷新"}
         </button>
-        <button className="button button-primary" type="button" onClick={onCreate}>
-          新建引擎
-        </button>
+        {onCreate && (
+          <button
+            className="button button-primary"
+            type="button"
+            onClick={onCreate}
+          >
+            新建引擎
+          </button>
+        )}
       </div>
     </header>
   );

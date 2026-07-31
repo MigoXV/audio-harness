@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any, Optional
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 
 
 class StrictModel(BaseModel):
@@ -35,8 +43,6 @@ class WorkflowConfig(StrictModel):
     audio_queue_capacity: int = Field(default=32, gt=0)
     segment_queue_capacity: int = Field(default=8, gt=0)
     result_queue_capacity: int = Field(default=32, gt=0)
-    max_sessions: int = Field(default=64, gt=0)
-    max_asr_concurrency: int = Field(default=8, gt=0)
 
     @model_validator(mode="after")
     def validate_pcm_alignment(self) -> "WorkflowConfig":
@@ -53,17 +59,77 @@ class WorkflowConfig(StrictModel):
         return self
 
 
-class ServingConfig(StrictModel):
+class GrpcConfig(StrictModel):
     host: str = "0.0.0.0"
     port: int = Field(default=50051, ge=1, le=65535)
-    max_message_bytes: int = Field(default=4 * 1024 * 1024, gt=0)
     shutdown_grace_seconds: float = Field(default=5.0, ge=0)
 
 
-class ManagementConfig(StrictModel):
+class HttpConfig(StrictModel):
     host: str = "0.0.0.0"
     port: int = Field(default=8000, ge=1, le=65535)
     shutdown_grace_seconds: float = Field(default=5.0, ge=0)
+    tls_cert_file: Path | None = None
+    tls_key_file: Path | None = None
+
+
+class RealtimeConfig(StrictModel):
+    api_key: SecretStr | None = None
+
+
+class IceServerConfig(StrictModel):
+    urls: str | list[str]
+    username: str | None = None
+    credential: SecretStr | None = None
+
+    @field_validator("urls")
+    @classmethod
+    def validate_urls(cls, value: str | list[str]) -> str | list[str]:
+        urls = [value] if isinstance(value, str) else value
+        if not urls or any(
+            not url.strip()
+            or not url.startswith(("stun:", "turn:", "turns:"))
+            for url in urls
+        ):
+            raise ValueError("ICE URL 必须使用 stun、turn 或 turns 协议")
+        return value
+
+
+class WebRtcConfig(StrictModel):
+    ice_servers: list[IceServerConfig] = Field(default_factory=list)
+    negotiation_timeout_seconds: float = Field(default=10.0, gt=0)
+    disconnected_grace_seconds: float = Field(default=10.0, ge=0)
+
+
+def parse_ice_servers_json(value: str) -> list[IceServerConfig]:
+    try:
+        raw = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise ValueError("WebRTC ICE servers 必须是合法 JSON") from exc
+    if not isinstance(raw, list):
+        raise ValueError("WebRTC ICE servers JSON 顶层必须是数组")
+    return [IceServerConfig.model_validate(item) for item in raw]
+
+
+class LimitsConfig(StrictModel):
+    max_message_bytes: int = Field(default=4 * 1024 * 1024, gt=0)
+
+
+class ProtocolCapacityConfig(StrictModel):
+    max_sessions: int = Field(default=64, gt=0)
+
+
+class CapacityConfig(StrictModel):
+    grpc: ProtocolCapacityConfig = Field(
+        default_factory=ProtocolCapacityConfig
+    )
+    realtime: ProtocolCapacityConfig = Field(
+        default_factory=ProtocolCapacityConfig
+    )
+    webrtc: ProtocolCapacityConfig = Field(
+        default_factory=ProtocolCapacityConfig
+    )
+    max_asr_concurrency: int = Field(default=8, gt=0)
 
 
 class DatabaseConfig(StrictModel):
@@ -83,12 +149,15 @@ class DatabaseConfig(StrictModel):
 class AppConfig(StrictModel):
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     workflow: WorkflowConfig = Field(default_factory=WorkflowConfig)
-    serving: ServingConfig = Field(default_factory=ServingConfig)
-    management: ManagementConfig = Field(default_factory=ManagementConfig)
+    grpc: GrpcConfig = Field(default_factory=GrpcConfig)
+    http: HttpConfig = Field(default_factory=HttpConfig)
+    limits: LimitsConfig = Field(default_factory=LimitsConfig)
+    realtime: RealtimeConfig = Field(default_factory=RealtimeConfig)
+    webrtc: WebRtcConfig = Field(default_factory=WebRtcConfig)
 
     @model_validator(mode="after")
     def validate_message_limits(self) -> "AppConfig":
-        if self.workflow.min_chunk_bytes > self.serving.max_message_bytes:
+        if self.workflow.min_chunk_bytes > self.limits.max_message_bytes:
             raise ValueError("min_chunk_bytes 不能大于 max_message_bytes")
         return self
 

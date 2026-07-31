@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from audio_harness.config import AppConfig
+from audio_harness.config import AppConfig, parse_ice_servers_json
 
 
 def test_load_config_expands_environment(
@@ -29,8 +29,10 @@ database:
     assert config.workflow.min_chunk_bytes == 6400
     assert config.workflow.audio_buffer_seconds == 120
     assert config.workflow.speech_pre_roll_seconds == 0.3
-    assert config.serving.port == 50051
-    assert config.management.port == 8000
+    assert config.grpc.port == 50051
+    assert config.http.port == 8000
+    assert config.limits.max_message_bytes == 4 * 1024 * 1024
+    assert config.webrtc.ice_servers == []
 
 
 def test_rejects_odd_pcm_chunk_size() -> None:
@@ -71,3 +73,27 @@ def test_rejects_audio_buffer_shorter_than_segment_window() -> None:
                 },
             }
         )
+
+
+def test_parses_webrtc_ice_servers_with_secret_credentials() -> None:
+    servers = parse_ice_servers_json(
+        '[{"urls":["stun:ice.example:3478",'
+        '"turns:ice.example:5349"],'
+        '"username":"demo","credential":"secret"}]'
+    )
+
+    assert servers[0].urls == [
+        "stun:ice.example:3478",
+        "turns:ice.example:5349",
+    ]
+    assert servers[0].credential is not None
+    assert servers[0].credential.get_secret_value() == "secret"
+
+
+@pytest.mark.parametrize(
+    "value",
+    ['{"urls":"stun:ice.example"}', '[{"urls":"https://ice.example"}]'],
+)
+def test_rejects_invalid_webrtc_ice_servers(value: str) -> None:
+    with pytest.raises((ValueError, ValidationError), match="ICE|数组"):
+        parse_ice_servers_json(value)

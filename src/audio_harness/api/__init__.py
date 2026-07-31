@@ -1,3 +1,5 @@
-from audio_harness.api.app import create_management_app
+"""控制面数据契约与应用服务。"""
 
-__all__ = ["create_management_app"]
+from audio_harness.api.service import EngineCatalog
+
+__all__ = ["EngineCatalog"]

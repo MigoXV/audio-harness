@@ -5,11 +5,11 @@ from pathlib import Path
 import httpx
 import pytest
 
-from audio_harness.api import create_management_app
 from audio_harness.api.service import EngineCatalog
 from audio_harness.database import Database, upgrade_database
 from audio_harness.engines.router import EngineRouter
 from audio_harness.inferencers.grpc import GrpcInferencerFactory
+from audio_harness.serving.http import create_http_app
 
 
 async def build_app(tmp_path: Path, web_dist: Path):
@@ -24,7 +24,7 @@ async def build_app(tmp_path: Path, web_dist: Path):
         ),
     )
     catalog = EngineCatalog(database.session_factory, router)
-    app = create_management_app(
+    app = create_http_app(
         database=database,
         catalog=catalog,
         engine_router=router,

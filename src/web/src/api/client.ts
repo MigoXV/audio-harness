@@ -1,11 +1,15 @@
 import type {
   AudioHarnessApi,
+  CapacitySettings,
+  CapacitySettingsUpdate,
   EngineAsset,
   EngineBinding,
   EngineFilters,
   EngineListResponse,
   EngineRole,
   HealthStatus,
+  WorkflowSettings,
+  WorkflowSettingsUpdate,
 } from "./types";
 
 interface ErrorEnvelope {
@@ -142,6 +146,30 @@ export const apiClient: AudioHarnessApi = {
       envelope.error?.message ?? `健康状态读取失败（${response.status}）`,
       envelope.error?.details,
     );
+  },
+
+  getWorkflowSettings(signal) {
+    return request<WorkflowSettings>("/api/v1/workflow-settings", { signal });
+  },
+
+  updateWorkflowSettings(payload: WorkflowSettingsUpdate) {
+    return request<WorkflowSettings>("/api/v1/workflow-settings", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  getCapacitySettings(signal) {
+    return request<CapacitySettings>("/api/v1/capacity-settings", {
+      signal,
+    });
+  },
+
+  updateCapacitySettings(payload: CapacitySettingsUpdate) {
+    return request<CapacitySettings>("/api/v1/capacity-settings", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
   },
 };
 

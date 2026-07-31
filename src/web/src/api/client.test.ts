@@ -61,4 +61,61 @@ describe("audio harness API client", () => {
       }),
     );
   });
+
+  it("updates workflow settings with the complete revision snapshot", async () => {
+    const response = {
+      min_chunk_bytes: 6400,
+      min_segment_seconds: 0.5,
+      max_segment_seconds: 60,
+      audio_buffer_seconds: 120,
+      speech_pre_roll_seconds: 0.3,
+      default_language_code: "zh-CN",
+      audio_queue_capacity: 32,
+      segment_queue_capacity: 8,
+      result_queue_capacity: 32,
+      revision: 2,
+      updated_at: "2026-01-02T00:00:00Z",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(response));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { updated_at, ...payload } = response;
+    expect(updated_at).toBe("2026-01-02T00:00:00Z");
+    await expect(apiClient.updateWorkflowSettings(payload)).resolves.toEqual(
+      response,
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/workflow-settings",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }),
+    );
+  });
+
+  it("updates per-protocol capacity with a shared ASR limit", async () => {
+    const response = {
+      grpc: { max_sessions: 64 },
+      realtime: { max_sessions: 32 },
+      webrtc: { max_sessions: 16 },
+      max_asr_concurrency: 8,
+      revision: 2,
+      updated_at: "2026-01-02T00:00:00Z",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(response));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { updated_at, ...payload } = response;
+    expect(updated_at).toBe("2026-01-02T00:00:00Z");
+    await expect(apiClient.updateCapacitySettings(payload)).resolves.toEqual(
+      response,
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/capacity-settings",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }),
+    );
+  });
 });

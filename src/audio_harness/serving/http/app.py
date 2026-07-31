@@ -1,22 +1,39 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from pathlib import Path
 
-from fastapi import APIRouter, FastAPI, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    FastAPI,
+    Header,
+    Query,
+    Request,
+    Response,
+    WebSocket,
+    status,
+)
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from openai.types.realtime import RealtimeTranscriptionSessionCreateRequest
+from pydantic import ValidationError
 
 from audio_harness.api.schemas import (
     BindingRead,
     BindingUpdate,
+    CapacitySettingsRead,
+    CapacitySettingsUpdate,
     EngineCreate,
     EngineList,
     EnginePatch,
     EngineRead,
     ErrorResponse,
     HealthResponse,
+    WorkflowSettingsRead,
+    WorkflowSettingsUpdate,
 )
 from audio_harness.api.service import (
     AssetNotFoundError,
@@ -31,9 +48,24 @@ from audio_harness.assets import (
     EngineKind,
     EngineRole,
 )
+from audio_harness.capacity_settings import (
+    CapacityRevisionConflictError,
+    CapacitySettingsSnapshot,
+    CapacitySettingsStore,
+)
+from audio_harness.config import CapacityConfig, WorkflowConfig
 from audio_harness.database.session import Database
-from audio_harness.domain import EngineUnavailableError
+from audio_harness.domain import CapacityExceededError, EngineUnavailableError
 from audio_harness.engines.router import EngineRouter
+from audio_harness.serving.realtime import RealtimeTranscriptionService
+from audio_harness.serving.webrtc import WebRtcCallService
+from audio_harness.serving.webrtc.service import WebRtcCallNotFoundError
+from audio_harness.workflow_settings import (
+    WorkflowRevisionConflictError,
+    WorkflowSettingsValidationError,
+    WorkflowSettingsSnapshot,
+    WorkflowSettingsStore,
+)
 
 
 def engine_response(asset: EngineAssetData) -> EngineRead:
@@ -89,13 +121,25 @@ def _error(status_code: int, code: str, message: str, details=None) -> JSONRespo
     )
 
 
-def create_management_app(
+def create_http_app(
     *,
     database: Database,
     catalog: EngineCatalog,
     engine_router: EngineRouter,
+    workflow_settings: WorkflowSettingsStore | None = None,
+    capacity_settings: CapacitySettingsStore | None = None,
+    realtime_service: RealtimeTranscriptionService | None = None,
+    webrtc_service: WebRtcCallService | None = None,
+    max_message_bytes: int = 4 * 1024 * 1024,
     web_dist: Path | None = None,
 ) -> FastAPI:
+    workflow_settings = workflow_settings or WorkflowSettingsStore(
+        database.session_factory,
+        max_message_bytes=max_message_bytes,
+    )
+    capacity_settings = capacity_settings or CapacitySettingsStore(
+        database.session_factory
+    )
     app = FastAPI(
         title="Audio Harness Engine Control API",
         version="1.0.0",
@@ -120,6 +164,27 @@ def create_management_app(
         exc: CatalogConflictError,
     ) -> JSONResponse:
         return _error(409, exc.code, str(exc))
+
+    @app.exception_handler(WorkflowRevisionConflictError)
+    async def handle_workflow_conflict(
+        _request: Request,
+        exc: WorkflowRevisionConflictError,
+    ) -> JSONResponse:
+        return _error(409, exc.code, str(exc))
+
+    @app.exception_handler(CapacityRevisionConflictError)
+    async def handle_capacity_conflict(
+        _request: Request,
+        exc: CapacityRevisionConflictError,
+    ) -> JSONResponse:
+        return _error(409, exc.code, str(exc))
+
+    @app.exception_handler(WorkflowSettingsValidationError)
+    async def handle_workflow_validation(
+        _request: Request,
+        exc: WorkflowSettingsValidationError,
+    ) -> JSONResponse:
+        return _error(422, exc.code, str(exc))
 
     @app.exception_handler(EngineUnavailableError)
     async def handle_unavailable(
@@ -244,6 +309,72 @@ def create_management_app(
         await catalog.unbind(role)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+    def workflow_response(
+        snapshot: WorkflowSettingsSnapshot,
+    ) -> WorkflowSettingsRead:
+        return WorkflowSettingsRead(
+            **snapshot.config.model_dump(),
+            revision=snapshot.revision,
+            updated_at=snapshot.updated_at,
+        )
+
+    @router.get(
+        "/workflow-settings",
+        response_model=WorkflowSettingsRead,
+    )
+    async def get_workflow_settings() -> WorkflowSettingsRead:
+        return workflow_response(await workflow_settings.get())
+
+    @router.put(
+        "/workflow-settings",
+        response_model=WorkflowSettingsRead,
+        responses={409: {"model": ErrorResponse}},
+    )
+    async def put_workflow_settings(
+        payload: WorkflowSettingsUpdate,
+    ) -> WorkflowSettingsRead:
+        config = WorkflowConfig.model_validate(
+            payload.model_dump(exclude={"revision"})
+        )
+        snapshot = await workflow_settings.update(
+            config=config,
+            expected_revision=payload.revision,
+        )
+        return workflow_response(snapshot)
+
+    def capacity_response(
+        snapshot: CapacitySettingsSnapshot,
+    ) -> CapacitySettingsRead:
+        return CapacitySettingsRead(
+            **snapshot.config.model_dump(),
+            revision=snapshot.revision,
+            updated_at=snapshot.updated_at,
+        )
+
+    @router.get(
+        "/capacity-settings",
+        response_model=CapacitySettingsRead,
+    )
+    async def get_capacity_settings() -> CapacitySettingsRead:
+        return capacity_response(await capacity_settings.get())
+
+    @router.put(
+        "/capacity-settings",
+        response_model=CapacitySettingsRead,
+        responses={409: {"model": ErrorResponse}},
+    )
+    async def put_capacity_settings(
+        payload: CapacitySettingsUpdate,
+    ) -> CapacitySettingsRead:
+        config = CapacityConfig.model_validate(
+            payload.model_dump(exclude={"revision"})
+        )
+        snapshot = await capacity_settings.update(
+            config=config,
+            expected_revision=payload.revision,
+        )
+        return capacity_response(snapshot)
+
     @app.get("/health/live", response_model=HealthResponse)
     async def liveness() -> HealthResponse:
         return HealthResponse(
@@ -283,11 +414,125 @@ def create_management_app(
             content=response.model_dump(mode="json"),
         )
 
+    if realtime_service is not None:
+
+        @app.websocket("/v1/realtime")
+        async def realtime_transcription(
+            websocket: WebSocket,
+            model: str = Query(min_length=1),
+        ) -> None:
+            await realtime_service.handle(websocket, model=model)
+
+    if webrtc_service is not None:
+
+        @app.post("/v1/realtime/calls")
+        async def create_realtime_call(
+            request: Request,
+            authorization: str = Header(default=""),
+        ) -> Response:
+            if not webrtc_service.authorize(authorization):
+                return _error(401, "unauthorized", "Unauthorized")
+            try:
+                form = await request.form()
+            except Exception as exc:
+                return _error(
+                    400,
+                    "invalid_multipart",
+                    f"multipart 表单解析失败: {exc}",
+                )
+            sdp_part = form.get("sdp")
+            if sdp_part is None:
+                return _error(400, "invalid_sdp", "缺少 sdp 表单字段")
+            if hasattr(sdp_part, "read"):
+                offer = await sdp_part.read(max_message_bytes + 1)
+            elif isinstance(sdp_part, str):
+                offer = sdp_part.encode("utf-8")
+            else:
+                return _error(400, "invalid_sdp", "sdp 必须是文本或文件")
+            if len(offer) > max_message_bytes:
+                return _error(
+                    400,
+                    "sdp_too_large",
+                    "sdp 超过 max_message_bytes",
+                )
+            try:
+                offer_sdp = offer.decode("utf-8")
+                session_part = form.get("session")
+                if hasattr(session_part, "read"):
+                    session_bytes = await session_part.read(
+                        max_message_bytes + 1
+                    )
+                    if len(session_bytes) > max_message_bytes:
+                        return _error(
+                            400,
+                            "session_too_large",
+                            "session 超过 max_message_bytes",
+                        )
+                    session_json = session_bytes.decode("utf-8")
+                elif session_part is None or isinstance(session_part, str):
+                    session_json = session_part
+                else:
+                    return _error(
+                        400,
+                        "invalid_session",
+                        "session 必须是 JSON 文本或文件",
+                    )
+                session_config = (
+                    RealtimeTranscriptionSessionCreateRequest.model_validate(
+                        json.loads(session_json)
+                    )
+                    if session_json is not None
+                    else None
+                )
+                answer = await webrtc_service.create_call(
+                    offer_sdp=offer_sdp,
+                    session=session_config,
+                )
+            except UnicodeDecodeError:
+                return _error(
+                    400,
+                    "invalid_encoding",
+                    "sdp 和 session 必须是 UTF-8 文本",
+                )
+            except (json.JSONDecodeError, ValidationError) as exc:
+                return _error(
+                    400,
+                    "invalid_session",
+                    f"session 配置不合法: {exc}",
+                )
+            except CapacityExceededError as exc:
+                return _error(429, "capacity_exceeded", str(exc))
+            except ValueError as exc:
+                return _error(400, "invalid_webrtc_offer", str(exc))
+            except asyncio.TimeoutError:
+                return _error(408, "negotiation_timeout", "WebRTC 协商超时")
+            return Response(
+                content=answer.sdp,
+                status_code=status.HTTP_201_CREATED,
+                media_type="application/sdp",
+                headers={
+                    "Location": f"/v1/realtime/calls/{answer.call_id}",
+                },
+            )
+
+        @app.post("/v1/realtime/calls/{call_id}/hangup")
+        async def hangup_realtime_call(
+            call_id: str,
+            authorization: str = Header(default=""),
+        ) -> Response:
+            if not webrtc_service.authorize(authorization):
+                return _error(401, "unauthorized", "Unauthorized")
+            try:
+                await webrtc_service.hangup(call_id)
+            except WebRtcCallNotFoundError:
+                return _error(404, "call_not_found", "WebRTC call 不存在")
+            return Response(status_code=status.HTTP_200_OK)
+
     app.include_router(router)
     resolved_web_dist = (
         web_dist
         if web_dist is not None
-        else Path(__file__).resolve().parents[2] / "web" / "dist"
+        else Path(__file__).resolve().parents[3] / "web" / "dist"
     )
     if (resolved_web_dist / "index.html").is_file():
         app.mount(

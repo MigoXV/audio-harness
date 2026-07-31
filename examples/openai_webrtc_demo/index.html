@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <title>Audio Harness WebRTC Demo</title>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">Audio Harness / WebRTC</p>
+        <h1>实时转写</h1>
+        <p id="status">尚未连接</p>
+      </header>
+
+      <section class="controls">
+        <button id="connect" type="button">连接麦克风</button>
+        <button id="disconnect" type="button" disabled>断开</button>
+      </section>
+
+      <section class="transcript">
+        <p class="eyebrow">Live transcript</p>
+        <div id="lines">话音结束后，完整转写会出现在这里。</div>
+      </section>
+
+      <details>
+        <summary>协议事件 <span id="event-count">0</span></summary>
+        <pre id="events"></pre>
+      </details>
+
+      <audio id="remote-audio" autoplay muted></audio>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -27,6 +27,19 @@ class VadUpdate:
 
 
 @dataclass(frozen=True)
+class SpeechStarted:
+    start_sample: int
+    sample_rate: int
+
+
+@dataclass(frozen=True)
+class SpeechStopped:
+    start_sample: int
+    end_sample: int
+    sample_rate: int
+
+
+@dataclass(frozen=True)
 class AudioSegment:
     audio: bytes
     start_sample: int
