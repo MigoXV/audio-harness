@@ -102,7 +102,6 @@ def build_app(vad: ImmediateVad | None = None) -> FastAPI:
         session_service=sessions,
         workflow_settings=settings,
         pipeline_store=pipeline_store,
-        api_key="local-test-key",
         max_message_bytes=1024 * 1024,
     )
     app = FastAPI()
@@ -126,15 +125,10 @@ def receive_official_event(websocket):
     return _SERVER_EVENT_ADAPTER.validate_python(websocket.receive_json())
 
 
-def test_realtime_rejects_invalid_bearer_token() -> None:
+def test_realtime_does_not_require_bearer_token() -> None:
     with TestClient(build_app()) as client:
-        with pytest.raises(WebSocketDisconnect) as error:
-            with client.websocket_connect(
-                "/v1/realtime?model=gpt-4o-transcribe",
-                headers={"Authorization": "Bearer wrong"},
-            ):
-                pass
-    assert error.value.code == 4401
+        with client.websocket_connect("/v1/realtime?model=gpt-4o-transcribe"):
+            pass
 
 
 def test_realtime_server_vad_event_sequence_uses_sdk_models() -> None:

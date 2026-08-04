@@ -14,7 +14,6 @@ from audio_harness.pipelines.stages import (
     WorkflowStages,
     default_stage_workflow,
 )
-from audio_harness.serving.test_sessions import TestSessionBroker
 from audio_harness.workflow_types import WorkflowKind
 
 
@@ -84,35 +83,3 @@ def test_transcription_rejects_agent_only_stages() -> None:
 
     with pytest.raises(ValueError, match="转写工作流"):
         definition.to_pipeline(WorkflowKind.TRANSCRIPTION)
-
-
-@pytest.mark.asyncio
-async def test_console_test_session_credentials_are_scoped_and_single_use() -> None:
-    broker = TestSessionBroker(ttl_seconds=60)
-    credential = await broker.create(
-        workflow_id="workflow-a",
-        model="workflow-a",
-        protocol="wss",
-    )
-
-    assert await broker.consume(
-        credential.token,
-        model="workflow-a",
-        protocol="wss",
-    )
-    assert not await broker.consume(
-        credential.token,
-        model="workflow-a",
-        protocol="wss",
-    )
-
-    wrong_scope = await broker.create(
-        workflow_id="workflow-a",
-        model="workflow-a",
-        protocol="webrtc",
-    )
-    assert not await broker.consume(
-        wrong_scope.token,
-        model="workflow-b",
-        protocol="webrtc",
-    )

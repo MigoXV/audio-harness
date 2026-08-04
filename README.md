@@ -68,8 +68,7 @@ bash scripts/generate_realtime_tls.sh
 cp .env.example .env
 ```
 
-编辑 `.env`，至少把 `REALTIME_API_KEY` 换成本地客户端使用的
-随机密钥。主程序不加载 `.env` 文件，启动前需要把它导入进程环境：
+按部署需要编辑 `.env`。主程序不加载 `.env` 文件，启动前需要把它导入进程环境：
 
 ```bash
 set -a
@@ -111,22 +110,20 @@ REST 控制面放在可信网络或带访问控制的反向代理后。
 
 ## 环境变量
 
-YAML 只保存 SQLite URL，监听与服务参数全部通过命令行或环境变量设置。命令行
-优先于环境变量，环境变量优先于默认值。
+监听与服务参数全部通过命令行或环境变量设置。命令行优先于环境变量，环境变量
+优先于默认值。
 
 | 环境变量 | 默认值 | 用途 |
 | --- | --- | --- |
-| `CONFIG` | 无 | 静态 YAML 路径 |
+| `DATABASE_URL` | `sqlite+aiosqlite:///./data-bin/sqlite/audio-harness.db` | SQLite 数据库 URL |
+| `VOICE_STORAGE_DIR` | `./data-bin/voices` | 参考音色 WAV 存储目录 |
 | `GRPC_HOST` | `0.0.0.0` | gRPC 监听地址 |
 | `GRPC_PORT` | `50051` | gRPC 监听端口 |
 | `MAX_MESSAGE_BYTES` | `4194304` | gRPC/Realtime 单消息上限 |
-| `GRPC_SHUTDOWN_GRACE_SECONDS` | `5` | gRPC 关闭宽限 |
 | `HTTP_HOST` | `0.0.0.0` | HTTP/HTTPS/WSS 监听地址 |
 | `HTTP_PORT` | `8000` | HTTP/HTTPS/WSS 监听端口 |
-| `HTTP_SHUTDOWN_GRACE_SECONDS` | `5` | HTTP/WS 关闭宽限 |
 | `HTTP_TLS_CERT_FILE` | `model-bin/realtime-tls/cert.pem` | TLS 证书 |
 | `HTTP_TLS_KEY_FILE` | `model-bin/realtime-tls/key.pem` | TLS 私钥 |
-| `REALTIME_API_KEY` | 无 | 本地 WSS Bearer Token |
 | `WEBRTC_ICE_SERVERS_JSON` | `[]` | STUN/TURN 服务器数组 |
 | `WEBRTC_NEGOTIATION_TIMEOUT_SECONDS` | `10` | SDP 协商超时 |
 | `WEBRTC_DISCONNECTED_GRACE_SECONDS` | `10` | 断线等待宽限 |
@@ -155,15 +152,13 @@ WebRTC 远端音轨或 WSS PCM delta 播放；用户重新开口会取消当前 
 
 1. 在“推理引擎”中分别登记 VAD、ASR、Responses 和 TTS。Responses 的 API Key
    直接保存在 SQLite 并可在控制台回显；当前部署假设处于可信网络，界面会持续
-   显示明文风险提示。Realtime Bearer、TURN 和 MCP 请求头仍只来自环境或会话。
+   显示明文风险提示。TURN 和 MCP 请求头仍只来自环境或会话。
 2. 在“工作流”中新建“语音 Agent”，slug 会成为不可变的公开模型名。
 3. 在“构建”中绑定各阶段引擎，填写 Responses 模型、系统指令、工具/MCP，以及
    TTS 允许音色和默认音色。可按需启用语义 VAD。
 4. 等待顶部保存状态变为“已保存”，进入“发布”检查缺项和引擎健康，然后执行
    一次原子发布。发布失败不会替换当前运行版本。
-5. 在“测试”中选择 WSS 或 WebRTC 并授权麦克风。控制台签发 60 秒、单次握手、
-   限定工作流与协议的 HttpOnly 测试凭证，不会把长期 Realtime 密钥交给浏览器，
-   也不会持久化测试录音、转写或模型输出。
+5. 在“测试”中选择 WSS 或 WebRTC 并授权麦克风；测试不会持久化录音、转写或模型输出。
 
 主要 REST 接口：
 
@@ -185,7 +180,6 @@ WebRTC 远端音轨或 WSS PCM delta 播放；用户重新开口会取消当前 
 | `POST` | `/api/v1/workflows/{id}/revisions/{revision}/restore` | 把历史版本恢复为新草稿 |
 | `GET` | `/api/v1/model-routes` | 列出公开模型名与内部 gRPC 路由 |
 | `GET/POST/DELETE` | `/api/v1/voices` | 管理参考 WAV 音色资产 |
-| `POST` | `/api/v1/test-sessions` | 签发短时一次性控制台测试会话 |
 | `GET` | `/api/v1/runtime/status` | 查询当前并发、容量和累计拒绝数 |
 | `GET` | `/api/v1/workflow-settings` | 读取完整工作流设置快照 |
 | `PUT` | `/api/v1/workflow-settings` | 携带 `revision` 原子更新设置 |
@@ -226,7 +220,7 @@ Responses API 传入 `reasoning.effort: "none"`；开启时传入 `"high"`。该
 
 ## OpenAI Realtime WSS
 
-客户端使用 `Authorization: Bearer <REALTIME_API_KEY>` 连接：
+服务部署在可信内网，不要求客户端鉴权：
 
 ```text
 wss://127.0.0.1:8000/v1/realtime?model=default-transcription

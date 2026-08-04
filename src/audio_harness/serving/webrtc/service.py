@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hmac
 import json
 import logging
 from collections.abc import Awaitable, Callable
@@ -345,7 +344,6 @@ class WebRtcCallService:
         session_service: TranscriptionSessionService,
         workflow_settings: WorkflowSettingsStore,
         pipeline_store: PipelineStore,
-        api_key: str,
         max_message_bytes: int,
         engine_router: EngineRouter | None = None,
         responses_limiter: ResizableConcurrencyLimiter | None = None,
@@ -357,7 +355,6 @@ class WebRtcCallService:
         self._session_service = session_service
         self._workflow_settings = workflow_settings
         self._pipeline_store = pipeline_store
-        self._api_key = api_key
         self._max_message_bytes = max_message_bytes
         self._engine_router = engine_router or session_service._engine_router
         self._responses_limiter = responses_limiter
@@ -385,12 +382,6 @@ class WebRtcCallService:
     @property
     def active_calls(self) -> int:
         return len(self._calls)
-
-    def authorize(self, authorization: str) -> bool:
-        return hmac.compare_digest(
-            authorization,
-            f"Bearer {self._api_key}",
-        )
 
     async def create_call(
         self,

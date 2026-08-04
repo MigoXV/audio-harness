@@ -161,7 +161,7 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
       </div>}
 
       {tab === "build" && <StageBuilder definition={definition} kind={workflow.kind} engines={engines} onChange={onDefinitionChange} />}
-      {tab === "test" && <RealtimeTestPanel api={api} workflowId={workflowId} workflowKind={workflow.kind} canTest={status.active_revision !== null} blockedReason="请先发布一个可运行版本，再开始端到端测试。" />}
+      {tab === "test" && <RealtimeTestPanel model={workflow.slug} workflowKind={workflow.kind} canTest={status.active_revision !== null} blockedReason="请先发布一个可运行版本，再开始端到端测试。" />}
       {tab === "publish" && <div className="publish-layout">
         <section className="panel publish-review" aria-labelledby="publish-review-title"><div className="panel-heading"><div><p className="eyebrow">RELEASE REVIEW</p><h2 id="publish-review-title">{publishLabel}</h2><p>激活前会重新编译草稿，并准备所有已绑定引擎；任何一步失败都会保留当前运行版本。</p></div><span className={`status-chip status-${status.state}`}>{stateText[status.state] ?? status.state}</span></div>
           <dl className="publish-summary"><div><dt>当前运行版本</dt><dd>{status.active_revision ? `v${status.active_revision}` : "尚未发布"}</dd></div><div><dt>即将激活草稿</dt><dd>r{draft.revision}</dd></div><div><dt>公开模型名</dt><dd><code>{status.public_models[0] ?? workflow.slug}</code></dd></div><div><dt>已就绪阶段</dt><dd>{readyStages} / {status.stages.length}</dd></div></dl>

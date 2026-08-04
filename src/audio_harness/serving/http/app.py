@@ -3,12 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from urllib.parse import urlencode
 
 from fastapi import (
     APIRouter,
     FastAPI,
-    Header,
     HTTPException,
     Query,
     Request,
@@ -58,8 +56,6 @@ from audio_harness.api.schemas import (
     WorkflowStatusRead,
     RuntimeLimiterRead,
     RuntimeStatusRead,
-    TestSessionCreate,
-    TestSessionRead,
     VoiceAssetRead,
 )
 from audio_harness.api.service import (
@@ -106,10 +102,6 @@ from audio_harness.pipelines.stages import (
 from audio_harness.serving.realtime import RealtimeTranscriptionService
 from audio_harness.serving.webrtc import WebRtcCallService
 from audio_harness.serving.webrtc.service import WebRtcCallNotFoundError
-from audio_harness.serving.test_sessions import (
-    TEST_SESSION_COOKIE,
-    TestSessionBroker,
-)
 from audio_harness.workflow_settings import (
     WorkflowRevisionConflictError,
     WorkflowSettingsValidationError,
@@ -199,7 +191,6 @@ def create_http_app(
         version="1.0.0",
     )
     router = APIRouter(prefix="/api/v1")
-    test_sessions = TestSessionBroker()
     errors = {
         404: {"model": ErrorResponse},
         409: {"model": ErrorResponse},
@@ -1118,53 +1109,6 @@ def create_http_app(
             started_at=capacity.started_at,
         )
 
-    @router.post("/test-sessions", response_model=TestSessionRead)
-    async def create_test_session(
-        payload: TestSessionCreate,
-        request: Request,
-    ) -> Response:
-        pipeline_store.current(payload.workflow_id)
-        workflow = await pipeline_store.get_workflow_summary(payload.workflow_id)
-        public_models = sorted(
-            route.model
-            for route in pipeline_store.model_routes()
-            if route.workflow_id == payload.workflow_id
-            and route.visibility.value == "public"
-        )
-        if not public_models:
-            return _error(
-                409,
-                "workflow_not_routable",
-                "工作流尚未绑定公开模型名",
-            )
-        model = workflow.slug if workflow.slug in public_models else public_models[0]
-        credential = await test_sessions.create(
-            workflow_id=payload.workflow_id,
-            model=model,
-            protocol=payload.protocol,
-        )
-        base = "/v1/realtime" if payload.protocol == "wss" else "/v1/realtime/calls"
-        endpoint = f"{base}?{urlencode({'model': model})}"
-        body = TestSessionRead(
-            id=credential.id,
-            workflow_id=payload.workflow_id,
-            model=model,
-            protocol=payload.protocol,
-            endpoint=endpoint,
-            expires_at=credential.expires_at,
-        )
-        response = JSONResponse(content=body.model_dump(mode="json"))
-        response.set_cookie(
-            TEST_SESSION_COOKIE,
-            credential.token,
-            max_age=60,
-            secure=request.url.scheme == "https",
-            httponly=True,
-            samesite="strict",
-            path="/v1/realtime",
-        )
-        return response
-
     @app.get("/health/live", response_model=HealthResponse)
     async def liveness() -> HealthResponse:
         return HealthResponse(
@@ -1222,16 +1166,10 @@ def create_http_app(
             model: str = Query(min_length=1),
             diagnostics: bool = Query(default=False),
         ) -> None:
-            test_authorized = await test_sessions.consume(
-                websocket.cookies.get(TEST_SESSION_COOKIE),
-                model=model,
-                protocol="wss",
-            )
             await realtime_service.handle(
                 websocket,
                 model=model,
                 diagnostics_enabled=diagnostics,
-                test_authorized=test_authorized,
             )
 
     if webrtc_service is not None:
@@ -1239,11 +1177,9 @@ def create_http_app(
         @app.post("/v1/realtime/calls")
         async def create_realtime_call(
             request: Request,
-            authorization: str = Header(default=""),
             diagnostics: bool = Query(default=False),
             model: str | None = Query(default=None, min_length=1),
         ) -> Response:
-            static_authorized = webrtc_service.authorize(authorization)
             try:
                 form = await request.form()
             except Exception as exc:
@@ -1321,12 +1257,6 @@ def create_http_app(
                             )
                         )
                 selected_model = selected_model or "gpt-4o-transcribe"
-                if not static_authorized and not await test_sessions.consume(
-                    request.cookies.get(TEST_SESSION_COOKIE),
-                    model=selected_model,
-                    protocol="webrtc",
-                ):
-                    return _error(401, "unauthorized", "Unauthorized")
                 call_arguments = {
                     "offer_sdp": offer_sdp,
                     "session": session_config,
@@ -1371,10 +1301,7 @@ def create_http_app(
         @app.post("/v1/realtime/calls/{call_id}/hangup")
         async def hangup_realtime_call(
             call_id: str,
-            authorization: str = Header(default=""),
         ) -> Response:
-            if not webrtc_service.authorize(authorization):
-                return _error(401, "unauthorized", "Unauthorized")
             try:
                 await webrtc_service.hangup(call_id)
             except WebRtcCallNotFoundError:

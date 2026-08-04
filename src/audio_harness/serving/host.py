@@ -82,13 +82,10 @@ class AudioHarnessHost:
             session_limiter=self.capacity.webrtc_sessions,
             asr_limiter=self.capacity.asr,
         )
-        if config.realtime.api_key is None:
-            raise ValueError("必须配置 REALTIME_API_KEY")
         self.realtime_service = RealtimeTranscriptionService(
             session_service=self.realtime_sessions,
             workflow_settings=self.workflow_settings,
             pipeline_store=self.pipeline_store,
-            api_key=config.realtime.api_key.get_secret_value(),
             max_message_bytes=max_message_bytes,
             engine_router=self.engine_router,
             responses_limiter=self.capacity.responses,
@@ -101,7 +98,6 @@ class AudioHarnessHost:
             session_service=self.webrtc_sessions,
             workflow_settings=self.workflow_settings,
             pipeline_store=self.pipeline_store,
-            api_key=config.realtime.api_key.get_secret_value(),
             max_message_bytes=max_message_bytes,
             engine_router=self.engine_router,
             responses_limiter=self.capacity.responses,

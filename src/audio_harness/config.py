@@ -3,9 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Optional
-
-import yaml
+from typing import Optional
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -79,23 +77,17 @@ class WorkflowRuntimeConfig(StrictModel):
 class GrpcConfig(StrictModel):
     host: str = "0.0.0.0"
     port: int = Field(default=50051, ge=1, le=65535)
-    shutdown_grace_seconds: float = Field(default=5.0, ge=0)
 
 
 class HttpConfig(StrictModel):
     host: str = "0.0.0.0"
     port: int = Field(default=8000, ge=1, le=65535)
-    shutdown_grace_seconds: float = Field(default=5.0, ge=0)
     tls_cert_file: Path | None = None
     tls_key_file: Path | None = None
 
 
-class RealtimeConfig(StrictModel):
-    api_key: SecretStr | None = None
-
-
 class VoiceConfig(StrictModel):
-    storage_dir: Path = Path("./data/voices")
+    storage_dir: Path = Path("./data-bin/voices")
     max_upload_bytes: int = Field(default=20 * 1024 * 1024, gt=0)
 
 
@@ -158,7 +150,7 @@ class CapacityConfig(StrictModel):
 
 class DatabaseConfig(StrictModel):
     url: str = Field(
-        default="sqlite+aiosqlite:///./data/audio-harness.db",
+        default="sqlite+aiosqlite:///./data-bin/sqlite/audio-harness.db",
         min_length=1,
     )
 
@@ -178,7 +170,6 @@ class AppConfig(StrictModel):
     grpc: GrpcConfig = Field(default_factory=GrpcConfig)
     http: HttpConfig = Field(default_factory=HttpConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
-    realtime: RealtimeConfig = Field(default_factory=RealtimeConfig)
     voices: VoiceConfig = Field(default_factory=VoiceConfig)
     webrtc: WebRtcConfig = Field(default_factory=WebRtcConfig)
 
@@ -189,10 +180,21 @@ class AppConfig(StrictModel):
         return self
 
     @classmethod
-    def load(cls, path: str | Path) -> "AppConfig":
-        config_path = Path(path)
-        expanded = os.path.expandvars(config_path.read_text(encoding="utf-8"))
-        raw: Any = yaml.safe_load(expanded)
-        if not isinstance(raw, dict):
-            raise ValueError("配置文件顶层必须是对象")
-        return cls.model_validate(raw)
+    def from_environment(cls) -> "AppConfig":
+        defaults = cls()
+        return cls.model_validate(
+            {
+                "database": {
+                    "url": os.getenv(
+                        "DATABASE_URL",
+                        defaults.database.url,
+                    ),
+                },
+                "voices": {
+                    "storage_dir": os.getenv(
+                        "VOICE_STORAGE_DIR",
+                        str(defaults.voices.storage_dir),
+                    ),
+                },
+            }
+        )

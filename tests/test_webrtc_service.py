@@ -131,7 +131,6 @@ def _build_service() -> tuple[WebRtcCallService, ServingCapacity]:
             session_service=sessions,
             workflow_settings=settings,
             pipeline_store=pipeline_store,
-            api_key="local-test-key",
             max_message_bytes=1024 * 1024,
         ),
         capacity,
@@ -188,9 +187,3 @@ async def test_webrtc_call_transcribes_rtp_audio_and_releases_capacity() -> None
     finally:
         await client.close()
         await service.close()
-
-
-def test_webrtc_bearer_authentication() -> None:
-    service, _capacity = _build_service()
-    assert service.authorize("Bearer local-test-key")
-    assert not service.authorize("Bearer wrong")

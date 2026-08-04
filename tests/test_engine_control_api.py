@@ -342,9 +342,6 @@ async def test_webrtc_calls_http_contract(
         diagnostics_enabled = False
         hung_up = ""
 
-        def authorize(self, authorization: str) -> bool:
-            return authorization == "Bearer test-key"
-
         async def create_call(
             self,
             *,
@@ -385,16 +382,9 @@ async def test_webrtc_calls_http_contract(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as client:
-        unauthorized = await client.post(
-            "/v1/realtime/calls",
-            files={"sdp": (None, "offer-sdp")},
-        )
-        assert unauthorized.status_code == 401
-
         created = await client.post(
             "/v1/realtime/calls",
             params={"diagnostics": "true"},
-            headers={"Authorization": "Bearer test-key"},
             files={
                 "sdp": (None, "offer-sdp", "application/sdp"),
                 "session": (
@@ -413,7 +403,6 @@ async def test_webrtc_calls_http_contract(
 
         hung_up = await client.post(
             "/v1/realtime/calls/call_test/hangup",
-            headers={"Authorization": "Bearer test-key"},
         )
         assert hung_up.status_code == 200
         assert service.hung_up == "call_test"

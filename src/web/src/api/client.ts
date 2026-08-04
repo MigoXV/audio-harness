@@ -21,7 +21,6 @@ import type {
   StageWorkflowDefinition,
   WorkflowStatus,
   RuntimeStatus,
-  TestSession,
 } from "./types";
 
 interface ErrorEnvelope {
@@ -349,13 +348,6 @@ export const apiClient: AudioHarnessApi = {
 
   getRuntimeStatus(signal) {
     return request<RuntimeStatus>("/api/v1/runtime/status", { signal });
-  },
-
-  createTestSession(workflowId, protocol) {
-    return request<TestSession>("/api/v1/test-sessions", {
-      method: "POST",
-      body: JSON.stringify({ workflow_id: workflowId, protocol }),
-    });
   },
 };
 

@@ -39,4 +39,4 @@ RUN poetry install
 EXPOSE 50051 8000
 
 # 默认入口
-CMD ["poetry", "run", "audio-harness", "serve", "--config", "configs/asr-vad.yaml"]
+CMD ["poetry", "run", "audio-harness", "serve"]

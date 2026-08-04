@@ -6,26 +6,20 @@ from pydantic import ValidationError
 from audio_harness.config import AppConfig, parse_ice_servers_json
 
 
-def test_load_config_expands_environment(
-    tmp_path: Path,
+def test_load_config_from_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(
-        "TEST_DATABASE_URL",
+        "DATABASE_URL",
         "sqlite+aiosqlite:///./data/test.db",
     )
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        """
-database:
-  url: ${TEST_DATABASE_URL}
-""",
-        encoding="utf-8",
-    )
+    monkeypatch.setenv("VOICE_STORAGE_DIR", "./data/test-voices")
 
-    config = AppConfig.load(config_path)
+    config = AppConfig.from_environment()
 
     assert config.database.url == "sqlite+aiosqlite:///./data/test.db"
+    assert config.voices.storage_dir == Path("data/test-voices")
+    assert config.voices.max_upload_bytes == 20 * 1024 * 1024
     assert config.workflow.min_chunk_bytes == 640
     assert config.grpc.port == 50051
     assert config.http.port == 8000

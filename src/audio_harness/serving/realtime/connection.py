@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
-import hmac
 import logging
 
 import numpy as np
@@ -210,7 +209,6 @@ class RealtimeTranscriptionService:
         session_service: TranscriptionSessionService,
         workflow_settings: WorkflowSettingsStore,
         pipeline_store: PipelineStore,
-        api_key: str,
         max_message_bytes: int,
         engine_router: EngineRouter | None = None,
         responses_limiter: ResizableConcurrencyLimiter | None = None,
@@ -218,12 +216,9 @@ class RealtimeTranscriptionService:
         tool_registry: ToolRegistry | None = None,
         voice_resolver: VoiceResolver | None = None,
     ) -> None:
-        if not api_key:
-            raise ValueError("Realtime API Key 不能为空")
         self.session_service = session_service
         self.workflow_settings = workflow_settings
         self.pipeline_store = pipeline_store
-        self.api_key = api_key
         self.max_message_bytes = max_message_bytes
         self.engine_router = engine_router
         self.responses_limiter = responses_limiter
@@ -237,13 +232,7 @@ class RealtimeTranscriptionService:
         *,
         model: str,
         diagnostics_enabled: bool = False,
-        test_authorized: bool = False,
     ) -> None:
-        authorization = websocket.headers.get("authorization", "")
-        expected = f"Bearer {self.api_key}"
-        if not test_authorized and not hmac.compare_digest(authorization, expected):
-            await websocket.close(code=4401, reason="Unauthorized")
-            return
         if not model.strip():
             await websocket.close(code=4400, reason="model is required")
             return

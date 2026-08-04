@@ -288,20 +288,6 @@ class RuntimeStatusRead(StrictSchema):
     started_at: datetime
 
 
-class TestSessionCreate(StrictSchema):
-    workflow_id: str = Field(min_length=1, max_length=100)
-    protocol: Literal["wss", "webrtc"]
-
-
-class TestSessionRead(StrictSchema):
-    id: str
-    workflow_id: str
-    model: str
-    protocol: Literal["wss", "webrtc"]
-    endpoint: str
-    expires_at: datetime
-
-
 class ModelRouteUpsert(StrictSchema):
     model: str = Field(
         min_length=1,

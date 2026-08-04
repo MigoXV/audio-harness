@@ -49,7 +49,7 @@ async def _serve(config: AppConfig) -> None:
             log_level=logging.getLevelName(logging.getLogger().level).lower(),
             log_config=None,
             lifespan="on",
-            timeout_graceful_shutdown=config.http.shutdown_grace_seconds,
+            timeout_graceful_shutdown=5.0,
             ssl_certfile=(
                 str(config.http.tls_cert_file)
                 if config.http.tls_cert_file is not None
@@ -112,16 +112,6 @@ async def _serve(config: AppConfig) -> None:
 
 @app.command("serve")
 def serve(
-    config_path: Path = typer.Option(
-        ...,
-        "--config",
-        "-c",
-        envvar="CONFIG",
-        exists=True,
-        readable=True,
-        resolve_path=True,
-        help="静态 YAML 配置文件。",
-    ),
     grpc_host: Optional[str] = typer.Option(
         None,
         "--grpc-host",
@@ -143,13 +133,6 @@ def serve(
         min=1,
         help="gRPC、WebSocket 与 WebRTC 信令单消息字节上限。",
     ),
-    grpc_shutdown_grace_seconds: float = typer.Option(
-        5.0,
-        "--grpc-shutdown-grace-seconds",
-        envvar="GRPC_SHUTDOWN_GRACE_SECONDS",
-        min=0,
-        help="gRPC 优雅关闭宽限秒数。",
-    ),
     http_host: Optional[str] = typer.Option(
         None,
         "--http-host",
@@ -163,13 +146,6 @@ def serve(
         min=1,
         max=65535,
         help="覆盖 HTTP/WS/WebRTC 信令监听端口。",
-    ),
-    http_shutdown_grace_seconds: float = typer.Option(
-        5.0,
-        "--http-shutdown-grace-seconds",
-        envvar="HTTP_SHUTDOWN_GRACE_SECONDS",
-        min=0,
-        help="HTTP/WS 优雅关闭宽限秒数。",
     ),
     tls_cert_file: Path = typer.Option(
         Path("model-bin/realtime-tls/cert.pem"),
@@ -192,13 +168,6 @@ def serve(
         readable=True,
         resolve_path=True,
         help="HTTP/WS TLS 私钥。",
-    ),
-    realtime_api_key: str = typer.Option(
-        ...,
-        "--realtime-api-key",
-        envvar="REALTIME_API_KEY",
-        help="本地 OpenAI Realtime Bearer Token。",
-        show_default=False,
     ),
     webrtc_ice_servers_json: str = typer.Option(
         "[]",
@@ -230,7 +199,7 @@ def serve(
     """启动多工作流语音转写与 Realtime Agent 服务。"""
 
     logging.getLogger().setLevel(log_level.upper())
-    config = AppConfig.load(config_path)
+    config = AppConfig.from_environment()
     try:
         ice_servers = parse_ice_servers_json(webrtc_ice_servers_json)
     except ValueError as exc:
@@ -242,7 +211,6 @@ def serve(
         update={
             **({"host": grpc_host} if grpc_host is not None else {}),
             **({"port": grpc_port} if grpc_port is not None else {}),
-            "shutdown_grace_seconds": grpc_shutdown_grace_seconds,
         }
     )
     http_config = config.http.model_copy(
@@ -257,7 +225,6 @@ def serve(
                 if http_port is not None
                 else {}
             ),
-            "shutdown_grace_seconds": http_shutdown_grace_seconds,
             "tls_cert_file": tls_cert_file,
             "tls_key_file": tls_key_file,
         }
@@ -268,9 +235,6 @@ def serve(
             "http": http_config,
             "limits": config.limits.model_copy(
                 update={"max_message_bytes": max_message_bytes}
-            ),
-            "realtime": config.realtime.model_copy(
-                update={"api_key": SecretStr(realtime_api_key)}
             ),
             "webrtc": config.webrtc.model_copy(
                 update={

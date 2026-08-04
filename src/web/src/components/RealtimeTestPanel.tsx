@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 
 import { errorMessage } from "../api/client";
-import type { AudioHarnessApi, WorkflowKind } from "../api/types";
+import type { WorkflowKind } from "../api/types";
 import { PcmPlayer, startMicrophone, type MicrophoneCapture } from "../realtimeAudio";
 
 interface Props {
-  api: AudioHarnessApi;
-  workflowId: string;
+  model: string;
   workflowKind: WorkflowKind;
   canTest: boolean;
   blockedReason?: string;
@@ -82,7 +81,7 @@ export function appendGroupedEvent(
   return [event, ...current].slice(0, 100);
 }
 
-export function RealtimeTestPanel({ api, workflowId, workflowKind, canTest, blockedReason }: Props) {
+export function RealtimeTestPanel({ model, workflowKind, canTest, blockedReason }: Props) {
   const [protocol, setProtocol] = useState<"wss" | "webrtc">("webrtc");
   const [connection, setConnection] = useState<"idle" | "connecting" | "connected" | "error">("idle");
   const [notice, setNotice] = useState("等待开始测试");
@@ -243,7 +242,7 @@ export function RealtimeTestPanel({ api, workflowId, workflowKind, canTest, bloc
   };
 
   const start = async () => {
-    if (!api.createTestSession || !canTest) return;
+    if (!canTest) return;
     stoppingRef.current = false;
     setConnection("connecting");
     setNotice("正在检查工作流、路由和麦克风");
@@ -256,9 +255,11 @@ export function RealtimeTestPanel({ api, workflowId, workflowKind, canTest, bloc
     transcriptAt.current = null;
     modelAt.current = null;
     try {
-      const session = await api.createTestSession(workflowId, protocol);
-      if (protocol === "wss") await connectWss(session.endpoint);
-      else await connectWebRtc(session.endpoint);
+      const endpoint = protocol === "wss"
+        ? `/v1/realtime?model=${encodeURIComponent(model)}`
+        : `/v1/realtime/calls?model=${encodeURIComponent(model)}`;
+      if (protocol === "wss") await connectWss(endpoint);
+      else await connectWebRtc(endpoint);
       setConnection("connected");
       setNotice(`${protocol === "wss" ? "WSS" : "WebRTC"} 已连接，请开始说话`);
     } catch (reason) {

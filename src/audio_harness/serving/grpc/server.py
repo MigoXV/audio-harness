@@ -47,5 +47,5 @@ class GrpcServer:
 
     async def stop(self) -> None:
         if self._started:
-            await self._server.stop(self.config.shutdown_grace_seconds)
+            await self._server.stop(5.0)
             self._started = False

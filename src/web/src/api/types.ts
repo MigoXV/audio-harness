@@ -252,15 +252,6 @@ export interface RuntimeStatus {
   started_at: string;
 }
 
-export interface TestSession {
-  id: string;
-  workflow_id: string;
-  model: string;
-  protocol: "wss" | "webrtc";
-  endpoint: string;
-  expires_at: string;
-}
-
 export interface ModelRoute {
   model: string;
   workflow_id: string;
@@ -426,5 +417,4 @@ export interface AudioHarnessApi {
   probeEngine?(engineId: string): Promise<EngineValidationResult>;
   getEngineUsage?(engineId: string, signal?: AbortSignal): Promise<{ engine_id: string; references: string[] }>;
   getRuntimeStatus?(signal?: AbortSignal): Promise<RuntimeStatus>;
-  createTestSession?(workflowId: string, protocol: "wss" | "webrtc"): Promise<TestSession>;
 }
