@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from audio_harness.assets import EngineAssetData, EngineBindingData
-from audio_harness.database.models import EngineAsset, EngineBinding
+from audio_harness.assets import EngineAssetData
+from audio_harness.database.models import EngineAsset
 
 
 def asset_data(model: EngineAsset) -> EngineAssetData:
@@ -15,24 +15,21 @@ def asset_data(model: EngineAsset) -> EngineAssetData:
         target=model.target,
         connect_timeout_seconds=model.connect_timeout_seconds,
         request_timeout_seconds=model.request_timeout_seconds,
+        credential_env=model.credential_env,
+        api_key=model.api_key,
         enabled=model.enabled,
         status=model.status,
         image=model.image,
         description=model.description,
         status_basis=model.status_basis,
         status_observed_at=model.status_observed_at,
+        last_success_at=model.last_success_at,
+        probe_latency_ms=model.probe_latency_ms,
+        consecutive_failures=model.consecutive_failures or 0,
+        next_probe_at=model.next_probe_at,
         source=model.source,
         details=dict(model.details or {}),
         revision=model.revision,
         created_at=model.created_at,
-        updated_at=model.updated_at,
-    )
-
-
-def binding_data(model: EngineBinding) -> EngineBindingData:
-    return EngineBindingData(
-        role=model.role,
-        engine=asset_data(model.engine),
-        generation=model.generation,
         updated_at=model.updated_at,
     )

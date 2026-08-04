@@ -2,22 +2,20 @@ from __future__ import annotations
 
 import base64
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import numpy as np
 import pytest
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Query, WebSocket
 from fastapi.testclient import TestClient
 from openai.types.realtime import RealtimeServerEvent
 from pydantic import TypeAdapter
 from starlette.websockets import WebSocketDisconnect
 
 from audio_harness.capacity import ServingCapacity
-from audio_harness.config import CapacityConfig, WorkflowConfig
+from audio_harness.config import CapacityConfig, WorkflowRuntimeConfig
 from audio_harness.domain import (
     AudioSegment,
-    EngineSet,
     RecognitionOptions,
     TranscriptionResult,
     VadBoundary,
@@ -29,6 +27,7 @@ from audio_harness.serving.realtime.connection import (
 )
 from audio_harness.sessions import TranscriptionSessionService
 from audio_harness.workflow_settings import WorkflowSettingsSnapshot
+from tests.graph_fakes import static_graph
 
 _SERVER_EVENT_ADAPTER = TypeAdapter(RealtimeServerEvent)
 
@@ -45,22 +44,6 @@ class ImmediateVad:
                 boundaries=(VadBoundary(0, samples),),
                 processed_samples=samples,
             )
-            return
-
-    async def detect_turn(self, audio: bytes, sample_rate: int) -> bool:
-        return True
-
-
-class ProgressVad:
-    async def stream_detect(
-        self,
-        audio_chunks: AsyncIterator[bytes],
-        sample_rate: int,
-    ) -> AsyncIterator[VadUpdate]:
-        async for chunk in audio_chunks:
-            samples = len(chunk) // 2
-            yield VadUpdate(boundaries=(), processed_samples=samples // 2)
-            yield VadUpdate(boundaries=(), processed_samples=samples)
             return
 
     async def detect_turn(self, audio: bytes, sample_rate: int) -> bool:
@@ -84,21 +67,8 @@ class FinalAsr:
         )
 
 
-class StaticProvider:
-    def __init__(self, vad: ImmediateVad | ProgressVad | None = None) -> None:
-        self._vad = vad or ImmediateVad()
-
-    @asynccontextmanager
-    async def lease(self):
-        yield EngineSet(
-            asr=FinalAsr(),
-            vad=self._vad,
-            semantic_vad=None,
-        )
-
-
 class StaticSettings:
-    def __init__(self, config: WorkflowConfig) -> None:
+    def __init__(self, config: WorkflowRuntimeConfig) -> None:
         self._snapshot = WorkflowSettingsSnapshot(
             config=config,
             revision=1,
@@ -109,15 +79,21 @@ class StaticSettings:
         return self._snapshot
 
 
-def build_app(vad: ImmediateVad | ProgressVad | None = None) -> FastAPI:
-    config = WorkflowConfig(
+def build_app(vad: ImmediateVad | None = None) -> FastAPI:
+    config = WorkflowRuntimeConfig(
         min_chunk_bytes=6400,
-        min_segment_seconds=0,
     )
     settings = StaticSettings(config)
     capacity = ServingCapacity(CapacityConfig())
+    selected_vad = vad or ImmediateVad()
+    engine_router, pipeline_store = static_graph(
+        asr=FinalAsr(),
+        vad=selected_vad,
+        semantic_vad=selected_vad,
+    )
     sessions = TranscriptionSessionService(
-        engine_provider=StaticProvider(vad),
+        engine_router=engine_router,
+        pipeline_store=pipeline_store,
         workflow_settings=settings,
         session_limiter=capacity.realtime_sessions,
         asr_limiter=capacity.asr,
@@ -125,40 +101,40 @@ def build_app(vad: ImmediateVad | ProgressVad | None = None) -> FastAPI:
     service = RealtimeTranscriptionService(
         session_service=sessions,
         workflow_settings=settings,
-        api_key="local-test-key",
+        pipeline_store=pipeline_store,
         max_message_bytes=1024 * 1024,
     )
     app = FastAPI()
 
     @app.websocket("/v1/realtime")
-    async def realtime(websocket: WebSocket, model: str) -> None:
-        await service.handle(websocket, model=model)
+    async def realtime(
+        websocket: WebSocket,
+        model: str,
+        diagnostics: bool = Query(default=False),
+    ) -> None:
+        await service.handle(
+            websocket,
+            model=model,
+            diagnostics_enabled=diagnostics,
+        )
 
     return app
 
 
 def receive_official_event(websocket):
-    while True:
-        payload = websocket.receive_json()
-        if payload.get("type") != "audio_harness.vad_progress":
-            return _SERVER_EVENT_ADAPTER.validate_python(payload)
+    return _SERVER_EVENT_ADAPTER.validate_python(websocket.receive_json())
 
 
-def test_realtime_rejects_invalid_bearer_token() -> None:
+def test_realtime_does_not_require_bearer_token() -> None:
     with TestClient(build_app()) as client:
-        with pytest.raises(WebSocketDisconnect) as error:
-            with client.websocket_connect(
-                "/v1/realtime?model=gpt-4o-transcribe",
-                headers={"Authorization": "Bearer wrong"},
-            ):
-                pass
-    assert error.value.code == 4401
+        with client.websocket_connect("/v1/realtime?model=gpt-4o-transcribe"):
+            pass
 
 
 def test_realtime_server_vad_event_sequence_uses_sdk_models() -> None:
     with TestClient(build_app()) as client:
         with client.websocket_connect(
-            "/v1/realtime?model=gpt-4o-transcribe",
+            "/v1/realtime?model=gpt-4o-transcribe&diagnostics=true",
             headers={"Authorization": "Bearer local-test-key"},
         ) as websocket:
             created = receive_official_event(websocket)
@@ -196,7 +172,12 @@ def test_realtime_server_vad_event_sequence_uses_sdk_models() -> None:
                     "audio": base64.b64encode(audio).decode("ascii"),
                 }
             )
-            events = [receive_official_event(websocket) for _ in range(6)]
+            events = [
+                _SERVER_EVENT_ADAPTER.validate_python(
+                    websocket.receive_json()
+                )
+                for _ in range(6)
+            ]
             assert [event.type for event in events] == [
                 "input_audio_buffer.speech_started",
                 "input_audio_buffer.speech_stopped",
@@ -212,40 +193,6 @@ def test_realtime_server_vad_event_sequence_uses_sdk_models() -> None:
             }
             assert len(item_ids) == 1
             assert events[-1].transcript == "你好，世界"
-
-
-def test_realtime_emits_vad_progress_for_every_vad_update() -> None:
-    with TestClient(build_app(ProgressVad())) as client:
-        with client.websocket_connect(
-            "/v1/realtime?model=gpt-4o-transcribe",
-            headers={"Authorization": "Bearer local-test-key"},
-        ) as websocket:
-            assert receive_official_event(websocket).type == "session.created"
-            websocket.send_json(
-                {
-                    "type": "session.update",
-                    "session": {"type": "transcription"},
-                }
-            )
-            assert receive_official_event(websocket).type == "session.updated"
-
-            audio = np.zeros(24_000, dtype="<i2").tobytes()
-            websocket.send_json(
-                {
-                    "type": "input_audio_buffer.append",
-                    "audio": base64.b64encode(audio).decode("ascii"),
-                }
-            )
-            progress = [websocket.receive_json() for _ in range(2)]
-
-            assert [event["type"] for event in progress] == [
-                "audio_harness.vad_progress",
-                "audio_harness.vad_progress",
-            ]
-            assert [event["processed_audio_ms"] for event in progress] == [
-                pytest.approx(3_200 / 2 / 16_000 * 1_000),
-                pytest.approx(3_200 / 16_000 * 1_000),
-            ]
 
 
 def test_realtime_rejects_manual_commit_without_closing_connection() -> None:

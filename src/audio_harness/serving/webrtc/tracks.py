@@ -4,6 +4,8 @@ import asyncio
 import fractions
 import time
 
+import numpy as np
+import soxr
 from aiortc import AudioStreamTrack, MediaStreamError, MediaStreamTrack
 from av import AudioFrame
 from av.audio.resampler import AudioResampler
@@ -24,9 +26,73 @@ class ServerAudioTrack(AudioStreamTrack):
         )
         self._start: float | None = None
         self._timestamp = 0
+        self._pcm_buffer = bytearray()
+        self._epoch = 0
+        self._audio_lock = asyncio.Lock()
 
     async def enqueue(self, frame: AudioFrame) -> None:
         await self._queue.put(frame)
+
+    async def enqueue_pcm_s16le(
+        self,
+        pcm: bytes,
+        sample_rate: int,
+        epoch: int,
+    ) -> None:
+        if not pcm or len(pcm) % 2 or sample_rate <= 0:
+            raise ValueError("输出音频必须是有效的 PCM S16LE")
+        samples = np.frombuffer(pcm, dtype="<i2")
+        converted = (
+            samples
+            if sample_rate == _OUTPUT_SAMPLE_RATE
+            else soxr.resample(
+                samples,
+                sample_rate,
+                _OUTPUT_SAMPLE_RATE,
+                quality="HQ",
+            )
+        )
+        data = converted.astype("<i2", copy=False).tobytes()
+        async with self._audio_lock:
+            if epoch != self._epoch:
+                return
+            self._pcm_buffer.extend(data)
+            frame_bytes = _OUTPUT_FRAME_SAMPLES * 2
+            while len(self._pcm_buffer) >= frame_bytes:
+                chunk = bytes(self._pcm_buffer[:frame_bytes])
+                del self._pcm_buffer[:frame_bytes]
+                frame = AudioFrame.from_ndarray(
+                    np.frombuffer(chunk, dtype="<i2").reshape(1, -1),
+                    format="s16",
+                    layout="mono",
+                )
+                frame.sample_rate = _OUTPUT_SAMPLE_RATE
+                await self._queue.put(frame)
+
+    async def clear(self, epoch: int) -> None:
+        async with self._audio_lock:
+            self._epoch = epoch
+            self._pcm_buffer.clear()
+            while not self._queue.empty():
+                self._queue.get_nowait()
+
+    async def finish(self, epoch: int) -> None:
+        async with self._audio_lock:
+            if epoch != self._epoch or not self._pcm_buffer:
+                return
+            frame_bytes = _OUTPUT_FRAME_SAMPLES * 2
+            self._pcm_buffer.extend(
+                bytes(frame_bytes - len(self._pcm_buffer))
+            )
+            chunk = bytes(self._pcm_buffer)
+            self._pcm_buffer.clear()
+            frame = AudioFrame.from_ndarray(
+                np.frombuffer(chunk, dtype="<i2").reshape(1, -1),
+                format="s16",
+                layout="mono",
+            )
+            frame.sample_rate = _OUTPUT_SAMPLE_RATE
+            await self._queue.put(frame)
 
     async def recv(self) -> AudioFrame:
         if self.readyState != "live":

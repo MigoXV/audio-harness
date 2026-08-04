@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hmac
 import json
 import logging
 from collections.abc import Awaitable, Callable
@@ -18,12 +17,16 @@ from aiortc import (
 )
 from openai.types.realtime import (
     RealtimeClientEvent,
+    RealtimeSessionCreateRequest,
     RealtimeTranscriptionSessionCreateRequest,
 )
 from pydantic import TypeAdapter, ValidationError
 
 from audio_harness.config import WebRtcConfig
+from audio_harness.capacity import ResizableConcurrencyLimiter
 from audio_harness.domain import CapacityExceededError
+from audio_harness.engines.router import EngineRouter
+from audio_harness.pipelines.service import ActivePipelineSnapshot, PipelineStore
 from audio_harness.serving.realtime.session import (
     RealtimeTranscriptionSession,
     default_transcription_session,
@@ -36,7 +39,10 @@ from audio_harness.sessions import (
     TranscriptionSessionReservation,
     TranscriptionSessionService,
 )
+from audio_harness.serving.realtime.tools import ToolRegistry
+from audio_harness.serving.realtime.agent import VoiceResolver
 from audio_harness.workflow_settings import WorkflowSettingsStore
+from audio_harness.workflow_types import WorkflowKind
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +68,22 @@ class WebRtcCall:
         webrtc_config: WebRtcConfig,
         session_service: TranscriptionSessionService,
         workflow_settings: WorkflowSettingsStore,
+        pipeline_store: PipelineStore,
         reservation: TranscriptionSessionReservation,
         reservation_context: Any,
-        initial_session: RealtimeTranscriptionSessionCreateRequest,
+        initial_session: (
+            RealtimeTranscriptionSessionCreateRequest
+            | RealtimeSessionCreateRequest
+            | None
+        ),
+        pipeline: ActivePipelineSnapshot,
+        model: str,
+        engine_router: EngineRouter,
+        responses_limiter: ResizableConcurrencyLimiter | None,
+        tts_limiter: ResizableConcurrencyLimiter | None,
+        tool_registry: ToolRegistry,
+        voice_resolver: VoiceResolver | None,
+        diagnostics_enabled: bool,
         on_closed: Callable[[str], Awaitable[None]],
     ) -> None:
         self.call_id = call_id
@@ -85,9 +104,20 @@ class WebRtcCall:
             send_event=self._send_event,
             session_service=session_service,
             workflow_settings=workflow_settings,
-            model="gpt-4o-transcribe",
+            pipeline_store=pipeline_store,
+            model=model,
             initial_session=initial_session,
             reservation=reservation,
+            diagnostics_enabled=diagnostics_enabled,
+            pipeline=pipeline,
+            engine_router=engine_router,
+            responses_limiter=responses_limiter,
+            tts_limiter=tts_limiter,
+            tool_registry=tool_registry,
+            send_audio=self._output_track.enqueue_pcm_s16le,
+            clear_audio=self._output_track.clear,
+            voice_resolver=voice_resolver,
+            finish_audio=self._output_track.finish,
         )
         self._chunk_bytes = workflow_settings.current().config.min_chunk_bytes
         self._install_handlers()
@@ -131,7 +161,11 @@ class WebRtcCall:
             if self._closed:
                 return
             self._closed = True
-            logger.info("关闭 WebRTC call: call_id=%s reason=%s", self.call_id, reason)
+            logger.info(
+                "关闭 WebRTC call: call_id=%s reason=%s",
+                self.call_id,
+                reason,
+            )
             current = asyncio.current_task()
             for task in list(self._tasks):
                 if task is not current and not task.done():
@@ -273,9 +307,14 @@ class WebRtcCall:
         channel = self._data_channel
         if channel is None or channel.readyState != "open":
             raise RuntimeError("oai-events DataChannel 尚未打开")
+        payload = (
+            event.model_dump(mode="json", exclude_none=True)
+            if hasattr(event, "model_dump")
+            else event
+        )
         channel.send(
             json.dumps(
-                event.model_dump(mode="json", exclude_none=True),
+                payload,
                 ensure_ascii=False,
             )
         )
@@ -304,14 +343,24 @@ class WebRtcCallService:
         config: WebRtcConfig,
         session_service: TranscriptionSessionService,
         workflow_settings: WorkflowSettingsStore,
-        api_key: str,
+        pipeline_store: PipelineStore,
         max_message_bytes: int,
+        engine_router: EngineRouter | None = None,
+        responses_limiter: ResizableConcurrencyLimiter | None = None,
+        tts_limiter: ResizableConcurrencyLimiter | None = None,
+        tool_registry: ToolRegistry | None = None,
+        voice_resolver: VoiceResolver | None = None,
     ) -> None:
         self._config = config
         self._session_service = session_service
         self._workflow_settings = workflow_settings
-        self._api_key = api_key
+        self._pipeline_store = pipeline_store
         self._max_message_bytes = max_message_bytes
+        self._engine_router = engine_router or session_service._engine_router
+        self._responses_limiter = responses_limiter
+        self._tts_limiter = tts_limiter
+        self._tool_registry = tool_registry or ToolRegistry()
+        self._voice_resolver = voice_resolver
         self._calls: dict[str, WebRtcCall] = {}
         self._lock = asyncio.Lock()
         self._closed = False
@@ -334,17 +383,17 @@ class WebRtcCallService:
     def active_calls(self) -> int:
         return len(self._calls)
 
-    def authorize(self, authorization: str) -> bool:
-        return hmac.compare_digest(
-            authorization,
-            f"Bearer {self._api_key}",
-        )
-
     async def create_call(
         self,
         *,
         offer_sdp: str,
-        session: RealtimeTranscriptionSessionCreateRequest | None,
+        session: (
+            RealtimeTranscriptionSessionCreateRequest
+            | RealtimeSessionCreateRequest
+            | None
+        ),
+        model: str = "gpt-4o-transcribe",
+        diagnostics_enabled: bool = False,
     ) -> WebRtcCallAnswer:
         if self._closed:
             raise RuntimeError("WebRTC 服务正在关闭")
@@ -352,14 +401,27 @@ class WebRtcCallService:
             raise ValueError("sdp 不能为空")
         if len(offer_sdp.encode("utf-8")) > self._max_message_bytes:
             raise ValueError("sdp 超过 max_message_bytes")
-        workflow = self._workflow_settings.current().config
-        initial_session = session or default_transcription_session(
-            model="gpt-4o-transcribe",
-            language=workflow.default_language_code,
-            prefix_padding_ms=round(
-                workflow.speech_pre_roll_seconds * 1000
-            ),
+        resolver = getattr(self._pipeline_store, "resolve_model", None)
+        pipeline = (
+            resolver(model)
+            if resolver is not None
+            else self._pipeline_store.current()
         )
+        workflow = self._workflow_settings.current().config
+        physical_vad = next(
+            node.config
+            for node in pipeline.plan.nodes.values()
+            if node.node_type.type == "physical_vad"
+        )
+        initial_session = session
+        if initial_session is None and pipeline.kind is WorkflowKind.TRANSCRIPTION:
+            initial_session = default_transcription_session(
+                model=model,
+                language=workflow.default_language_code,
+                prefix_padding_ms=round(
+                    physical_vad.speech_pre_roll_seconds * 1000
+                ),
+            )
         call_id = f"call_{uuid4().hex}"
         reservation_context = self._session_service.reserve()
         try:
@@ -372,9 +434,18 @@ class WebRtcCallService:
             webrtc_config=self._config,
             session_service=self._session_service,
             workflow_settings=self._workflow_settings,
+            pipeline_store=self._pipeline_store,
             reservation=reservation,
             reservation_context=reservation_context,
             initial_session=initial_session,
+            pipeline=pipeline,
+            model=model,
+            engine_router=self._engine_router,
+            responses_limiter=self._responses_limiter,
+            tts_limiter=self._tts_limiter,
+            tool_registry=self._tool_registry,
+            voice_resolver=self._voice_resolver,
+            diagnostics_enabled=diagnostics_enabled,
             on_closed=self._discard,
         )
         try:

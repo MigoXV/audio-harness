@@ -6,29 +6,21 @@ from pydantic import ValidationError
 from audio_harness.config import AppConfig, parse_ice_servers_json
 
 
-def test_load_config_expands_environment(
-    tmp_path: Path,
+def test_load_config_from_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(
-        "TEST_DATABASE_URL",
+        "DATABASE_URL",
         "sqlite+aiosqlite:///./data/test.db",
     )
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        """
-database:
-  url: ${TEST_DATABASE_URL}
-""",
-        encoding="utf-8",
-    )
+    monkeypatch.setenv("VOICE_STORAGE_DIR", "./data/test-voices")
 
-    config = AppConfig.load(config_path)
+    config = AppConfig.from_environment()
 
     assert config.database.url == "sqlite+aiosqlite:///./data/test.db"
-    assert config.workflow.min_chunk_bytes == 6400
-    assert config.workflow.audio_buffer_seconds == 120
-    assert config.workflow.speech_pre_roll_seconds == 0.3
+    assert config.voices.storage_dir == Path("data/test-voices")
+    assert config.voices.max_upload_bytes == 20 * 1024 * 1024
+    assert config.workflow.min_chunk_bytes == 640
     assert config.grpc.port == 50051
     assert config.http.port == 8000
     assert config.limits.max_message_bytes == 4 * 1024 * 1024
@@ -49,28 +41,6 @@ def test_rejects_non_async_sqlite_database() -> None:
         AppConfig.model_validate(
             {
                 "database": {"url": "sqlite:///./data/test.db"},
-            }
-        )
-
-
-def test_rejects_negative_speech_pre_roll() -> None:
-    with pytest.raises(ValidationError, match="speech_pre_roll_seconds"):
-        AppConfig.model_validate(
-            {
-                "workflow": {"speech_pre_roll_seconds": -0.1},
-            }
-        )
-
-
-def test_rejects_audio_buffer_shorter_than_segment_window() -> None:
-    with pytest.raises(ValidationError, match="audio_buffer_seconds"):
-        AppConfig.model_validate(
-            {
-                "workflow": {
-                    "audio_buffer_seconds": 60,
-                    "max_segment_seconds": 60,
-                    "speech_pre_roll_seconds": 0.3,
-                },
             }
         )
 

@@ -30,13 +30,13 @@ export default defineConfig(({ command, mode }) => {
   const certPath = resolve(
     projectRoot,
     env.REALTIME_DEMO_TLS_CERT_FILE ||
-      env.AUDIO_HARNESS_HTTP_TLS_CERT_FILE ||
+      env.HTTP_TLS_CERT_FILE ||
       "model-bin/realtime-tls/cert.pem",
   );
   const keyPath = resolve(
     projectRoot,
     env.REALTIME_DEMO_TLS_KEY_FILE ||
-      env.AUDIO_HARNESS_HTTP_TLS_KEY_FILE ||
+      env.HTTP_TLS_KEY_FILE ||
       "model-bin/realtime-tls/key.pem",
   );
   const cert = readFileSync(certPath);

@@ -1,2 +1,0 @@
-database:
-  url: sqlite+aiosqlite:///./data-bin/sqlite/audio-harness.db

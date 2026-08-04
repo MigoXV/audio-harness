@@ -8,12 +8,11 @@
       "module": "audio_harness.commands.app",
       "args": [
         "serve",
-        "--config",
-        "${workspaceFolder}/configs/asr-vad.yaml"
       ],
       "envFile": "${workspaceFolder}/.env",
       "console": "integratedTerminal",
-      "justMyCode": true
+      "justMyCode": true,
+      "preLaunchTask": "Audio Harness: build web"
     }
   ]
 }

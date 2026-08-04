@@ -47,5 +47,8 @@ class GrpcInferencerBase:
                 f"连接推理能力超时: {self.endpoint.target}"
             ) from exc
 
+    async def probe(self) -> None:
+        await self.ready()
+
     async def close(self) -> None:
         await self.channel.close()

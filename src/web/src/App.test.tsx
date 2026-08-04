@@ -1,219 +1,133 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
-import type {
-  AudioHarnessApi,
-  CapacitySettings,
-  EngineAsset,
-  EngineBinding,
-  EngineFilters,
-  WorkflowSettings,
-} from "./api/types";
+import type { AudioHarnessApi, StageWorkflowDefinition } from "./api/types";
 
-function asset(
-  id: string,
-  name: string,
-  api: EngineAsset["api"],
-): EngineAsset {
-  return {
-    id,
-    slug: id,
-    name,
-    kind: api === "ux_vad" ? "vad" : "asr",
-    api,
-    protocol: "grpc",
-    target: api === "ux_vad" ? "127.0.0.1:50053" : "127.0.0.1:50052",
-    connect_timeout_seconds: 10,
-    request_timeout_seconds: null,
-    enabled: true,
-    status: "confirmed_running",
-    image: null,
-    description: "测试引擎",
-    status_basis: null,
-    status_observed_at: null,
-    source: "test",
-    details: {},
-    revision: 1,
-    created_at: "2026-01-01T00:00:00Z",
-    updated_at: "2026-01-01T00:00:00Z",
-  };
-}
+const definition: StageWorkflowDefinition = {
+  schema_version: 2,
+  stages: {
+    physical_vad: { engine_id: "vad-1", config: { min_segment_seconds: .5, max_segment_seconds: 60, audio_buffer_seconds: 120, speech_pre_roll_seconds: .3 } },
+    semantic_vad: null,
+    asr: { engine_id: "asr-1", config: {} },
+    responses_agent: { engine_id: "llm-1", config: { model: "model-a", thinking_enabled: false, instructions: "", max_output_tokens: 1024, max_tool_rounds: 8, max_parallel_tools: 4, tool_timeout_seconds: 30, service_tools: [], mcp_servers: [], history_max_items: 128 } },
+    duplex_tts: { engine_id: "tts-1", config: { default_voice: "voice-a", allowed_voices: ["voice-a"], language: "Auto", decoder_chunk_size: 0 } },
+  },
+};
 
 function fakeApi() {
-  const assets = [
-    asset("asr-engine", "Qwen ASR", "ux_speech"),
-    asset("vad-engine", "FireRed VAD", "ux_vad"),
-  ];
-  const listEngines = vi.fn(
-    async (filters: EngineFilters = {}) => {
-      const items = filters.api
-        ? assets.filter((item) => item.api === filters.api)
-        : assets;
-      return {
-        items,
-        total: items.length,
-        limit: filters.limit ?? 50,
-        offset: filters.offset ?? 0,
-      };
-    },
-  );
-  const emptyBindings: EngineBinding[] = [
-    { role: "asr", engine: null, generation: 0, updated_at: null },
-    { role: "vad", engine: null, generation: 0, updated_at: null },
-    {
-      role: "semantic_vad",
-      engine: null,
-      generation: 0,
-      updated_at: null,
-    },
-  ];
-  const workflow: WorkflowSettings = {
-    min_chunk_bytes: 6400,
-    min_segment_seconds: 0.5,
-    max_segment_seconds: 60,
-    audio_buffer_seconds: 120,
-    speech_pre_roll_seconds: 0.3,
-    default_language_code: "zh-CN",
-    audio_queue_capacity: 32,
-    segment_queue_capacity: 8,
-    result_queue_capacity: 32,
-    revision: 1,
-    updated_at: "2026-01-01T00:00:00Z",
-  };
-  const capacity: CapacitySettings = {
-    grpc: { max_sessions: 64 },
-    realtime: { max_sessions: 64 },
-    webrtc: { max_sessions: 64 },
-    max_asr_concurrency: 8,
-    revision: 1,
-    updated_at: "2026-01-01T00:00:00Z",
-  };
-  const api: AudioHarnessApi = {
-    listEngines,
-    createEngine: vi.fn(),
-    updateEngine: vi.fn(),
-    deleteEngine: vi.fn(),
-    listBindings: vi.fn(async () => emptyBindings),
-    bind: vi.fn(),
-    unbind: vi.fn(),
-    getReadiness: vi.fn(async () => ({
-      status: "not_ready",
-      database: "ready",
-      data_plane: "not_ready",
-      problems: ["ASR 未绑定", "VAD 未绑定"],
-    })),
-    getWorkflowSettings: vi.fn(async () => workflow),
-    updateWorkflowSettings: vi.fn(async (payload) => ({
-      ...payload,
-      revision: payload.revision + 1,
-      updated_at: "2026-01-02T00:00:00Z",
-    })),
-    getCapacitySettings: vi.fn(async () => capacity),
-    updateCapacitySettings: vi.fn(async (payload) => ({
-      ...payload,
-      revision: payload.revision + 1,
-      updated_at: "2026-01-02T00:00:00Z",
-    })),
-  };
-  return { api, listEngines };
+  const saveManagedWorkflowDraft = vi.fn().mockImplementation(async (_id, next, revision) => ({ workflow_id: "wf-1", definition: next, revision: revision + 1, updated_at: "2026-08-04T00:00:00Z", active_revision: 1 }));
+  const createManagedWorkflow = vi.fn().mockResolvedValue({ workflow_id: "wf-new", definition, revision: 1, updated_at: "2026-08-04T00:00:00Z", active_revision: null });
+  const api = {
+    getReadiness: vi.fn().mockResolvedValue({ status: "ready", database: "ready", data_plane: "ready", problems: [], pipeline_revision: 1, nodes: [] }),
+    listWorkflows: vi.fn().mockResolvedValue([{ id: "wf-1", slug: "voice-agent", name: "客服 Agent", kind: "voice_agent", description: null, draft_revision: 2, active_revision: 1, created_at: "2026-08-04T00:00:00Z", updated_at: "2026-08-04T00:00:00Z" }]),
+    getWorkflowStatus: vi.fn().mockResolvedValue({ workflow_id: "wf-1", state: "published_healthy", draft_revision: 2, active_revision: 1, has_unpublished_changes: false, public_models: ["voice-agent"], diagnostics: [], stages: [
+      { stage: "physical_vad", engine_id: "vad-1", engine_name: "VAD", health: "healthy", reason: null, checked_at: "2026-08-04T00:00:00Z" },
+      { stage: "asr", engine_id: "asr-1", engine_name: "ASR", health: "healthy", reason: null, checked_at: "2026-08-04T00:00:00Z" },
+      { stage: "responses_agent", engine_id: "llm-1", engine_name: "LLM", health: "healthy", reason: null, checked_at: "2026-08-04T00:00:00Z" },
+      { stage: "duplex_tts", engine_id: "tts-1", engine_name: "TTS", health: "healthy", reason: null, checked_at: "2026-08-04T00:00:00Z" },
+    ] }),
+    getManagedWorkflowDraft: vi.fn().mockResolvedValue({ workflow_id: "wf-1", definition, revision: 2, updated_at: "2026-08-04T00:00:00Z", active_revision: 1 }),
+    saveManagedWorkflowDraft,
+    createManagedWorkflow,
+    listWorkflowRevisions: vi.fn().mockResolvedValue([]),
+    listEngines: vi.fn().mockResolvedValue({ items: [
+      { id: "vad-1", slug: "vad", name: "VAD", kind: "vad", api: "ux_vad", protocol: "grpc", target: "127.0.0.1:1", connect_timeout_seconds: 10, request_timeout_seconds: null, enabled: true, status: "healthy", image: null, description: null, status_basis: "后台连通性校验通过", status_observed_at: "2026-08-04T00:00:00Z", source: null, details: {}, revision: 1, created_at: "2026-08-04T00:00:00Z", updated_at: "2026-08-04T00:00:00Z" },
+      { id: "asr-1", slug: "asr", name: "ASR", kind: "asr", api: "ux_speech", protocol: "grpc", target: "127.0.0.1:2", connect_timeout_seconds: 10, request_timeout_seconds: null, enabled: true, status: "healthy", image: null, description: null, status_basis: null, status_observed_at: null, source: null, details: {}, revision: 1, created_at: "2026-08-04T00:00:00Z", updated_at: "2026-08-04T00:00:00Z" },
+    ], total: 2, limit: 200, offset: 0 }),
+    getRuntimeStatus: vi.fn().mockResolvedValue({ grpc: { active: 1, capacity: 64, rejected: 0 }, realtime: { active: 2, capacity: 64, rejected: 1 }, webrtc: { active: 1, capacity: 64, rejected: 0 }, asr: { active: 2, capacity: 8, rejected: 0 }, responses: { active: 1, capacity: 8, rejected: 0 }, tts: { active: 1, capacity: 1, rejected: 2 }, started_at: "2026-08-04T00:00:00Z" }),
+    getCapacitySettings: vi.fn().mockResolvedValue({ grpc: { max_sessions: 64 }, realtime: { max_sessions: 64 }, webrtc: { max_sessions: 64 }, max_asr_concurrency: 8, max_responses_concurrency: 8, max_tts_concurrency: 1, revision: 1, updated_at: "2026-08-04T00:00:00Z" }),
+    getWorkflowSettings: vi.fn().mockResolvedValue({ min_chunk_bytes: 640, default_language_code: "zh-CN", audio_queue_capacity: 32, segment_queue_capacity: 8, result_queue_capacity: 32, revision: 1, updated_at: "2026-08-04T00:00:00Z" }),
+    updateCapacitySettings: vi.fn(), updateWorkflowSettings: vi.fn(), createEngine: vi.fn(), updateEngine: vi.fn(), deleteEngine: vi.fn(), listNodeTypes: vi.fn(), getPipeline: vi.fn(), updatePipelineDraft: vi.fn(), validatePipeline: vi.fn(), activatePipeline: vi.fn(), getActivePipeline: vi.fn(),
+  } as unknown as AudioHarnessApi;
+  return { api, saveManagedWorkflowDraft, createManagedWorkflow };
 }
 
-describe("Audio Harness workbench", () => {
-  it("loads engine assets and exposes compatible binding choices", async () => {
-    const { api } = fakeApi();
-    render(<App api={api} />);
+function renderApp(api: AudioHarnessApi, path = "/") {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={[path]}><App api={api} /></MemoryRouter></QueryClientProvider>);
+}
 
-    expect((await screen.findAllByText("Qwen ASR")).length).toBeGreaterThan(0);
-    const asrSelect = screen.getByLabelText("语音识别候选引擎");
-    const vadSelect = screen.getByLabelText("物理 VAD候选引擎");
-
-    expect(asrSelect).toHaveTextContent("Qwen ASR");
-    expect(asrSelect).not.toHaveTextContent("FireRed VAD");
-    expect(vadSelect).toHaveTextContent("FireRed VAD");
-    expect(vadSelect).not.toHaveTextContent("Qwen ASR");
+describe("Audio Harness v2 control plane", () => {
+  it("uses workflows as the product home", async () => {
+    const { api } = fakeApi(); renderApp(api);
+    expect(await screen.findByRole("heading", { name: "实时语音工作流" })).toBeVisible();
+    expect(await screen.findByText("客服 Agent")).toBeVisible();
+    expect(screen.getByText("运行健康")).toBeVisible();
   });
 
-  it("keeps kind and interface consistent in the create form", async () => {
-    const { api } = fakeApi();
-    render(<App api={api} />);
-    await screen.findAllByText("Qwen ASR");
-
-    fireEvent.click(screen.getByRole("button", { name: "新建引擎" }));
-    fireEvent.change(screen.getByLabelText("引擎类型"), {
-      target: { value: "vad" },
-    });
-
-    expect(screen.getByLabelText("接口")).toHaveValue("ux_vad");
+  it("creates a workflow whose public model follows the slug", async () => {
+    const { api, createManagedWorkflow } = fakeApi(); renderApp(api, "/workflows");
+    fireEvent.click(await screen.findByRole("button", { name: "新建工作流" }));
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "新的 Agent" } });
+    fireEvent.change(screen.getByPlaceholderText("customer-service-agent"), { target: { value: "new-agent" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建并进入构建" }));
+    await waitFor(() => expect(createManagedWorkflow).toHaveBeenCalledWith(expect.objectContaining({ slug: "new-agent", kind: "voice_agent" })));
   });
 
-  it("debounces server-side search filters", async () => {
-    const { api, listEngines } = fakeApi();
-    render(<App api={api} />);
-    await screen.findAllByText("Qwen ASR");
-
-    fireEvent.change(screen.getByPlaceholderText("搜索名称、slug 或 gRPC 地址"), {
-      target: { value: "qwen" },
-    });
-
-    await waitFor(() => {
-      expect(listEngines).toHaveBeenCalledWith(
-        expect.objectContaining({ q: "qwen" }),
-        expect.any(AbortSignal),
-      );
-    });
-  });
-
-  it("edits and saves workflow settings as one revision", async () => {
-    const { api } = fakeApi();
-    render(<App api={api} />);
-    await screen.findAllByText("Qwen ASR");
-
-    fireEvent.click(screen.getByRole("button", { name: "工作流" }));
-    expect(await screen.findByRole("heading", { name: "工作流设置" })).toBeVisible();
-
-    fireEvent.change(screen.getByLabelText("轮转音频缓冲"), {
-      target: { value: "180" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
-
-    await waitFor(() => {
-      expect(api.updateWorkflowSettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          audio_buffer_seconds: 180,
-          revision: 1,
+  it("renders the constrained runtime topology and autosaves typed fields", async () => {
+    const { api, saveManagedWorkflowDraft } = fakeApi(); renderApp(api, "/workflows/wf-1/build");
+    expect(await screen.findByRole("heading", { name: "真实运行拓扑" })).toBeVisible();
+    expect(screen.getByText("双向流式 TTS", { selector: ".topology-node strong" })).toBeVisible();
+    expect(screen.getByLabelText("启用思考（默认关闭）")).not.toBeChecked();
+    fireEvent.click(screen.getByLabelText("启用思考（默认关闭）"));
+    fireEvent.change(screen.getByLabelText("模型名称"), { target: { value: "model-b" } });
+    await waitFor(() => expect(saveManagedWorkflowDraft).toHaveBeenCalled(), { timeout: 1800 });
+    expect(saveManagedWorkflowDraft).toHaveBeenLastCalledWith(
+      "wf-1",
+      expect.objectContaining({
+        stages: expect.objectContaining({
+          responses_agent: expect.objectContaining({
+            config: expect.objectContaining({ thinking_enabled: true }),
+          }),
         }),
-      );
-    });
-    expect(
-      await screen.findByText("工作流设置已保存；新会话立即使用这份配置。"),
-    ).toBeVisible();
+      }),
+      2,
+    );
   });
 
-  it("edits protocol and shared capacity separately", async () => {
-    const { api } = fakeApi();
-    render(<App api={api} />);
-    await screen.findAllByText("Qwen ASR");
+  it("shows WSS and WebRTC in the built-in test console", async () => {
+    const { api } = fakeApi(); renderApp(api, "/workflows/wf-1/test");
+    expect(await screen.findByRole("heading", { name: "端到端实时测试" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "WebRTC" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "WSS" })).toBeVisible();
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "容量" }));
-    expect(await screen.findByRole("heading", { name: "容量设置" })).toBeVisible();
+  it("reviews the release snapshot before publishing", async () => {
+    const { api } = fakeApi(); renderApp(api, "/workflows/wf-1/publish");
+    expect(await screen.findByRole("heading", { name: "重新发布当前草稿" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "运行阶段快照" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "检查并发布" }));
+    expect(await screen.findByRole("alertdialog", { name: "确认重新发布当前草稿？" })).toBeVisible();
+    expect(screen.getByText("若检查或激活失败，当前运行版本不会改变。", { exact: false })).toBeVisible();
+  });
 
-    fireEvent.change(screen.getByLabelText("Realtime 最大会话"), {
-      target: { value: "32" },
-    });
-    fireEvent.change(screen.getByLabelText("最大 ASR 并发"), {
-      target: { value: "4" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  it("shows live capacity and rejects", async () => {
+    const { api } = fakeApi(); renderApp(api, "/runtime");
+    expect(await screen.findByRole("heading", { name: "运行状态与容量" })).toBeVisible();
+    expect(screen.getByText(/累计拒绝 2/)).toBeVisible();
+    expect(screen.getByText("TTS 可能成为容量瓶颈")).toBeVisible();
+  });
 
-    await waitFor(() => {
-      expect(api.updateCapacitySettings).toHaveBeenCalledWith({
-        grpc: { max_sessions: 64 },
-        realtime: { max_sessions: 32 },
-        webrtc: { max_sessions: 64 },
-        max_asr_concurrency: 4,
-        revision: 1,
-      });
-    });
+  it("uses the new engine console", async () => {
+    const { api } = fakeApi(); renderApp(api, "/engines");
+    expect(await screen.findByRole("heading", { name: "推理引擎" })).toBeVisible();
+    expect(await screen.findByText("后台连通性校验通过")).toBeVisible();
+  });
+
+  it("confirms an engine deletion in an accessible dialog", async () => {
+    const { api } = fakeApi(); renderApp(api, "/engines");
+    await screen.findByRole("heading", { name: "推理引擎" });
+    fireEvent.click((await screen.findAllByRole("button", { name: "删除" }))[0]);
+    expect(await screen.findByRole("alertdialog", { name: "删除引擎？" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("has a safe unknown route", () => {
+    const { api } = fakeApi(); renderApp(api, "/missing");
+    expect(screen.getByRole("link", { name: "返回工作流" })).toBeVisible();
   });
 });

@@ -23,12 +23,12 @@ dependencies = [
     "av (>=17.1.0,<18.0.0)",
     "python-multipart (>=0.0.32,<1.0.0)",
     "pydantic (>=2.13.0,<3.0.0)",
-    "pyyaml (>=6.0.2,<7.0.0)",
     "typer (>=0.20.0,<0.21.0)",
     "sqlalchemy[asyncio] (>=2.0.43,<3.0.0)",
     "aiosqlite (>=0.21.0,<1.0.0)",
     "alembic (>=1.16.5,<2.0.0)",
-    "soxr (>=1.1.0,<2.0.0)"
+    "soxr (>=1.1.0,<2.0.0)",
+    "networkx (>=3.4,<3.5)"
 ]
 
 [project.scripts]

@@ -3,13 +3,24 @@ import type {
   CapacitySettings,
   CapacitySettingsUpdate,
   EngineAsset,
-  EngineBinding,
   EngineFilters,
   EngineListResponse,
-  EngineRole,
+  EngineValidation,
   HealthStatus,
+  NodeTypeDefinition,
+  PipelineDraft,
+  PipelineRevision,
+  PipelineValidation,
   WorkflowSettings,
   WorkflowSettingsUpdate,
+  WorkflowCreatePayload,
+  WorkflowSummary,
+  ModelRoute,
+  ManagedWorkflowCreatePayload,
+  ManagedWorkflowDraft,
+  StageWorkflowDefinition,
+  WorkflowStatus,
+  RuntimeStatus,
 } from "./types";
 
 interface ErrorEnvelope {
@@ -60,7 +71,11 @@ async function request<T>(
   }
   headers.set("Accept", "application/json");
 
-  const response = await fetch(path, { ...init, headers });
+  const response = await fetch(path, {
+    credentials: "same-origin",
+    ...init,
+    headers,
+  });
   const body = await parseBody(response);
   if (!response.ok) {
     const envelope = body as ErrorEnvelope;
@@ -85,12 +100,24 @@ function engineQuery(filters: EngineFilters): string {
   return query ? `?${query}` : "";
 }
 
+function workflowPath(workflowId: string | undefined, suffix = ""): string {
+  return workflowId
+    ? `/api/v1/workflows/${encodeURIComponent(workflowId)}${suffix}`
+    : `/api/v1/pipeline${suffix}`;
+}
+
 export const apiClient: AudioHarnessApi = {
   listEngines(filters = {}, signal) {
     return request<EngineListResponse>(
       `/api/v1/engines${engineQuery(filters)}`,
       { signal },
     );
+  },
+
+  getEngine(engineId, signal) {
+    return request<EngineAsset>(`/api/v1/engines/${engineId}`, {
+      signal,
+    });
   },
 
   createEngine(payload) {
@@ -113,19 +140,84 @@ export const apiClient: AudioHarnessApi = {
     });
   },
 
-  listBindings(signal) {
-    return request<EngineBinding[]>("/api/v1/engine-bindings", { signal });
-  },
-
-  bind(role, engineId) {
-    return request<EngineBinding>(`/api/v1/engine-bindings/${role}`, {
-      method: "PUT",
-      body: JSON.stringify({ engine_id: engineId }),
+  validateEngines() {
+    return request<EngineValidation>("/api/v1/engines/validate", {
+      method: "POST",
     });
   },
 
-  async unbind(role: EngineRole) {
-    await request<void>(`/api/v1/engine-bindings/${role}`, {
+  listNodeTypes(signal) {
+    return request<NodeTypeDefinition[]>("/api/v1/node-types", { signal });
+  },
+
+  getPipeline(signal, workflowId) {
+    return request<PipelineDraft>(
+      workflowId
+        ? workflowPath(workflowId, "/draft")
+        : "/api/v1/pipeline",
+      { signal },
+    );
+  },
+
+  updatePipelineDraft(definition, expectedRevision, workflowId) {
+    return request<PipelineDraft>(workflowPath(workflowId, "/draft"), {
+      method: "PUT",
+      body: JSON.stringify({
+        definition,
+        expected_revision: expectedRevision,
+      }),
+    });
+  },
+
+  validatePipeline(workflowId) {
+    return request<PipelineValidation>(workflowPath(workflowId, "/validate"), {
+      method: "POST",
+    });
+  },
+
+  activatePipeline(expectedRevision, workflowId) {
+    return request<PipelineRevision>(workflowPath(workflowId, "/activate"), {
+      method: "POST",
+      body: JSON.stringify({ expected_revision: expectedRevision }),
+    });
+  },
+
+  getActivePipeline(signal, workflowId) {
+    return request<PipelineRevision>(workflowPath(workflowId, "/active"), {
+      signal,
+    });
+  },
+
+  listWorkflows(signal) {
+    return request<WorkflowSummary[]>("/api/v1/workflows", { signal });
+  },
+
+  createWorkflow(payload: WorkflowCreatePayload) {
+    return request<PipelineDraft>("/api/v1/workflows", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async deleteWorkflow(workflowId) {
+    await request<void>(`/api/v1/workflows/${encodeURIComponent(workflowId)}`, {
+      method: "DELETE",
+    });
+  },
+
+  listModelRoutes(signal) {
+    return request<ModelRoute[]>("/api/v1/model-routes", { signal });
+  },
+
+  putModelRoute(route) {
+    return request<ModelRoute>(
+      `/api/v1/model-routes/${encodeURIComponent(route.model)}`,
+      { method: "PUT", body: JSON.stringify(route) },
+    );
+  },
+
+  async deleteModelRoute(model) {
+    await request<void>(`/api/v1/model-routes/${encodeURIComponent(model)}`, {
       method: "DELETE",
     });
   },
@@ -171,14 +263,111 @@ export const apiClient: AudioHarnessApi = {
       body: JSON.stringify(payload),
     });
   },
+
+  createManagedWorkflow(payload: ManagedWorkflowCreatePayload) {
+    return request<ManagedWorkflowDraft>("/api/v1/workflows", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  getManagedWorkflowDraft(workflowId, signal) {
+    return request<ManagedWorkflowDraft>(
+      `/api/v1/workflows/${encodeURIComponent(workflowId)}/draft`,
+      { signal },
+    );
+  },
+
+  saveManagedWorkflowDraft(workflowId, definition: StageWorkflowDefinition, expectedRevision) {
+    return request<ManagedWorkflowDraft>(
+      `/api/v1/workflows/${encodeURIComponent(workflowId)}/draft`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          definition,
+          expected_revision: expectedRevision,
+        }),
+      },
+    );
+  },
+
+  publishWorkflow(workflowId, expectedRevision) {
+    return request<PipelineRevision>(
+      `/api/v1/workflows/${encodeURIComponent(workflowId)}/publish`,
+      {
+        method: "POST",
+        body: JSON.stringify({ expected_revision: expectedRevision }),
+      },
+    );
+  },
+
+  getWorkflowStatus(workflowId, signal) {
+    return request<WorkflowStatus>(
+      `/api/v1/workflows/${encodeURIComponent(workflowId)}/status`,
+      { signal },
+    );
+  },
+
+  listWorkflowRevisions(workflowId, signal) {
+    return request<PipelineRevision[]>(
+      `/api/v1/workflows/${encodeURIComponent(workflowId)}/revisions`,
+      { signal },
+    );
+  },
+
+  restoreWorkflowRevision(workflowId, revision, expectedRevision) {
+    return request<ManagedWorkflowDraft>(
+      `/api/v1/workflows/${encodeURIComponent(workflowId)}/revisions/${revision}/restore`,
+      {
+        method: "POST",
+        body: JSON.stringify({ expected_revision: expectedRevision }),
+      },
+    );
+  },
+
+  patchWorkflow(workflowId, payload) {
+    return request<ManagedWorkflowDraft>(
+      `/api/v1/workflows/${encodeURIComponent(workflowId)}`,
+      { method: "PATCH", body: JSON.stringify(payload) },
+    );
+  },
+
+  probeEngine(engineId) {
+    return request<EngineValidation["results"][number]>(
+      `/api/v1/engines/${encodeURIComponent(engineId)}/probe`,
+      { method: "POST" },
+    );
+  },
+
+  getEngineUsage(engineId, signal) {
+    return request<{ engine_id: string; references: string[] }>(
+      `/api/v1/engines/${encodeURIComponent(engineId)}/usage`,
+      { signal },
+    );
+  },
+
+  getRuntimeStatus(signal) {
+    return request<RuntimeStatus>("/api/v1/runtime/status", { signal });
+  },
 };
 
-export function errorMessage(error: unknown): string {
+export function errorMessage(
+  error: unknown,
+  fallback = "操作未完成，请稍后重试。",
+): string {
   if (error instanceof ApiError) {
     return error.message;
   }
-  if (error instanceof Error) {
-    return error.message;
+  if (
+    error instanceof TypeError ||
+    (error instanceof Error &&
+      /failed to fetch|network|load failed/i.test(error.message))
+  ) {
+    return "暂时无法连接管理服务，请稍后重试。";
   }
-  return "发生未知错误";
+  return fallback;
+}
+
+export function reportRequestError(context: string, error: unknown): void {
+  console.error(`[Audio Harness] ${context}`, error);
 }

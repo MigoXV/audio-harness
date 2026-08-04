@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from audio_harness.capacity_settings import CapacitySettingsSnapshot
 from audio_harness.config import CapacityConfig
@@ -12,6 +13,7 @@ class ResizableSessionLimiter:
     def __init__(self, capacity: int) -> None:
         self.capacity = capacity
         self.active = 0
+        self.rejected = 0
         self._lock = asyncio.Lock()
 
     async def resize(self, capacity: int) -> None:
@@ -22,6 +24,7 @@ class ResizableSessionLimiter:
     async def slot(self):
         async with self._lock:
             if self.active >= self.capacity:
+                self.rejected += 1
                 raise CapacityExceededError(
                     f"活动会话已达到上限: {self.capacity}"
                 )
@@ -37,6 +40,7 @@ class ResizableConcurrencyLimiter:
     def __init__(self, capacity: int) -> None:
         self.capacity = capacity
         self.active = 0
+        self.rejected = 0
         self._condition = asyncio.Condition()
 
     async def resize(self, capacity: int) -> None:
@@ -57,9 +61,26 @@ class ResizableConcurrencyLimiter:
             self.active -= 1
             self._condition.notify_all()
 
+    @asynccontextmanager
+    async def try_slot(self):
+        async with self._condition:
+            if self.active >= self.capacity:
+                self.rejected += 1
+                raise CapacityExceededError(
+                    f"并发推理已达到上限: {self.capacity}"
+                )
+            self.active += 1
+        try:
+            yield self
+        finally:
+            async with self._condition:
+                self.active -= 1
+                self._condition.notify_all()
+
 
 class ServingCapacity:
     def __init__(self, config: CapacityConfig) -> None:
+        self.started_at = datetime.now(timezone.utc)
         self.grpc_sessions = ResizableSessionLimiter(
             config.grpc.max_sessions
         )
@@ -71,6 +92,12 @@ class ServingCapacity:
         )
         self.asr = ResizableConcurrencyLimiter(
             config.max_asr_concurrency
+        )
+        self.responses = ResizableConcurrencyLimiter(
+            config.max_responses_concurrency
+        )
+        self.tts = ResizableConcurrencyLimiter(
+            config.max_tts_concurrency
         )
 
     async def apply(self, snapshot: CapacitySettingsSnapshot) -> None:
@@ -85,4 +112,8 @@ class ServingCapacity:
                 snapshot.config.webrtc.max_sessions
             ),
             self.asr.resize(snapshot.config.max_asr_concurrency),
+            self.responses.resize(
+                snapshot.config.max_responses_concurrency
+            ),
+            self.tts.resize(snapshot.config.max_tts_concurrency),
         )

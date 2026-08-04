@@ -31,7 +31,7 @@ function apiPlugin(
 ): Plugin {
   const apiKey = (
     env.OPENAI_API_KEY ||
-    env.AUDIO_HARNESS_REALTIME_API_KEY
+    env.REALTIME_API_KEY
   )?.trim();
   const baseURL = (
     env.OPENAI_BASE_URL ||
@@ -41,11 +41,11 @@ function apiPlugin(
   const model = env.OPENAI_MODEL?.trim() || "gpt-4o-transcribe";
   const caPath = env.OPENAI_CA_CERT_FILE?.trim();
   const rootCertPath =
-    env.AUDIO_HARNESS_HTTP_TLS_CERT_FILE?.trim() ||
+    env.HTTP_TLS_CERT_FILE?.trim() ||
     "model-bin/realtime-tls/cert.pem";
   const iceServers = JSON.parse(
     env.WEBRTC_DEMO_ICE_SERVERS_JSON ||
-      env.AUDIO_HARNESS_WEBRTC_ICE_SERVERS_JSON ||
+      env.WEBRTC_ICE_SERVERS_JSON ||
       "[]",
   ) as unknown;
   if (!Array.isArray(iceServers)) {
@@ -82,7 +82,7 @@ function apiPlugin(
             json(response, 500, {
               error:
                 "请在当前 Demo 配置 OPENAI_API_KEY，或在项目根目录配置 " +
-                "AUDIO_HARNESS_REALTIME_API_KEY",
+                "REALTIME_API_KEY",
             });
             return;
           }
@@ -173,7 +173,7 @@ export default defineConfig(({ command, mode }) => {
     resolve(
       projectRoot,
       env.WEBRTC_DEMO_TLS_CERT_FILE ||
-        env.AUDIO_HARNESS_HTTP_TLS_CERT_FILE ||
+        env.HTTP_TLS_CERT_FILE ||
         "model-bin/realtime-tls/cert.pem",
     ),
   );
@@ -181,7 +181,7 @@ export default defineConfig(({ command, mode }) => {
     resolve(
       projectRoot,
       env.WEBRTC_DEMO_TLS_KEY_FILE ||
-        env.AUDIO_HARNESS_HTTP_TLS_KEY_FILE ||
+        env.HTTP_TLS_KEY_FILE ||
         "model-bin/realtime-tls/key.pem",
     ),
   );

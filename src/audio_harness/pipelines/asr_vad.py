@@ -402,18 +402,8 @@ class AsrVadWorkflow:
                         pending_turn_start = None
                         active_start = max(active_start, cut)
 
-                retain = [
-                    value
-                    for value in (active_start, pending_turn_start)
-                    if value is not None
-                ]
-                lookback_start = max(
-                    audio.base_sample,
-                    processed - pre_roll_samples,
-                )
-                audio.trim_before(
-                    min(retain) if retain else lookback_start
-                )
+                # VAD 可能在处理若干后续帧后才回报更早的语音起点。这里不能按
+                # processed_time 主动裁剪；固定容量环形缓冲会自行淘汰过期音频。
 
         stream_end = audio.end_sample
         if active_start is not None and stream_end > active_start:

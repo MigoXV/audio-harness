@@ -3,9 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Optional
-
-import yaml
+from typing import Optional
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -34,7 +32,7 @@ class EngineEndpoint(StrictModel):
 
 
 class WorkflowConfig(StrictModel):
-    min_chunk_bytes: int = Field(default=6400, ge=2)
+    min_chunk_bytes: int = Field(default=640, ge=2)
     min_segment_seconds: float = Field(default=0.5, ge=0)
     max_segment_seconds: float = Field(default=60.0, gt=0)
     audio_buffer_seconds: float = Field(default=120.0, gt=0)
@@ -59,22 +57,38 @@ class WorkflowConfig(StrictModel):
         return self
 
 
+class WorkflowRuntimeConfig(StrictModel):
+    min_chunk_bytes: int = Field(default=640, ge=2)
+    default_language_code: str = Field(default="zh-CN", min_length=1)
+    audio_queue_capacity: int = Field(default=32, gt=0)
+    segment_queue_capacity: int = Field(default=8, gt=0)
+    result_queue_capacity: int = Field(default=32, gt=0)
+
+    @field_validator("min_chunk_bytes")
+    @classmethod
+    def validate_pcm_alignment(cls, value: int) -> int:
+        if value % 2:
+            raise ValueError(
+                "min_chunk_bytes 必须为偶数，以保持 PCM S16LE 对齐"
+            )
+        return value
+
+
 class GrpcConfig(StrictModel):
     host: str = "0.0.0.0"
     port: int = Field(default=50051, ge=1, le=65535)
-    shutdown_grace_seconds: float = Field(default=5.0, ge=0)
 
 
 class HttpConfig(StrictModel):
     host: str = "0.0.0.0"
     port: int = Field(default=8000, ge=1, le=65535)
-    shutdown_grace_seconds: float = Field(default=5.0, ge=0)
     tls_cert_file: Path | None = None
     tls_key_file: Path | None = None
 
 
-class RealtimeConfig(StrictModel):
-    api_key: SecretStr | None = None
+class VoiceConfig(StrictModel):
+    storage_dir: Path = Path("./data-bin/voices")
+    max_upload_bytes: int = Field(default=20 * 1024 * 1024, gt=0)
 
 
 class IceServerConfig(StrictModel):
@@ -130,11 +144,13 @@ class CapacityConfig(StrictModel):
         default_factory=ProtocolCapacityConfig
     )
     max_asr_concurrency: int = Field(default=8, gt=0)
+    max_responses_concurrency: int = Field(default=8, gt=0)
+    max_tts_concurrency: int = Field(default=1, gt=0)
 
 
 class DatabaseConfig(StrictModel):
     url: str = Field(
-        default="sqlite+aiosqlite:///./data/audio-harness.db",
+        default="sqlite+aiosqlite:///./data-bin/sqlite/audio-harness.db",
         min_length=1,
     )
 
@@ -148,11 +164,13 @@ class DatabaseConfig(StrictModel):
 
 class AppConfig(StrictModel):
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
-    workflow: WorkflowConfig = Field(default_factory=WorkflowConfig)
+    workflow: WorkflowRuntimeConfig = Field(
+        default_factory=WorkflowRuntimeConfig
+    )
     grpc: GrpcConfig = Field(default_factory=GrpcConfig)
     http: HttpConfig = Field(default_factory=HttpConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
-    realtime: RealtimeConfig = Field(default_factory=RealtimeConfig)
+    voices: VoiceConfig = Field(default_factory=VoiceConfig)
     webrtc: WebRtcConfig = Field(default_factory=WebRtcConfig)
 
     @model_validator(mode="after")
@@ -162,10 +180,21 @@ class AppConfig(StrictModel):
         return self
 
     @classmethod
-    def load(cls, path: str | Path) -> "AppConfig":
-        config_path = Path(path)
-        expanded = os.path.expandvars(config_path.read_text(encoding="utf-8"))
-        raw: Any = yaml.safe_load(expanded)
-        if not isinstance(raw, dict):
-            raise ValueError("配置文件顶层必须是对象")
-        return cls.model_validate(raw)
+    def from_environment(cls) -> "AppConfig":
+        defaults = cls()
+        return cls.model_validate(
+            {
+                "database": {
+                    "url": os.getenv(
+                        "DATABASE_URL",
+                        defaults.database.url,
+                    ),
+                },
+                "voices": {
+                    "storage_dir": os.getenv(
+                        "VOICE_STORAGE_DIR",
+                        str(defaults.voices.storage_dir),
+                    ),
+                },
+            }
+        )

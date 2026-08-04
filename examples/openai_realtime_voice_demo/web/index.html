@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#e9e5dc" />
+    <title>Realtime Voice Conversation</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">SERVER-MANAGED REALTIME</p>
+          <h1>实时语音对话</h1>
+          <p class="subtitle">
+            浏览器只传输 PCM；Realtime 会话、密钥和事件都留在服务端。
+          </p>
+        </div>
+        <div class="target">
+          <span id="connectionDot"></span>
+          <div>
+            <small id="target">读取配置中</small>
+            <strong id="model">—</strong>
+          </div>
+        </div>
+      </header>
+
+      <section class="conversation" id="conversation" aria-live="polite">
+        <div class="empty" id="empty">
+          <span>VOICE</span>
+          <p>点击“开始对话”，直接和已配置的语音 Agent 交谈。</p>
+        </div>
+      </section>
+
+      <footer>
+        <div>
+          <strong id="status">尚未连接</strong>
+          <span id="detail">等待开始</span>
+        </div>
+        <div class="actions">
+          <button id="clear" class="quiet" type="button">清空界面</button>
+          <button id="toggle" class="primary" type="button">开始对话</button>
+        </div>
+      </footer>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

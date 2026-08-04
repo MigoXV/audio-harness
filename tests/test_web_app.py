@@ -46,6 +46,9 @@ async def test_api_remains_available_when_web_is_not_built(
             root = await client.get("/")
             assert root.status_code == 503
             assert "Web 配置界面尚未构建" in root.text
+            orchestration = await client.get("/orchestration")
+            assert orchestration.status_code == 503
+            assert "Web 配置界面尚未构建" in orchestration.text
 
             docs = await client.get("/docs")
             assert docs.status_code == 200
@@ -83,6 +86,11 @@ async def test_built_web_is_served_without_shadowing_api(
             assert root.status_code == 200
             assert "Audio Harness Web" in root.text
 
+            for path in ("/orchestration", "/engines", "/settings", "/missing"):
+                page = await client.get(path)
+                assert page.status_code == 200
+                assert "Audio Harness Web" in page.text
+
             asset = await client.get("/assets/app.js")
             assert asset.status_code == 200
             assert "audioHarness" in asset.text
@@ -90,6 +98,14 @@ async def test_built_web_is_served_without_shadowing_api(
             engines = await client.get("/api/v1/engines")
             assert engines.status_code == 200
             assert engines.json()["total"] == 11
+
+            missing_api = await client.get("/api/v1/not-found")
+            assert missing_api.status_code == 404
+            assert "Audio Harness Web" not in missing_api.text
+
+            missing_health = await client.get("/health/not-found")
+            assert missing_health.status_code == 404
+            assert "Audio Harness Web" not in missing_health.text
     finally:
         await router.close()
         await database.close()

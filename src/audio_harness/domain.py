@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import AsyncContextManager, Mapping, Optional, Protocol
+from typing import Any, Mapping, Optional, Protocol
 
 
 @dataclass(frozen=True)
@@ -82,14 +82,40 @@ class AsyncAsrEngine(Protocol):
 
 
 @dataclass(frozen=True)
-class EngineSet:
-    asr: AsyncAsrEngine
-    vad: AsyncVadEngine
-    semantic_vad: AsyncVadEngine | None = None
+class PresetVoice:
+    voice_id: str
 
 
-class EngineLeaseProvider(Protocol):
-    def lease(self) -> AsyncContextManager[EngineSet]: ...
+@dataclass(frozen=True)
+class ReferenceVoice:
+    pcm_s16le: bytes
+    sample_rate: int
+    ref_text: str = ""
+
+
+VoiceSelection = PresetVoice | ReferenceVoice
+
+
+@dataclass(frozen=True)
+class SynthesizedAudioChunk:
+    pcm_s16le: bytes
+    sample_rate: int
+    chunk_index: int
+
+
+class AsyncResponsesEngine(Protocol):
+    async def stream_response(self, **kwargs: Any) -> Any: ...
+
+
+class AsyncTtsEngine(Protocol):
+    def duplex_synthesize(
+        self,
+        text_chunks: AsyncIterator[str],
+        *,
+        voice: VoiceSelection,
+        language: str,
+        decoder_chunk_size: int,
+    ) -> AsyncIterator[SynthesizedAudioChunk]: ...
 
 
 class AudioHarnessError(Exception):
@@ -112,9 +138,5 @@ class EngineDeadlineError(AudioHarnessError):
     """下游引擎请求超时。"""
 
 
-class EngineBindingMissingError(AudioHarnessError):
-    """运行时必需的引擎角色尚未绑定。"""
-
-
-class EngineBindingInvalidError(AudioHarnessError):
-    """引擎角色绑定与资产能力不一致。"""
+class EngineConfigurationInvalidError(AudioHarnessError):
+    """引擎快照与推理客户端能力不一致。"""
