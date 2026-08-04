@@ -603,6 +603,19 @@ class GraphSessionRunner:
                 pending_audio.clear()
                 pending_start = None
                 continue
+            if self._include_vad_progress:
+                await router.emit(
+                    node_id,
+                    "events",
+                    TranscriptionResult(
+                        transcript="",
+                        is_final=True,
+                        start_sample=segment.start_sample,
+                        end_sample=segment.end_sample,
+                        sample_rate=sample_rate,
+                        turn_completed=False,
+                    ),
+                )
 
     async def _asr(
         self,

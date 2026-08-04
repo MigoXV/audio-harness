@@ -64,6 +64,11 @@ class EchoAsr:
             )
 
 
+class PendingSemanticVad(CompleteVad):
+    async def detect_turn(self, audio: bytes, sample_rate: int) -> bool:
+        return False
+
+
 class StaticSettings:
     def __init__(self, config) -> None:
         self._snapshot = WorkflowSettingsSnapshot(
@@ -86,7 +91,10 @@ def make_config() -> AppConfig:
     )
 
 
-async def start_server() -> tuple[grpc.aio.Server, int]:
+async def start_server(
+    *,
+    semantic_vad: object | None = None,
+) -> tuple[grpc.aio.Server, int]:
     server = grpc.aio.server()
     config = make_config()
     settings = StaticSettings(
@@ -99,6 +107,7 @@ async def start_server() -> tuple[grpc.aio.Server, int]:
     engine_router, pipeline_store = static_graph(
         asr=EchoAsr(),
         vad=CompleteVad(),
+        semantic_vad=semantic_vad,
     )
     sessions = TranscriptionSessionService(
         engine_router=engine_router,
@@ -146,12 +155,80 @@ async def test_streaming_recognize_always_passes_interim_results() -> None:
         await server.stop(0)
 
     results = [response.results[0] for response in responses]
-    assert [(result.alternative.transcript, result.is_final) for result in results] == [
-        ("interim", False),
-        ("final", True),
-    ]
-    assert results[-1].alternative.turn_completed is True
-    assert results[-1].alternative.words[0].end_time.seconds == 1
+    transcriptions = [result for result in results if result.alternative.transcript]
+    assert [
+        (result.alternative.transcript, result.is_final)
+        for result in transcriptions
+    ] == [("interim", False), ("final", True)]
+    assert transcriptions[-1].alternative.words[0].end_time.seconds == 1
+    assert all(result.alternative.turn_completed for result in transcriptions)
+
+
+@pytest.mark.asyncio
+async def test_streaming_recognize_reports_an_unfinished_semantic_turn() -> None:
+    server, port = await start_server(semantic_vad=PendingSemanticVad())
+    try:
+        async with grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel:
+            stub = pb2_grpc.UxSpeechStub(channel)
+
+            async def requests():
+                yield pb2.StreamingRecognizeRequest(
+                    streaming_config=pb2.StreamingRecognitionConfig(
+                        config=pb2.RecognitionConfig(
+                            encoding=pb2.RecognitionConfig.LINEAR16,
+                            sample_rate_hertz=4,
+                        ),
+                    )
+                )
+                yield pb2.StreamingRecognizeRequest(
+                    audio_content=b"\x00\x00\x01\x00",
+                )
+
+            responses = [
+                response async for response in stub.StreamingRecognize(requests())
+            ]
+    finally:
+        await server.stop(0)
+
+    result = responses[0].results[0]
+    assert result.alternative.transcript == ""
+    assert result.is_final is True
+    assert result.alternative.turn_completed is False
+    assert result.alternative.words[0].start_time.seconds == 0
+    assert result.alternative.words[0].end_time.nanos == 500_000_000
+
+
+@pytest.mark.asyncio
+async def test_streaming_recognize_marks_a_completed_semantic_turn() -> None:
+    server, port = await start_server(semantic_vad=CompleteVad())
+    try:
+        async with grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel:
+            stub = pb2_grpc.UxSpeechStub(channel)
+
+            async def requests():
+                yield pb2.StreamingRecognizeRequest(
+                    streaming_config=pb2.StreamingRecognitionConfig(
+                        config=pb2.RecognitionConfig(
+                            encoding=pb2.RecognitionConfig.LINEAR16,
+                            sample_rate_hertz=4,
+                        ),
+                    )
+                )
+                yield pb2.StreamingRecognizeRequest(
+                    audio_content=b"\x00\x00\x01\x00",
+                )
+
+            responses = [
+                response async for response in stub.StreamingRecognize(requests())
+            ]
+    finally:
+        await server.stop(0)
+
+    assert all(
+        result.alternative.turn_completed
+        for response in responses
+        for result in response.results
+    )
 
 
 @pytest.mark.asyncio

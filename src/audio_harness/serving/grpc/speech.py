@@ -115,6 +115,7 @@ class SpeechServicer(pb2_grpc.UxSpeechServicer):
             )
             async with self.session_service.open(
                 settings.options,
+                include_vad_progress=True,
                 pipeline=pipeline,
             ) as session:
                 reader = asyncio.create_task(
@@ -126,9 +127,8 @@ class SpeechServicer(pb2_grpc.UxSpeechServicer):
                     name="audio-harness-grpc-reader",
                 )
                 async for result in session.events():
-                    if not isinstance(result, TranscriptionResult):
-                        continue
-                    yield build_response(result)
+                    if isinstance(result, TranscriptionResult):
+                        yield build_response(result)
                 await reader
         except CapacityExceededError as exc:
             await context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, str(exc))
