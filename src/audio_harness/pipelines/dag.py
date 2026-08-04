@@ -84,6 +84,63 @@ class PhysicalVadNodeConfig(StrictGraphModel):
         return self
 
 
+class SemanticVadNodeConfig(StrictGraphModel):
+    max_buffer_seconds: float = Field(default=60.0, gt=0)
+
+
+class ResponsesAgentNodeConfig(StrictGraphModel):
+    model: str = Field(
+        default="",
+        max_length=200,
+    )
+    thinking_enabled: bool = False
+    instructions: str = Field(default="", max_length=32_768)
+    max_output_tokens: int = Field(default=1024, ge=1, le=32_768)
+    max_tool_rounds: int = Field(default=8, ge=1, le=32)
+    max_parallel_tools: int = Field(default=4, ge=1, le=16)
+    tool_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
+    service_tools: list[str] = Field(default_factory=list)
+    mcp_servers: list["McpServerNodeConfig"] = Field(default_factory=list)
+    history_max_items: int = Field(default=128, ge=8, le=4096)
+
+
+class McpServerNodeConfig(StrictGraphModel):
+    server_label: str = Field(
+        min_length=1,
+        max_length=100,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+    server_url: str = Field(min_length=1, max_length=2048)
+    require_approval: Literal["always", "never"] | dict[str, Any] = "always"
+    allowed_tools: list[str] | None = None
+    headers_env: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_url(self) -> "McpServerNodeConfig":
+        if not self.server_url.startswith(("http://", "https://")):
+            raise ValueError("MCP server_url 必须使用 HTTP(S)")
+        return self
+
+
+class DuplexTtsNodeConfig(StrictGraphModel):
+    default_voice: str = Field(default="", max_length=200)
+    allowed_voices: list[str] = Field(default_factory=list)
+    language: str = Field(default="Auto", min_length=1, max_length=64)
+    decoder_chunk_size: int = Field(default=0, ge=0, le=1024)
+
+    @model_validator(mode="after")
+    def validate_default_voice(self) -> "DuplexTtsNodeConfig":
+        if not self.allowed_voices and not self.default_voice:
+            return self
+        if not self.allowed_voices:
+            raise ValueError("allowed_voices 不能为空")
+        if self.default_voice not in self.allowed_voices:
+            raise ValueError("default_voice 必须位于 allowed_voices 中")
+        if len(set(self.allowed_voices)) != len(self.allowed_voices):
+            raise ValueError("allowed_voices 不能重复")
+        return self
+
+
 @dataclass(frozen=True)
 class PortDefinition:
     payload_type: str
@@ -169,7 +226,7 @@ def default_node_registry() -> NodeTypeRegistry:
                 "segments": PortDefinition("audio_segment"),
                 "events": PortDefinition("session_event", required=False),
             },
-            config_model=EmptyNodeConfig,
+            config_model=SemanticVadNodeConfig,
             allowed_failure_policies=(
                 FailurePolicy.FAIL_OPEN,
                 FailurePolicy.FAIL_PIPELINE,
@@ -193,6 +250,40 @@ def default_node_registry() -> NodeTypeRegistry:
             allowed_failure_policies=(FailurePolicy.FAIL_PIPELINE,),
             default_failure_policy=FailurePolicy.FAIL_PIPELINE,
             required_api=EngineApi.UX_SPEECH,
+            max_instances=1,
+        )
+    )
+    registry.register(
+        NodeTypeDefinition(
+            type="responses_agent",
+            display_name="Responses Agent",
+            input_ports={
+                "events": PortDefinition("session_event"),
+            },
+            output_ports={
+                "events": PortDefinition("session_event"),
+            },
+            config_model=ResponsesAgentNodeConfig,
+            allowed_failure_policies=(FailurePolicy.FAIL_PIPELINE,),
+            default_failure_policy=FailurePolicy.FAIL_PIPELINE,
+            required_api=EngineApi.RESPONSES,
+            max_instances=1,
+        )
+    )
+    registry.register(
+        NodeTypeDefinition(
+            type="duplex_tts",
+            display_name="双向流式 TTS",
+            input_ports={
+                "events": PortDefinition("session_event"),
+            },
+            output_ports={
+                "events": PortDefinition("session_event"),
+            },
+            config_model=DuplexTtsNodeConfig,
+            allowed_failure_policies=(FailurePolicy.FAIL_PIPELINE,),
+            default_failure_policy=FailurePolicy.FAIL_PIPELINE,
+            required_api=EngineApi.QWEN_TTS_DUPLEX,
             max_instances=1,
         )
     )
@@ -280,6 +371,9 @@ def compiled_plan_document(plan: CompiledPipelinePlan) -> dict[str, Any]:
                 "request_timeout_seconds": (
                     snapshot.request_timeout_seconds
                 ),
+                "credential_env": snapshot.credential_env,
+                "api_key": snapshot.api_key,
+                "details": snapshot.details,
             }
             for node_id, node in plan.nodes.items()
             if (snapshot := node.engine_snapshot) is not None
@@ -338,6 +432,17 @@ def restore_compiled_plan(
                     if raw_snapshot.get("request_timeout_seconds") is not None
                     else None
                 ),
+                credential_env=(
+                    str(raw_snapshot["credential_env"])
+                    if raw_snapshot.get("credential_env") is not None
+                    else None
+                ),
+                api_key=(
+                    str(raw_snapshot["api_key"])
+                    if raw_snapshot.get("api_key") is not None
+                    else None
+                ),
+                details=dict(raw_snapshot.get("details") or {}),
             )
         if node_type.required_api is not None and snapshot is None:
             raise ValueError(f"执行计划缺少节点引擎快照: {node.id}")

@@ -93,7 +93,7 @@ poetry run audio-harness serve
 然后把 Demo 的 `.env` 改为：
 
 ```dotenv
-OPENAI_API_KEY=与AUDIO_HARNESS_REALTIME_API_KEY相同的值
+OPENAI_API_KEY=与REALTIME_API_KEY相同的值
 OPENAI_BASE_URL=https://127.0.0.1:8000/v1
 OPENAI_MODEL=gpt-4o-transcribe
 OPENAI_REALTIME_CONNECTION_MODE=model

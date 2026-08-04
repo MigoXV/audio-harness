@@ -72,7 +72,7 @@ class FakeAsr:
             )
 
 
-class DelayedStartVad(FakeVad):
+class LateReportedStartVad(FakeVad):
     async def stream_detect(
         self,
         audio_chunks: AsyncIterator[bytes],
@@ -84,13 +84,13 @@ class DelayedStartVad(FakeVad):
             self.received.extend(chunk)
             processed += len(chunk) // 2
             index += 1
-            if index == 1:
+            if index < 3:
                 yield VadUpdate(boundaries=(), processed_samples=processed)
-            else:
-                yield VadUpdate(
-                    boundaries=(VadBoundary(4, processed),),
-                    processed_samples=processed,
-                )
+                continue
+            yield VadUpdate(
+                boundaries=(VadBoundary(4, processed),),
+                processed_samples=processed,
+            )
 
 
 async def chunks(*values: bytes) -> AsyncIterator[bytes]:
@@ -253,7 +253,7 @@ async def test_semantic_vad_failure_fails_open() -> None:
 @pytest.mark.asyncio
 async def test_physical_vad_keeps_and_prepends_speech_pre_roll() -> None:
     sample_rate = 4
-    vad = DelayedStartVad([])
+    vad = LateReportedStartVad([])
     asr = FakeAsr()
     workflow = make_workflow(
         vad,
@@ -265,17 +265,17 @@ async def test_physical_vad_keeps_and_prepends_speech_pre_roll() -> None:
             speech_pre_roll_seconds=0.5,
         ),
     )
-    audio = bytes(range(16))
+    audio = bytes(range(24))
 
     results = [
         item
         async for item in workflow.run(
-            chunks(audio[:8], audio[8:]),
+            chunks(audio[:8], audio[8:16], audio[16:]),
             RecognitionOptions(sample_rate=sample_rate, language_code="zh-CN"),
         )
     ]
 
     assert [item.transcript for item in results] == ["临时", "最终"]
     assert len(asr.calls) == 1
-    assert (asr.calls[0].start_sample, asr.calls[0].end_sample) == (2, 8)
-    assert asr.calls[0].audio == audio[4:16]
+    assert (asr.calls[0].start_sample, asr.calls[0].end_sample) == (2, 12)
+    assert asr.calls[0].audio == audio[4:24]

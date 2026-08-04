@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 
 import grpc
@@ -7,13 +8,19 @@ import pytest
 from google.protobuf import duration_pb2
 
 from audio_harness.config import EngineEndpoint
-from audio_harness.domain import AudioSegment, RecognitionOptions
+from audio_harness.domain import (
+    AudioSegment,
+    PresetVoice,
+    RecognitionOptions,
+)
 from audio_harness.inferencers.grpc import (
     GrpcAsrInferencer,
+    GrpcDuplexTtsInferencer,
     GrpcVadInferencer,
 )
 from audio_harness.protos.asr import ux_speech_pb2 as speech_pb2
 from audio_harness.protos.asr import ux_speech_pb2_grpc as speech_pb2_grpc
+from audio_harness.protos.tts import tts_pb2, tts_pb2_grpc
 from audio_harness.protos.vad import ux_vad_pb2 as vad_pb2
 from audio_harness.protos.vad import ux_vad_pb2_grpc as vad_pb2_grpc
 
@@ -89,6 +96,18 @@ class FakeSpeechServicer(speech_pb2_grpc.UxSpeechServicer):
                     )
                 ]
             )
+
+
+class DelayedTtsServicer(tts_pb2_grpc.TtsServiceServicer):
+    async def DuplexSynthesize(self, request_iterator, _context):
+        async for _request in request_iterator:
+            pass
+        await asyncio.sleep(0.1)
+        yield tts_pb2.AudioChunk(
+            pcm_s16le=b"\0\0",
+            sample_rate=24_000,
+            chunk_index=0,
+        )
 
 
 async def audio_chunks(*chunks: bytes) -> AsyncIterator[bytes]:
@@ -178,3 +197,39 @@ async def test_grpc_asr_inferencer_always_requests_and_returns_interim_results()
     assert fake.config.config.hotwords == ["Audio Harness"]
     assert fake.audio_message_count == 1
     assert bytes(fake.audio) == segment.audio
+
+
+@pytest.mark.asyncio
+async def test_grpc_tts_stream_is_not_cut_off_by_request_timeout() -> None:
+    server = grpc.aio.server()
+    tts_pb2_grpc.add_TtsServiceServicer_to_server(
+        DelayedTtsServicer(), server
+    )
+    port = server.add_insecure_port("127.0.0.1:0")
+    await server.start()
+    inferencer = GrpcDuplexTtsInferencer(
+        EngineEndpoint(
+            target=f"127.0.0.1:{port}",
+            request_timeout_seconds=0.01,
+        ),
+        max_message_bytes=1024,
+    )
+
+    async def text_chunks() -> AsyncIterator[str]:
+        yield "测试"
+
+    try:
+        chunks = [
+            chunk
+            async for chunk in inferencer.duplex_synthesize(
+                text_chunks(),
+                voice=PresetVoice("anbi"),
+                language="Chinese",
+                decoder_chunk_size=0,
+            )
+        ]
+    finally:
+        await inferencer.close()
+        await server.stop(0)
+
+    assert [chunk.pcm_s16le for chunk in chunks] == [b"\0\0"]

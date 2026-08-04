@@ -23,6 +23,7 @@ from audio_harness.pipelines.dag import (
     CompiledPipelinePlan,
     FailurePolicy,
     PhysicalVadNodeConfig,
+    SemanticVadNodeConfig,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,11 @@ logger = logging.getLogger(__name__)
 _EDGE_END = object()
 _OUTPUT_END = object()
 
-SessionEvent = TranscriptionResult | SpeechStarted | SpeechStopped | VadUpdate
+SessionEvent = (
+    TranscriptionResult
+    | SpeechStarted
+    | SpeechStopped
+)
 
 
 @dataclass(frozen=True)
@@ -254,7 +259,6 @@ class GraphSessionRunner:
                         TranscriptionResult,
                         SpeechStarted,
                         SpeechStopped,
-                        VadUpdate,
                     ),
                 )
                 yield item
@@ -358,6 +362,13 @@ class GraphSessionRunner:
         audio = _RollingPcmBuffer(buffer_samples)
         active_start: int | None = None
         last_processed = 0
+        has_semantic_vad = any(
+            edge.source_node == node_id
+            and edge.source_port == "segments"
+            and self._plan.nodes[edge.target_node].node_type.type
+            == "semantic_vad"
+            for edge in self._plan.edges
+        )
 
         async def recorded_chunks() -> AsyncIterator[bytes]:
             async for envelope in _single_input(input_queues[0]):
@@ -408,8 +419,6 @@ class GraphSessionRunner:
         ):
             if not isinstance(update, VadUpdate):
                 raise TypeError(f"非法 VAD 更新类型: {type(update)!r}")
-            if self._include_vad_progress:
-                await router.emit(node_id, "events", update)
             last_processed = max(last_processed, update.processed_samples)
             processed = min(last_processed, audio.end_sample)
             for boundary in update.boundaries:
@@ -441,7 +450,7 @@ class GraphSessionRunner:
                         audio.end_sample,
                     )
                     if active_start is not None and end > active_start:
-                        if self._include_vad_events:
+                        if self._include_vad_events and not has_semantic_vad:
                             await router.emit(
                                 node_id,
                                 "events",
@@ -464,17 +473,12 @@ class GraphSessionRunner:
                     )
                     active_start = cut
 
-            lookback_start = max(
-                audio.base_sample,
-                processed - pre_roll_samples,
-            )
-            audio.trim_before(
-                active_start if active_start is not None else lookback_start
-            )
+            # VAD 可能在处理若干后续帧后才回报更早的语音起点。这里不能按
+            # processed_time 主动裁剪；固定容量环形缓冲会自行淘汰过期音频。
 
         stream_end = audio.end_sample
         if active_start is not None and stream_end > active_start:
-            if self._include_vad_events:
+            if self._include_vad_events and not has_semantic_vad:
                 await router.emit(
                     node_id,
                     "events",
@@ -514,55 +518,66 @@ class GraphSessionRunner:
             raise RuntimeError("语义 VAD 必须有一个片段输入")
         engine = cast(AsyncVadEngine, self._engines[node_id])
         sample_rate = self._options.sample_rate
-        max_samples = self._max_segment_samples()
+        config = cast(SemanticVadNodeConfig, node.config)
+        max_samples = max(
+            1,
+            int(round(config.max_buffer_seconds * sample_rate)),
+        )
         pending_audio = bytearray()
         pending_start: int | None = None
-        pending_end: int | None = None
 
         async def emit_completed(
             start: int,
             audio: bytes,
         ) -> None:
-            offset = 0
             total_samples = len(audio) // 2
-            while total_samples - offset > max_samples:
-                piece = audio[offset * 2 : (offset + max_samples) * 2]
-                await router.emit(
-                    node_id,
-                    "segments",
-                    GraphAudioSegment(
-                        AudioSegment(
-                            audio=piece,
-                            start_sample=start + offset,
-                            end_sample=start + offset + max_samples,
-                            turn_completed=True,
-                        ),
-                        evaluate_turn=False,
+            if total_samples == 0:
+                return
+            await router.emit(
+                node_id,
+                "segments",
+                GraphAudioSegment(
+                    AudioSegment(
+                        audio=audio,
+                        start_sample=start,
+                        end_sample=start + total_samples,
+                        turn_completed=True,
                     ),
-                )
-                offset += max_samples
-            if offset < total_samples:
-                await router.emit(
-                    node_id,
-                    "segments",
-                    GraphAudioSegment(
-                        AudioSegment(
-                            audio=audio[offset * 2 :],
-                            start_sample=start + offset,
-                            end_sample=start + total_samples,
-                            turn_completed=True,
-                        ),
-                        evaluate_turn=False,
-                    ),
-                )
+                    evaluate_turn=False,
+                ),
+            )
 
         async for envelope in _single_input(input_queues[0]):
             candidate = cast(GraphAudioSegment, envelope.payload)
             segment = candidate.segment
+            candidate_samples = len(segment.audio) // 2
+
+            if candidate_samples > max_samples:
+                if pending_start is not None:
+                    await emit_completed(pending_start, bytes(pending_audio))
+                    pending_audio.clear()
+                    pending_start = None
+                offset = 0
+                while offset < candidate_samples:
+                    end = min(offset + max_samples, candidate_samples)
+                    await emit_completed(
+                        segment.start_sample + offset,
+                        segment.audio[offset * 2 : end * 2],
+                    )
+                    offset = end
+                continue
+
+            if (
+                pending_start is not None
+                and len(pending_audio) // 2 + candidate_samples > max_samples
+            ):
+                await emit_completed(pending_start, bytes(pending_audio))
+                pending_audio.clear()
+                pending_start = None
+
             if pending_start is None:
                 pending_start = segment.start_sample
             pending_audio.extend(segment.audio)
-            pending_end = segment.end_sample
 
             completed = not candidate.evaluate_turn
             if candidate.evaluate_turn:
@@ -587,28 +602,7 @@ class GraphSessionRunner:
                 await emit_completed(pending_start, bytes(pending_audio))
                 pending_audio.clear()
                 pending_start = None
-                pending_end = None
                 continue
-
-            while len(pending_audio) // 2 >= max_samples:
-                piece = bytes(pending_audio[: max_samples * 2])
-                assert pending_start is not None
-                await emit_completed(pending_start, piece)
-                del pending_audio[: max_samples * 2]
-                pending_start += max_samples
-            if pending_start is not None and pending_end is not None:
-                await router.emit(
-                    node_id,
-                    "events",
-                    TranscriptionResult(
-                        transcript="",
-                        is_final=True,
-                        start_sample=pending_start,
-                        end_sample=pending_end,
-                        sample_rate=sample_rate,
-                        turn_completed=False,
-                    ),
-                )
 
     async def _asr(
         self,
@@ -621,6 +615,20 @@ class GraphSessionRunner:
         engine = cast(AsyncAsrEngine, self._engines[node_id])
         async for envelope in _single_input(input_queues[0]):
             candidate = cast(GraphAudioSegment, envelope.payload)
+            if (
+                self._include_vad_events
+                and self._plan.nodes[envelope.source_node].node_type.type
+                == "semantic_vad"
+            ):
+                await router.emit(
+                    node_id,
+                    "events",
+                    SpeechStopped(
+                        start_sample=candidate.segment.start_sample,
+                        end_sample=candidate.segment.end_sample,
+                        sample_rate=self._options.sample_rate,
+                    ),
+                )
             async with self._asr_semaphore:
                 async for result in engine.transcribe(
                     candidate.segment,
@@ -642,7 +650,6 @@ class GraphSessionRunner:
                     TranscriptionResult,
                     SpeechStarted,
                     SpeechStopped,
-                    VadUpdate,
                 ),
             ):
                 raise TypeError(f"非法会话事件类型: {type(event)!r}")

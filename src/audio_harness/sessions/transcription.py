@@ -14,20 +14,65 @@ from audio_harness.domain import (
     SpeechStarted,
     SpeechStopped,
     TranscriptionResult,
-    VadUpdate,
 )
 from audio_harness.engines.router import EngineRouter
 from audio_harness.pipelines.graph_runtime import (
     GraphRuntimeConfig,
     GraphSessionRunner,
 )
-from audio_harness.pipelines.service import PipelineStore
+from audio_harness.pipelines.dag import CompiledPipelinePlan
+from audio_harness.pipelines.service import ActivePipelineSnapshot, PipelineStore
 from audio_harness.workflow_settings import WorkflowSettingsStore
 
 _AUDIO_END = object()
 _EVENT_END = object()
 
-SessionEvent = TranscriptionResult | SpeechStarted | SpeechStopped | VadUpdate
+SessionEvent = (
+    TranscriptionResult
+    | SpeechStarted
+    | SpeechStopped
+)
+
+_TRANSCRIPTION_NODE_TYPES = {
+    "audio_input",
+    "physical_vad",
+    "semantic_vad",
+    "asr",
+    "session_output",
+}
+
+
+def transcription_plan(plan: CompiledPipelinePlan) -> CompiledPipelinePlan:
+    """从语音 Agent 图中提取 ASR/VAD 前半链。"""
+    nodes = {
+        node_id: node
+        for node_id, node in plan.nodes.items()
+        if node.node_type.type in _TRANSCRIPTION_NODE_TYPES
+    }
+    output_ids = [
+        node_id
+        for node_id, node in nodes.items()
+        if node.node_type.type == "session_output"
+    ]
+    if len(output_ids) != 1:
+        raise RuntimeError("工作流必须包含一个 session_output 节点")
+    output_id = output_ids[0]
+    edges = [
+        edge
+        for edge in plan.edges
+        if edge.source_node in nodes and edge.target_node in nodes
+    ]
+    return CompiledPipelinePlan(
+        schema_version=plan.schema_version,
+        definition=plan.definition,
+        nodes=nodes,
+        edges=tuple(edges),
+        topological_order=tuple(
+            node_id
+            for node_id in plan.topological_order
+            if node_id in nodes
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -48,6 +93,7 @@ class TranscriptionSession:
         options: RecognitionOptions,
         include_vad_events: bool,
         include_vad_progress: bool,
+        pipeline: ActivePipelineSnapshot | None = None,
     ) -> None:
         self._engine_router = engine_router
         self._pipeline_store = pipeline_store
@@ -56,6 +102,7 @@ class TranscriptionSession:
         self._options = options
         self._include_vad_events = include_vad_events
         self._include_vad_progress = include_vad_progress
+        self._pipeline = pipeline
         self._audio: asyncio.Queue[bytes | object] = asyncio.Queue(
             maxsize=self._config.audio_queue_capacity
         )
@@ -92,7 +139,11 @@ class TranscriptionSession:
                 raise item.error
             assert isinstance(
                 item,
-                (TranscriptionResult, SpeechStarted, SpeechStopped, VadUpdate),
+                (
+                    TranscriptionResult,
+                    SpeechStarted,
+                    SpeechStopped,
+                ),
             )
             yield item
 
@@ -116,9 +167,10 @@ class TranscriptionSession:
         failure: BaseException | None = None
         cancelled = False
         try:
-            pipeline = self._pipeline_store.current()
+            pipeline = self._pipeline or self._pipeline_store.current()
+            plan = transcription_plan(pipeline.plan)
             async with self._engine_router.lease_snapshots(
-                pipeline.plan.engine_snapshots
+                plan.engine_snapshots
             ) as leased:
                 engines = {
                     node_id: leased[
@@ -127,11 +179,11 @@ class TranscriptionSession:
                             node.engine_snapshot.revision,
                         )
                     ]
-                    for node_id, node in pipeline.plan.nodes.items()
+                    for node_id, node in plan.nodes.items()
                     if node.engine_snapshot is not None
                 }
                 runner = GraphSessionRunner(
-                    plan=pipeline.plan,
+                    plan=plan,
                     engines=engines,
                     options=self._options,
                     runtime_config=GraphRuntimeConfig(
@@ -194,12 +246,14 @@ class TranscriptionSessionService:
         *,
         include_vad_events: bool = False,
         include_vad_progress: bool = False,
+        pipeline: ActivePipelineSnapshot | None = None,
     ):
         async with self.reserve() as reservation:
             session = reservation.create(
                 options=options,
                 include_vad_events=include_vad_events,
                 include_vad_progress=include_vad_progress,
+                pipeline=pipeline,
             )
             try:
                 yield session
@@ -221,6 +275,7 @@ class TranscriptionSessionReservation:
         options: RecognitionOptions,
         include_vad_events: bool = False,
         include_vad_progress: bool = False,
+        pipeline: ActivePipelineSnapshot | None = None,
     ) -> TranscriptionSession:
         if self._closed:
             raise RuntimeError("会话容量预留已经关闭")
@@ -234,6 +289,7 @@ class TranscriptionSessionReservation:
             options=options,
             include_vad_events=include_vad_events,
             include_vad_progress=include_vad_progress,
+            pipeline=pipeline,
         )
         return self._session
 

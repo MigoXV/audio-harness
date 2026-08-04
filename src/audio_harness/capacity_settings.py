@@ -49,6 +49,8 @@ def _config_from_model(model: CapacitySetting) -> CapacityConfig:
             max_sessions=model.webrtc_max_sessions
         ),
         max_asr_concurrency=model.max_asr_concurrency,
+        max_responses_concurrency=model.max_responses_concurrency,
+        max_tts_concurrency=model.max_tts_concurrency,
     )
 
 
@@ -121,6 +123,10 @@ class CapacitySettingsStore:
                 model.max_asr_concurrency = (
                     config.max_asr_concurrency
                 )
+                model.max_responses_concurrency = (
+                    config.max_responses_concurrency
+                )
+                model.max_tts_concurrency = config.max_tts_concurrency
                 model.revision += 1
                 model.updated_at = utc_now()
                 await session.commit()

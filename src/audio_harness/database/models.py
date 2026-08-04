@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -21,6 +22,10 @@ from audio_harness.assets import (
     EngineKind,
     EngineProtocol,
     EngineStatus,
+)
+from audio_harness.workflow_types import (
+    ModelRouteVisibility,
+    WorkflowKind,
 )
 
 
@@ -55,12 +60,22 @@ class EngineAsset(Base):
     target: Mapped[str] = mapped_column(String(500))
     connect_timeout_seconds: Mapped[float] = mapped_column(Float, default=10.0)
     request_timeout_seconds: Mapped[float | None] = mapped_column(Float)
+    credential_env: Mapped[str | None] = mapped_column(String(200))
+    api_key: Mapped[str | None] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     status: Mapped[EngineStatus] = mapped_column(enum_type(EngineStatus))
     image: Mapped[str | None] = mapped_column(String(500))
     description: Mapped[str | None] = mapped_column(Text)
     status_basis: Mapped[str | None] = mapped_column(Text)
     status_observed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    last_success_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    probe_latency_ms: Mapped[float | None] = mapped_column(Float)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
+    next_probe_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
     source: Mapped[str | None] = mapped_column(String(500))
@@ -105,6 +120,11 @@ class CapacitySetting(Base):
     realtime_max_sessions: Mapped[int] = mapped_column(Integer, nullable=False)
     webrtc_max_sessions: Mapped[int] = mapped_column(Integer, nullable=False)
     max_asr_concurrency: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_responses_concurrency: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+    max_tts_concurrency: Mapped[int] = mapped_column(Integer, nullable=False)
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -157,4 +177,110 @@ class PipelineActivation(Base):
         DateTime(timezone=True),
         default=utc_now,
         onupdate=utc_now,
+    )
+
+
+class Workflow(Base):
+    __tablename__ = "workflows"
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    slug: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[WorkflowKind] = mapped_column(enum_type(WorkflowKind))
+    description: Mapped[str | None] = mapped_column(Text)
+    draft_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    draft_definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+
+class WorkflowRevision(Base):
+    __tablename__ = "workflow_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "workflow_id",
+            "revision",
+            name="uq_workflow_revision_number",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    workflow_id: Mapped[str] = mapped_column(
+        ForeignKey("workflows.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    compiled_plan: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+    )
+    activated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+    )
+
+
+class WorkflowActivation(Base):
+    __tablename__ = "workflow_activations"
+
+    workflow_id: Mapped[str] = mapped_column(
+        ForeignKey("workflows.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    active_revision_id: Mapped[int | None] = mapped_column(
+        ForeignKey("workflow_revisions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+
+class ModelRoute(Base):
+    __tablename__ = "model_routes"
+
+    model: Mapped[str] = mapped_column(String(100), primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(
+        ForeignKey("workflows.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    visibility: Mapped[ModelRouteVisibility] = mapped_column(
+        enum_type(ModelRouteVisibility)
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+
+class VoiceAsset(Base):
+    __tablename__ = "voice_assets"
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    wav_path: Mapped[str] = mapped_column(String(500), unique=True)
+    ref_text: Mapped[str | None] = mapped_column(Text)
+    sample_rate: Mapped[int] = mapped_column(Integer, nullable=False)
+    duration_seconds: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
     )

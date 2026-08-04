@@ -73,6 +73,21 @@ describe("audio harness API client", () => {
     );
   });
 
+  it("submits a manual validation request", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({ results: [] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(apiClient.validateEngines?.()).resolves.toEqual({
+      results: [],
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/engines/validate",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
   it("updates workflow settings with the complete revision snapshot", async () => {
     const response = {
       min_chunk_bytes: 640,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from urllib.parse import urlencode
 
 from fastapi import (
     APIRouter,
@@ -19,7 +20,10 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from openai.types.realtime import RealtimeTranscriptionSessionCreateRequest
+from openai.types.realtime import (
+    RealtimeSessionCreateRequest,
+    RealtimeTranscriptionSessionCreateRequest,
+)
 from pydantic import ValidationError
 
 from audio_harness.api.schemas import (
@@ -27,11 +31,15 @@ from audio_harness.api.schemas import (
     CapacitySettingsUpdate,
     EngineCreate,
     EngineList,
+    EngineValidationRead,
+    EngineValidationResultRead,
+    EngineUsageRead,
     EnginePatch,
     EngineRead,
     ErrorResponse,
-    HealthNodeRead,
     HealthResponse,
+    ModelRouteRead,
+    ModelRouteUpsert,
     NodePortRead,
     NodeTypeRead,
     PipelineActivateRequest,
@@ -39,9 +47,20 @@ from audio_harness.api.schemas import (
     PipelineDraftRead,
     PipelineDraftUpdate,
     PipelineRevisionRead,
+    PipelineRestoreRequest,
     PipelineValidationRead,
     WorkflowSettingsRead,
     WorkflowSettingsUpdate,
+    WorkflowCreate,
+    WorkflowPatch,
+    WorkflowRead,
+    WorkflowStageStatusRead,
+    WorkflowStatusRead,
+    RuntimeLimiterRead,
+    RuntimeStatusRead,
+    TestSessionCreate,
+    TestSessionRead,
+    VoiceAssetRead,
 )
 from audio_harness.api.service import (
     AssetNotFoundError,
@@ -53,12 +72,14 @@ from audio_harness.assets import (
     EngineApi,
     EngineAssetData,
     EngineKind,
+    EngineStatus,
 )
 from audio_harness.capacity_settings import (
     CapacityRevisionConflictError,
     CapacitySettingsSnapshot,
     CapacitySettingsStore,
 )
+from audio_harness.capacity import ServingCapacity
 from audio_harness.config import CapacityConfig, WorkflowRuntimeConfig
 from audio_harness.database.session import Database
 from audio_harness.domain import CapacityExceededError, EngineUnavailableError
@@ -73,16 +94,30 @@ from audio_harness.pipelines.service import (
     PipelineRevisionConflictError,
     PipelineRevisionNotFoundError,
     PipelineStore,
+    ModelRouteNotFoundError,
+    WorkflowNotFoundError,
+    WorkflowConflictError,
+    definition_engine_ids,
+)
+from audio_harness.pipelines.stages import (
+    StageWorkflowDefinition,
+    default_stage_workflow,
 )
 from audio_harness.serving.realtime import RealtimeTranscriptionService
 from audio_harness.serving.webrtc import WebRtcCallService
 from audio_harness.serving.webrtc.service import WebRtcCallNotFoundError
+from audio_harness.serving.test_sessions import (
+    TEST_SESSION_COOKIE,
+    TestSessionBroker,
+)
 from audio_harness.workflow_settings import (
     WorkflowRevisionConflictError,
     WorkflowSettingsValidationError,
     WorkflowSettingsSnapshot,
     WorkflowSettingsStore,
 )
+from audio_harness.workflow_types import GRPC_DEFAULT_MODEL
+from audio_harness.voices import VoiceAssetNotFoundError, VoiceAssetStore
 
 
 def engine_response(asset: EngineAssetData) -> EngineRead:
@@ -98,12 +133,18 @@ def engine_response(asset: EngineAssetData) -> EngineRead:
         target=asset.target,
         connect_timeout_seconds=asset.connect_timeout_seconds,
         request_timeout_seconds=asset.request_timeout_seconds,
+        credential_env=asset.credential_env,
+        api_key=asset.api_key,
         enabled=asset.enabled,
         status=asset.status,
         image=asset.image,
         description=asset.description,
         status_basis=asset.status_basis,
         status_observed_at=asset.status_observed_at,
+        last_success_at=asset.last_success_at,
+        probe_latency_ms=asset.probe_latency_ms,
+        consecutive_failures=asset.consecutive_failures,
+        next_probe_at=asset.next_probe_at,
         source=asset.source,
         details=asset.details,
         revision=asset.revision,
@@ -133,10 +174,12 @@ def create_http_app(
     pipeline_store: PipelineStore | None = None,
     workflow_settings: WorkflowSettingsStore | None = None,
     capacity_settings: CapacitySettingsStore | None = None,
+    capacity: ServingCapacity | None = None,
     realtime_service: RealtimeTranscriptionService | None = None,
     webrtc_service: WebRtcCallService | None = None,
     max_message_bytes: int = 4 * 1024 * 1024,
     web_dist: Path | None = None,
+    voice_store: VoiceAssetStore | None = None,
 ) -> FastAPI:
     workflow_settings = workflow_settings or WorkflowSettingsStore(
         database.session_factory,
@@ -145,6 +188,7 @@ def create_http_app(
     capacity_settings = capacity_settings or CapacitySettingsStore(
         database.session_factory
     )
+    capacity = capacity or ServingCapacity(CapacityConfig())
     pipeline_store = pipeline_store or PipelineStore(
         database.session_factory,
         engine_router=engine_router,
@@ -155,6 +199,7 @@ def create_http_app(
         version="1.0.0",
     )
     router = APIRouter(prefix="/api/v1")
+    test_sessions = TestSessionBroker()
     errors = {
         404: {"model": ErrorResponse},
         409: {"model": ErrorResponse},
@@ -216,6 +261,34 @@ def create_http_app(
         exc: PipelineRevisionNotFoundError,
     ) -> JSONResponse:
         return _error(404, exc.code, str(exc))
+
+    @app.exception_handler(WorkflowNotFoundError)
+    async def handle_workflow_not_found(
+        _request: Request,
+        exc: WorkflowNotFoundError,
+    ) -> JSONResponse:
+        return _error(404, exc.code, str(exc))
+
+    @app.exception_handler(WorkflowConflictError)
+    async def handle_workflow_resource_conflict(
+        _request: Request,
+        exc: WorkflowConflictError,
+    ) -> JSONResponse:
+        return _error(409, exc.code, str(exc))
+
+    @app.exception_handler(ModelRouteNotFoundError)
+    async def handle_route_not_found(
+        _request: Request,
+        exc: ModelRouteNotFoundError,
+    ) -> JSONResponse:
+        return _error(404, exc.code, str(exc))
+
+    @app.exception_handler(VoiceAssetNotFoundError)
+    async def handle_voice_not_found(
+        _request: Request,
+        exc: VoiceAssetNotFoundError,
+    ) -> JSONResponse:
+        return _error(404, "voice_not_found", str(exc))
 
     @app.exception_handler(PipelineActivationError)
     async def handle_pipeline_activation(
@@ -304,6 +377,55 @@ def create_http_app(
             offset=offset,
         )
 
+    @router.post(
+        "/engines/validate",
+        response_model=EngineValidationRead,
+        responses=errors,
+    )
+    async def validate_engines() -> EngineValidationRead:
+        results = await catalog.validate_enabled_assets()
+        return EngineValidationRead(
+            results=[
+                EngineValidationResultRead(
+                    engine_id=item.asset.id,
+                    name=item.asset.name,
+                    revision=item.asset.revision,
+                    outcome=item.outcome,
+                    message=item.message,
+                    latency_ms=item.latency_ms,
+                )
+                for item in results
+            ]
+        )
+
+    @router.post(
+        "/engines/{asset_id}/probe",
+        response_model=EngineValidationResultRead,
+        responses=errors,
+    )
+    async def probe_engine(asset_id: str) -> EngineValidationResultRead:
+        item = await catalog.validate_asset(asset_id)
+        return EngineValidationResultRead(
+            engine_id=item.asset.id,
+            name=item.asset.name,
+            revision=item.asset.revision,
+            outcome=item.outcome,
+            message=item.message,
+            latency_ms=item.latency_ms,
+        )
+
+    @router.get(
+        "/engines/{asset_id}/usage",
+        response_model=EngineUsageRead,
+        responses=errors,
+    )
+    async def get_engine_usage(asset_id: str) -> EngineUsageRead:
+        await catalog.get_asset(asset_id)
+        return EngineUsageRead(
+            engine_id=asset_id,
+            references=list(await pipeline_store.asset_references(asset_id)),
+        )
+
     @router.get(
         "/engines/{asset_id}",
         response_model=EngineRead,
@@ -335,8 +457,9 @@ def create_http_app(
     def draft_response(
         draft,
     ) -> PipelineDraftRead:
-        active = pipeline_store.current_or_none()
+        active = pipeline_store.current_or_none(draft.workflow_id)
         return PipelineDraftRead(
+            workflow_id=draft.workflow_id,
             definition=draft.definition,
             revision=draft.revision,
             updated_at=draft.updated_at,
@@ -402,6 +525,432 @@ def create_http_app(
             )
             for node_type in pipeline_store.registry.all()
         ]
+
+    def workflow_summary_response(snapshot) -> WorkflowRead:
+        return WorkflowRead(
+            id=snapshot.id,
+            slug=snapshot.slug,
+            name=snapshot.name,
+            kind=snapshot.kind,
+            description=snapshot.description,
+            draft_revision=snapshot.draft_revision,
+            active_revision=snapshot.active_revision,
+            created_at=snapshot.created_at,
+            updated_at=snapshot.updated_at,
+        )
+
+    def model_route_response(snapshot) -> ModelRouteRead:
+        return ModelRouteRead(
+            model=snapshot.model,
+            workflow_id=snapshot.workflow_id,
+            visibility=snapshot.visibility,
+            updated_at=snapshot.updated_at,
+        )
+
+    @router.get("/workflows", response_model=list[WorkflowRead])
+    async def list_workflows() -> list[WorkflowRead]:
+        return [
+            workflow_summary_response(item)
+            for item in await pipeline_store.list_workflows()
+        ]
+
+    @router.post(
+        "/workflows",
+        response_model=PipelineDraftRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def create_workflow(payload: WorkflowCreate) -> PipelineDraftRead:
+        return draft_response(
+            await pipeline_store.create_workflow(
+                slug=payload.slug,
+                name=payload.name,
+                kind=payload.kind,
+                description=payload.description,
+                definition=(
+                    payload.definition
+                    if payload.definition is not None
+                    else default_stage_workflow(payload.kind)
+                ),
+            )
+        )
+
+    @router.get("/workflows/{workflow_id}", response_model=WorkflowRead)
+    async def get_workflow(workflow_id: str) -> WorkflowRead:
+        return workflow_summary_response(
+            await pipeline_store.get_workflow_summary(workflow_id)
+        )
+
+    @router.patch(
+        "/workflows/{workflow_id}",
+        response_model=PipelineDraftRead,
+    )
+    async def patch_workflow(
+        workflow_id: str,
+        payload: WorkflowPatch,
+    ) -> PipelineDraftRead:
+        return draft_response(
+            await pipeline_store.update_workflow_metadata(
+                workflow_id,
+                **payload.model_dump(exclude_unset=True),
+            )
+        )
+
+    @router.delete(
+        "/workflows/{workflow_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    async def delete_workflow(workflow_id: str) -> Response:
+        await pipeline_store.delete_workflow(workflow_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @router.get(
+        "/workflows/{workflow_id}/draft",
+        response_model=PipelineDraftRead,
+    )
+    async def get_workflow_draft(workflow_id: str) -> PipelineDraftRead:
+        return draft_response(await pipeline_store.get_draft(workflow_id))
+
+    @router.put(
+        "/workflows/{workflow_id}/draft",
+        response_model=PipelineDraftRead,
+    )
+    async def put_workflow_draft(
+        workflow_id: str,
+        payload: PipelineDraftUpdate,
+    ) -> PipelineDraftRead:
+        return draft_response(
+            await pipeline_store.update_draft(
+                workflow_id=workflow_id,
+                definition=payload.definition,
+                expected_revision=payload.expected_revision,
+            )
+        )
+
+    @router.post(
+        "/workflows/{workflow_id}/validate",
+        response_model=PipelineValidationRead,
+    )
+    async def validate_workflow_draft(
+        workflow_id: str,
+    ) -> PipelineValidationRead:
+        try:
+            plan = await pipeline_store.validate_draft(workflow_id)
+        except GraphValidationError as exc:
+            return PipelineValidationRead(
+                valid=False,
+                diagnostics=[
+                    PipelineDiagnosticRead(
+                        code=item.code,
+                        message=item.message,
+                        node_id=item.node_id,
+                        edge_id=item.edge_id,
+                        port=item.port,
+                    )
+                    for item in exc.diagnostics
+                ],
+            )
+        return PipelineValidationRead(
+            valid=True,
+            diagnostics=[],
+            topological_order=list(plan.topological_order),
+        )
+
+    @router.post(
+        "/workflows/{workflow_id}/activate",
+        response_model=PipelineRevisionRead,
+    )
+    async def activate_workflow(
+        workflow_id: str,
+        payload: PipelineActivateRequest,
+    ) -> PipelineRevisionRead:
+        return revision_response(
+            await pipeline_store.activate(
+                workflow_id=workflow_id,
+                expected_revision=payload.expected_revision,
+            )
+        )
+
+    @router.post(
+        "/workflows/{workflow_id}/publish",
+        response_model=PipelineRevisionRead,
+    )
+    async def publish_workflow(
+        workflow_id: str,
+        payload: PipelineActivateRequest,
+    ) -> PipelineRevisionRead:
+        """校验、准备所有引擎并原子发布当前草稿。"""
+        draft = await pipeline_store.get_draft(workflow_id)
+        for asset_id in sorted(
+            definition_engine_ids(draft.definition.model_dump(mode="json"))
+        ):
+            result = await catalog.validate_asset(asset_id)
+            if result.outcome != "passed":
+                raise PipelineActivationError(
+                    f"发布前引擎探测失败: {result.asset.name}: "
+                    f"{result.message or result.outcome}"
+                )
+        return revision_response(
+            await pipeline_store.activate(
+                workflow_id=workflow_id,
+                expected_revision=payload.expected_revision,
+            )
+        )
+
+    @router.get(
+        "/workflows/{workflow_id}/revisions",
+        response_model=list[PipelineRevisionRead],
+    )
+    async def list_workflow_revisions(
+        workflow_id: str,
+    ) -> list[PipelineRevisionRead]:
+        return [
+            revision_response(item)
+            for item in await pipeline_store.list_revisions(workflow_id)
+        ]
+
+    @router.post(
+        "/workflows/{workflow_id}/revisions/{revision}/restore",
+        response_model=PipelineDraftRead,
+    )
+    async def restore_workflow_revision(
+        workflow_id: str,
+        revision: int,
+        payload: PipelineRestoreRequest,
+    ) -> PipelineDraftRead:
+        return draft_response(
+            await pipeline_store.restore_revision_as_draft(
+                workflow_id=workflow_id,
+                revision_number=revision,
+                expected_revision=payload.expected_revision,
+            )
+        )
+
+    @router.get(
+        "/workflows/{workflow_id}/status",
+        response_model=WorkflowStatusRead,
+    )
+    async def get_workflow_status(workflow_id: str) -> WorkflowStatusRead:
+        draft = await pipeline_store.get_draft(workflow_id)
+        active = pipeline_store.current_or_none(workflow_id)
+        diagnostics: list[PipelineDiagnosticRead] = []
+        try:
+            await pipeline_store.compile(draft.definition, kind=draft.kind)
+        except GraphValidationError as exc:
+            diagnostics = [
+                PipelineDiagnosticRead(
+                    code=item.code,
+                    message=item.message,
+                    node_id=item.node_id,
+                    edge_id=item.edge_id,
+                    port=item.port,
+                    stage=item.node_id,
+                )
+                for item in exc.diagnostics
+            ]
+        except ValueError as exc:
+            diagnostics = [
+                PipelineDiagnosticRead(
+                    code="invalid_stage_definition",
+                    message=str(exc),
+                )
+            ]
+
+        stage_bindings: list[tuple[str, str | None]] = []
+        if isinstance(draft.definition, StageWorkflowDefinition):
+            for stage_name in (
+                "physical_vad",
+                "semantic_vad",
+                "asr",
+                "responses_agent",
+                "duplex_tts",
+            ):
+                stage = getattr(draft.definition.stages, stage_name)
+                if stage is not None:
+                    stage_bindings.append((stage_name, stage.engine_id))
+        else:
+            stage_bindings = [
+                (node.type, node.engine_id)
+                for node in draft.definition.nodes
+                if node.engine_id is not None
+            ]
+
+        stage_states: list[WorkflowStageStatusRead] = []
+        all_healthy = True
+        for stage_name, engine_id in stage_bindings:
+            if engine_id is None:
+                all_healthy = False
+                stage_states.append(
+                    WorkflowStageStatusRead(
+                        stage=stage_name,
+                        engine_id=None,
+                        health="missing",
+                        reason="尚未绑定引擎",
+                    )
+                )
+                continue
+            try:
+                asset = await catalog.get_asset(engine_id)
+            except AssetNotFoundError:
+                all_healthy = False
+                stage_states.append(
+                    WorkflowStageStatusRead(
+                        stage=stage_name,
+                        engine_id=engine_id,
+                        health="missing",
+                        reason="绑定的引擎不存在",
+                    )
+                )
+                continue
+            healthy = asset.status is EngineStatus.HEALTHY and asset.enabled
+            all_healthy = all_healthy and healthy
+            stage_states.append(
+                WorkflowStageStatusRead(
+                    stage=stage_name,
+                    engine_id=engine_id,
+                    engine_name=asset.name,
+                    health=(asset.status.value if asset.enabled else "disabled"),
+                    reason=asset.status_basis,
+                    checked_at=asset.status_observed_at,
+                )
+            )
+
+        has_unpublished = (
+            active is None
+            or active.definition.model_dump(mode="json")
+            != draft.definition.model_dump(mode="json")
+        )
+        if diagnostics:
+            state = "incomplete"
+        elif active is None:
+            state = "unpublished"
+        elif has_unpublished:
+            state = "unpublished_changes"
+        elif all_healthy:
+            state = "published_healthy"
+        else:
+            state = "published_degraded"
+        models = sorted(
+            route.model
+            for route in pipeline_store.model_routes()
+            if route.workflow_id == workflow_id and route.visibility.value == "public"
+        )
+        return WorkflowStatusRead(
+            workflow_id=workflow_id,
+            state=state,
+            draft_revision=draft.revision,
+            active_revision=active.revision if active is not None else None,
+            has_unpublished_changes=has_unpublished,
+            public_models=models,
+            diagnostics=diagnostics,
+            stages=stage_states,
+        )
+
+    @router.get(
+        "/workflows/{workflow_id}/active",
+        response_model=PipelineRevisionRead,
+    )
+    async def get_active_workflow(workflow_id: str) -> PipelineRevisionRead:
+        return revision_response(pipeline_store.current(workflow_id))
+
+    @router.get(
+        "/workflows/{workflow_id}/revisions/{revision}",
+        response_model=PipelineRevisionRead,
+    )
+    async def get_workflow_revision(
+        workflow_id: str,
+        revision: int,
+    ) -> PipelineRevisionRead:
+        return revision_response(
+            await pipeline_store.get_revision(revision, workflow_id)
+        )
+
+    @router.get("/model-routes", response_model=list[ModelRouteRead])
+    async def list_model_routes() -> list[ModelRouteRead]:
+        return [
+            model_route_response(item)
+            for item in pipeline_store.model_routes()
+        ]
+
+    @router.put(
+        "/model-routes/{model:path}",
+        response_model=ModelRouteRead,
+    )
+    async def put_model_route(
+        model: str,
+        payload: ModelRouteUpsert,
+    ) -> ModelRouteRead:
+        if payload.model != model:
+            raise HTTPException(
+                status_code=422,
+                detail="路径 model 与请求体 model 不一致",
+            )
+        return model_route_response(
+            await pipeline_store.upsert_model_route(
+                model=payload.model,
+                workflow_id=payload.workflow_id,
+                visibility=payload.visibility,
+            )
+        )
+
+    @router.delete(
+        "/model-routes/{model:path}",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    async def delete_model_route(model: str) -> Response:
+        await pipeline_store.delete_model_route(model)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    if voice_store is not None:
+
+        def voice_response(snapshot) -> VoiceAssetRead:
+            return VoiceAssetRead(
+                id=snapshot.id,
+                name=snapshot.name,
+                ref_text=snapshot.ref_text,
+                sample_rate=snapshot.sample_rate,
+                duration_seconds=snapshot.duration_seconds,
+                created_at=snapshot.created_at,
+            )
+
+        @router.get("/voices", response_model=list[VoiceAssetRead])
+        async def list_voices() -> list[VoiceAssetRead]:
+            return [
+                voice_response(item)
+                for item in await voice_store.list()
+            ]
+
+        @router.post(
+            "/voices",
+            response_model=VoiceAssetRead,
+            status_code=status.HTTP_201_CREATED,
+        )
+        async def create_voice(request: Request) -> VoiceAssetRead:
+            form = await request.form()
+            upload = form.get("file")
+            name = form.get("name")
+            ref_text = form.get("ref_text")
+            if not isinstance(name, str) or not name.strip():
+                raise HTTPException(422, "name 不能为空")
+            if upload is None or not hasattr(upload, "read"):
+                raise HTTPException(422, "file 必须是 WAV 文件")
+            wav = await upload.read(voice_store.max_upload_bytes + 1)
+            try:
+                snapshot = await voice_store.create(
+                    name=name,
+                    wav=wav,
+                    ref_text=ref_text if isinstance(ref_text, str) else None,
+                )
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
+            return voice_response(snapshot)
+
+        @router.delete(
+            "/voices/{voice_id}",
+            status_code=status.HTTP_204_NO_CONTENT,
+        )
+        async def delete_voice(voice_id: str) -> Response:
+            await voice_store.delete(voice_id)
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.get(
         "/pipeline",
@@ -550,6 +1099,72 @@ def create_http_app(
         )
         return capacity_response(snapshot)
 
+    @router.get("/runtime/status", response_model=RuntimeStatusRead)
+    async def get_runtime_status() -> RuntimeStatusRead:
+        def limiter_response(limiter) -> RuntimeLimiterRead:
+            return RuntimeLimiterRead(
+                active=limiter.active,
+                capacity=limiter.capacity,
+                rejected=limiter.rejected,
+            )
+
+        return RuntimeStatusRead(
+            grpc=limiter_response(capacity.grpc_sessions),
+            realtime=limiter_response(capacity.realtime_sessions),
+            webrtc=limiter_response(capacity.webrtc_sessions),
+            asr=limiter_response(capacity.asr),
+            responses=limiter_response(capacity.responses),
+            tts=limiter_response(capacity.tts),
+            started_at=capacity.started_at,
+        )
+
+    @router.post("/test-sessions", response_model=TestSessionRead)
+    async def create_test_session(
+        payload: TestSessionCreate,
+        request: Request,
+    ) -> Response:
+        pipeline_store.current(payload.workflow_id)
+        workflow = await pipeline_store.get_workflow_summary(payload.workflow_id)
+        public_models = sorted(
+            route.model
+            for route in pipeline_store.model_routes()
+            if route.workflow_id == payload.workflow_id
+            and route.visibility.value == "public"
+        )
+        if not public_models:
+            return _error(
+                409,
+                "workflow_not_routable",
+                "工作流尚未绑定公开模型名",
+            )
+        model = workflow.slug if workflow.slug in public_models else public_models[0]
+        credential = await test_sessions.create(
+            workflow_id=payload.workflow_id,
+            model=model,
+            protocol=payload.protocol,
+        )
+        base = "/v1/realtime" if payload.protocol == "wss" else "/v1/realtime/calls"
+        endpoint = f"{base}?{urlencode({'model': model})}"
+        body = TestSessionRead(
+            id=credential.id,
+            workflow_id=payload.workflow_id,
+            model=model,
+            protocol=payload.protocol,
+            endpoint=endpoint,
+            expires_at=credential.expires_at,
+        )
+        response = JSONResponse(content=body.model_dump(mode="json"))
+        response.set_cookie(
+            TEST_SESSION_COOKIE,
+            credential.token,
+            max_age=60,
+            secure=request.url.scheme == "https",
+            httponly=True,
+            samesite="strict",
+            path="/v1/realtime",
+        )
+        return response
+
     @app.get("/health/live", response_model=HealthResponse)
     async def liveness() -> HealthResponse:
         return HealthResponse(
@@ -565,7 +1180,6 @@ def create_http_app(
     )
     async def readiness() -> Response:
         problems: list[str] = []
-        nodes: list[HealthNodeRead] = []
         pipeline_revision: int | None = None
         database_status = "ready"
         try:
@@ -576,51 +1190,24 @@ def create_http_app(
         data_ready = False
         if database_status == "ready":
             try:
-                active = pipeline_store.current_or_none()
-                if active is None:
-                    problems.append("当前没有已激活的处理链")
-                else:
-                    pipeline_revision = active.revision
-                    data_ready, data_problems = (
-                        await engine_router.readiness(
-                            active.plan.engine_snapshots
-                        )
-                    )
-                    problems.extend(data_problems)
-                    for node_id in active.plan.topological_order:
-                        node = active.plan.nodes[node_id]
-                        snapshot = node.engine_snapshot
-                        reason: str | None = None
-                        state = "ready"
-                        if snapshot is not None:
-                            ready, node_problems = (
-                                await engine_router.readiness((snapshot,))
-                            )
-                            if not ready:
-                                state = "not_ready"
-                                reason = "; ".join(node_problems)
-                        nodes.append(
-                            HealthNodeRead(
-                                node_id=node_id,
-                                node_type=node.node_type.type,
-                                state=state,
-                                engine_id=(
-                                    snapshot.id
-                                    if snapshot is not None
-                                    else None
-                                ),
-                                reason=reason,
-                            )
-                        )
+                active = pipeline_store.resolve_model(
+                    GRPC_DEFAULT_MODEL,
+                    allow_internal=True,
+                )
+            except PipelineError:
+                problems.append("grpc-default 未指向已激活工作流")
             except Exception:
                 problems.append("数据面状态读取失败")
+            else:
+                pipeline_revision = active.revision
+                data_ready = True
         response = HealthResponse(
             status="ready" if not problems else "not_ready",
             database=database_status,
             data_plane="ready" if data_ready else "not_ready",
             problems=problems,
             pipeline_revision=pipeline_revision,
-            nodes=nodes,
+            nodes=[],
         )
         return JSONResponse(
             status_code=200 if not problems else 503,
@@ -635,10 +1222,16 @@ def create_http_app(
             model: str = Query(min_length=1),
             diagnostics: bool = Query(default=False),
         ) -> None:
+            test_authorized = await test_sessions.consume(
+                websocket.cookies.get(TEST_SESSION_COOKIE),
+                model=model,
+                protocol="wss",
+            )
             await realtime_service.handle(
                 websocket,
                 model=model,
                 diagnostics_enabled=diagnostics,
+                test_authorized=test_authorized,
             )
 
     if webrtc_service is not None:
@@ -648,9 +1241,9 @@ def create_http_app(
             request: Request,
             authorization: str = Header(default=""),
             diagnostics: bool = Query(default=False),
+            model: str | None = Query(default=None, min_length=1),
         ) -> Response:
-            if not webrtc_service.authorize(authorization):
-                return _error(401, "unauthorized", "Unauthorized")
+            static_authorized = webrtc_service.authorize(authorization)
             try:
                 form = await request.form()
             except Exception as exc:
@@ -696,18 +1289,58 @@ def create_http_app(
                         "invalid_session",
                         "session 必须是 JSON 文本或文件",
                     )
-                session_config = (
-                    RealtimeTranscriptionSessionCreateRequest.model_validate(
-                        json.loads(session_json)
-                    )
+                session_payload = (
+                    json.loads(session_json)
                     if session_json is not None
                     else None
                 )
-                answer = await webrtc_service.create_call(
-                    offer_sdp=offer_sdp,
-                    session=session_config,
-                    diagnostics_enabled=diagnostics,
-                )
+                if session_payload is None:
+                    session_config = None
+                elif session_payload.get("type") == "realtime":
+                    session_config = RealtimeSessionCreateRequest.model_validate(
+                        session_payload
+                    )
+                else:
+                    session_config = (
+                        RealtimeTranscriptionSessionCreateRequest.model_validate(
+                            session_payload
+                        )
+                    )
+                selected_model = model
+                if selected_model is None and session_payload is not None:
+                    if session_payload.get("type") == "realtime":
+                        selected_model = session_payload.get("model")
+                    else:
+                        audio_input = (
+                            (session_payload.get("audio") or {}).get("input")
+                            or {}
+                        )
+                        selected_model = (
+                            (audio_input.get("transcription") or {}).get(
+                                "model"
+                            )
+                        )
+                selected_model = selected_model or "gpt-4o-transcribe"
+                if not static_authorized and not await test_sessions.consume(
+                    request.cookies.get(TEST_SESSION_COOKIE),
+                    model=selected_model,
+                    protocol="webrtc",
+                ):
+                    return _error(401, "unauthorized", "Unauthorized")
+                call_arguments = {
+                    "offer_sdp": offer_sdp,
+                    "session": session_config,
+                    "diagnostics_enabled": diagnostics,
+                }
+                if (
+                    model is not None
+                    or (
+                        session_payload is not None
+                        and session_payload.get("type") == "realtime"
+                    )
+                ):
+                    call_arguments["model"] = selected_model
+                answer = await webrtc_service.create_call(**call_arguments)
             except UnicodeDecodeError:
                 return _error(
                     400,

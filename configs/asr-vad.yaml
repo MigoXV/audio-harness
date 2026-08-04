@@ -1,2 +1,5 @@
 database:
   url: sqlite+aiosqlite:///./data-bin/sqlite/audio-harness.db
+voices:
+  storage_dir: ./data-bin/voices
+  max_upload_bytes: 20971520

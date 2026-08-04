@@ -50,22 +50,6 @@ class ImmediateVad:
         return True
 
 
-class ProgressVad:
-    async def stream_detect(
-        self,
-        audio_chunks: AsyncIterator[bytes],
-        sample_rate: int,
-    ) -> AsyncIterator[VadUpdate]:
-        async for chunk in audio_chunks:
-            samples = len(chunk) // 2
-            yield VadUpdate(boundaries=(), processed_samples=samples // 2)
-            yield VadUpdate(boundaries=(), processed_samples=samples)
-            return
-
-    async def detect_turn(self, audio: bytes, sample_rate: int) -> bool:
-        return True
-
-
 class FinalAsr:
     async def transcribe(
         self,
@@ -95,7 +79,7 @@ class StaticSettings:
         return self._snapshot
 
 
-def build_app(vad: ImmediateVad | ProgressVad | None = None) -> FastAPI:
+def build_app(vad: ImmediateVad | None = None) -> FastAPI:
     config = WorkflowRuntimeConfig(
         min_chunk_bytes=6400,
     )
@@ -139,10 +123,7 @@ def build_app(vad: ImmediateVad | ProgressVad | None = None) -> FastAPI:
 
 
 def receive_official_event(websocket):
-    while True:
-        payload = websocket.receive_json()
-        if payload.get("type") != "audio_harness.vad_progress":
-            return _SERVER_EVENT_ADAPTER.validate_python(payload)
+    return _SERVER_EVENT_ADAPTER.validate_python(websocket.receive_json())
 
 
 def test_realtime_rejects_invalid_bearer_token() -> None:
@@ -159,7 +140,7 @@ def test_realtime_rejects_invalid_bearer_token() -> None:
 def test_realtime_server_vad_event_sequence_uses_sdk_models() -> None:
     with TestClient(build_app()) as client:
         with client.websocket_connect(
-            "/v1/realtime?model=gpt-4o-transcribe",
+            "/v1/realtime?model=gpt-4o-transcribe&diagnostics=true",
             headers={"Authorization": "Bearer local-test-key"},
         ) as websocket:
             created = receive_official_event(websocket)
@@ -218,40 +199,6 @@ def test_realtime_server_vad_event_sequence_uses_sdk_models() -> None:
             }
             assert len(item_ids) == 1
             assert events[-1].transcript == "你好，世界"
-
-
-def test_realtime_emits_vad_progress_for_every_vad_update() -> None:
-    with TestClient(build_app(ProgressVad())) as client:
-        with client.websocket_connect(
-            "/v1/realtime?model=gpt-4o-transcribe&diagnostics=true",
-            headers={"Authorization": "Bearer local-test-key"},
-        ) as websocket:
-            assert receive_official_event(websocket).type == "session.created"
-            websocket.send_json(
-                {
-                    "type": "session.update",
-                    "session": {"type": "transcription"},
-                }
-            )
-            assert receive_official_event(websocket).type == "session.updated"
-
-            audio = np.zeros(24_000, dtype="<i2").tobytes()
-            websocket.send_json(
-                {
-                    "type": "input_audio_buffer.append",
-                    "audio": base64.b64encode(audio).decode("ascii"),
-                }
-            )
-            progress = [websocket.receive_json() for _ in range(2)]
-
-            assert [event["type"] for event in progress] == [
-                "audio_harness.vad_progress",
-                "audio_harness.vad_progress",
-            ]
-            assert [event["processed_audio_ms"] for event in progress] == [
-                pytest.approx(3_200 / 2 / 16_000 * 1_000),
-                pytest.approx(3_200 / 16_000 * 1_000),
-            ]
 
 
 def test_realtime_rejects_manual_commit_without_closing_connection() -> None:

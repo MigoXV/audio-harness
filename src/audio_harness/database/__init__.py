@@ -7,7 +7,11 @@ from audio_harness.database.models import (
     PipelineWorkingCopy,
     WorkflowSetting,
 )
-from audio_harness.database.session import Database, upgrade_database
+from audio_harness.database.session import (
+    Database,
+    require_control_plane_v2_database,
+    upgrade_database,
+)
 
 __all__ = [
     "Base",
@@ -18,5 +22,6 @@ __all__ = [
     "PipelineRevision",
     "PipelineWorkingCopy",
     "WorkflowSetting",
+    "require_control_plane_v2_database",
     "upgrade_database",
 ]

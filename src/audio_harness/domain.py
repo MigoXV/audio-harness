@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Mapping, Optional, Protocol
+from typing import Any, Mapping, Optional, Protocol
 
 
 @dataclass(frozen=True)
@@ -79,6 +79,43 @@ class AsyncAsrEngine(Protocol):
         segment: AudioSegment,
         options: RecognitionOptions,
     ) -> AsyncIterator[TranscriptionResult]: ...
+
+
+@dataclass(frozen=True)
+class PresetVoice:
+    voice_id: str
+
+
+@dataclass(frozen=True)
+class ReferenceVoice:
+    pcm_s16le: bytes
+    sample_rate: int
+    ref_text: str = ""
+
+
+VoiceSelection = PresetVoice | ReferenceVoice
+
+
+@dataclass(frozen=True)
+class SynthesizedAudioChunk:
+    pcm_s16le: bytes
+    sample_rate: int
+    chunk_index: int
+
+
+class AsyncResponsesEngine(Protocol):
+    async def stream_response(self, **kwargs: Any) -> Any: ...
+
+
+class AsyncTtsEngine(Protocol):
+    def duplex_synthesize(
+        self,
+        text_chunks: AsyncIterator[str],
+        *,
+        voice: VoiceSelection,
+        language: str,
+        decoder_chunk_size: int,
+    ) -> AsyncIterator[SynthesizedAudioChunk]: ...
 
 
 class AudioHarnessError(Exception):

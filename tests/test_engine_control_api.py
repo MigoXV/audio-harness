@@ -137,15 +137,12 @@ async def test_migration_seeds_assets_and_unconfigured_pipeline(
     pipeline = await control_plane.client.get("/api/v1/pipeline")
     assert pipeline.status_code == 200
     assert pipeline.json()["active_revision"] is None
-    nodes = pipeline.json()["definition"]["nodes"]
-    assert {
-        node["type"] for node in nodes
-    } == {"audio_input", "physical_vad", "asr", "session_output"}
-    assert all(
-        node["engine_id"] is None
-        for node in nodes
-        if node["type"] in {"physical_vad", "asr"}
-    )
+    definition = pipeline.json()["definition"]
+    assert definition["schema_version"] == 2
+    stages = definition["stages"]
+    assert stages["physical_vad"]["engine_id"] is None
+    assert stages["asr"]["engine_id"] is None
+    assert stages["semantic_vad"] is None
     assert (
         await control_plane.client.get("/api/v1/engine-bindings")
     ).status_code == 404
@@ -163,6 +160,94 @@ async def test_migration_seeds_assets_and_unconfigured_pipeline(
     assert capacity.json()["grpc"]["max_sessions"] == 64
     assert capacity.json()["realtime"]["max_sessions"] == 64
     assert capacity.json()["webrtc"]["max_sessions"] == 64
+    assert capacity.json()["max_responses_concurrency"] == 8
+    assert capacity.json()["max_tts_concurrency"] == 1
+
+    workflows = await control_plane.client.get("/api/v1/workflows")
+    assert workflows.status_code == 200
+    assert [item["id"] for item in workflows.json()] == [
+        "default-transcription"
+    ]
+    routes = await control_plane.client.get("/api/v1/model-routes")
+    assert routes.status_code == 200
+    assert {
+        item["model"]: (item["workflow_id"], item["visibility"])
+        for item in routes.json()
+    } == {
+        "default-transcription": ("default-transcription", "public"),
+        "grpc-default": ("default-transcription", "internal"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_manual_engine_validation_records_results_and_reprobes(
+    control_plane: ControlPlane,
+) -> None:
+    existing = await control_plane.client.get("/api/v1/engines?limit=200")
+    for engine in existing.json()["items"]:
+        disabled = await control_plane.client.patch(
+            f"/api/v1/engines/{engine['id']}",
+            json={"enabled": False},
+        )
+        assert disabled.status_code == 200
+
+    server = grpc.aio.server()
+    port = server.add_insecure_port("127.0.0.1:0")
+    await server.start()
+    try:
+        reachable = await control_plane.client.post(
+            "/api/v1/engines",
+            json=engine_payload(
+                slug="validation-reachable",
+                api="ux_speech",
+                kind="asr",
+                target=f"127.0.0.1:{port}",
+            ),
+        )
+        unreachable = await control_plane.client.post(
+            "/api/v1/engines",
+            json=engine_payload(
+                slug="validation-unreachable",
+                api="ux_vad",
+                kind="vad",
+                target="127.0.0.1:1",
+                connect_timeout_seconds=0.05,
+            ),
+        )
+        assert reachable.status_code == 201
+        assert unreachable.status_code == 201
+
+        validated = await control_plane.client.post("/api/v1/engines/validate")
+        assert validated.status_code == 200
+        outcomes = {
+            item["engine_id"]: item
+            for item in validated.json()["results"]
+        }
+        assert outcomes[reachable.json()["id"]]["outcome"] == "passed"
+        assert outcomes[unreachable.json()["id"]]["outcome"] == "failed"
+        assert outcomes[unreachable.json()["id"]]["message"]
+
+        checked_reachable = await control_plane.client.get(
+            f"/api/v1/engines/{reachable.json()['id']}"
+        )
+        checked_unreachable = await control_plane.client.get(
+            f"/api/v1/engines/{unreachable.json()['id']}"
+        )
+        assert checked_reachable.json()["status"] == "healthy"
+        assert checked_reachable.json()["revision"] == 1
+        assert checked_reachable.json()["status_observed_at"] is not None
+        assert checked_unreachable.json()["status"] == "unhealthy"
+        assert "人工连通性校验失败" in checked_unreachable.json()["status_basis"]
+
+        await server.stop(0)
+        revalidated = await control_plane.client.post("/api/v1/engines/validate")
+        outcomes = {
+            item["engine_id"]: item
+            for item in revalidated.json()["results"]
+        }
+        assert outcomes[reachable.json()["id"]]["outcome"] == "failed"
+    finally:
+        await server.stop(0)
 
 
 @pytest.mark.asyncio
@@ -399,6 +484,7 @@ async def test_asr_vad_kind_is_no_longer_accepted(
 async def test_pipeline_activation_probes_and_preserves_active_revision(
     control_plane: ControlPlane,
     reachable_grpc_target: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     asr = await control_plane.client.post(
         "/api/v1/engines",
@@ -422,11 +508,8 @@ async def test_pipeline_activation_probes_and_preserves_active_revision(
         await control_plane.client.get("/api/v1/pipeline")
     ).json()
     definition = draft["definition"]
-    for node in definition["nodes"]:
-        if node["type"] == "asr":
-            node["engine_id"] = asr.json()["id"]
-        if node["type"] == "physical_vad":
-            node["engine_id"] = vad.json()["id"]
+    definition["stages"]["asr"]["engine_id"] = asr.json()["id"]
+    definition["stages"]["physical_vad"]["engine_id"] = vad.json()["id"]
     saved = await control_plane.client.put(
         "/api/v1/pipeline/draft",
         json={
@@ -447,8 +530,22 @@ async def test_pipeline_activation_probes_and_preserves_active_revision(
     assert activated.json()["revision"] == 1
     assert activated.json()["engine_revisions"] == {
         "asr": 1,
-        "physical_vad": 1,
+        "physical-vad": 1,
     }
+
+    async def reject_engine_readiness(*_args: object) -> None:
+        raise AssertionError("健康检查不应探测推理引擎")
+
+    monkeypatch.setattr(
+        control_plane.router,
+        "readiness",
+        reject_engine_readiness,
+    )
+    ready = await control_plane.client.get("/health/ready")
+    assert ready.status_code == 200
+    assert ready.json()["data_plane"] == "ready"
+    assert ready.json()["nodes"] == []
+    assert ready.json()["problems"] == []
 
     disabled = await control_plane.client.patch(
         f"/api/v1/engines/{asr.json()['id']}",
@@ -467,11 +564,7 @@ async def test_pipeline_activation_probes_and_preserves_active_revision(
         ),
     )
     failed_definition = saved.json()["definition"]
-    next(
-        node
-        for node in failed_definition["nodes"]
-        if node["type"] == "asr"
-    )["engine_id"] = bad.json()["id"]
+    failed_definition["stages"]["asr"]["engine_id"] = bad.json()["id"]
     next_draft = await control_plane.client.put(
         "/api/v1/pipeline/draft",
         json={
@@ -584,11 +677,8 @@ async def test_hot_switch_keeps_existing_lease(
         draft = (
             await control_plane.client.get("/api/v1/pipeline")
         ).json()
-        for node in draft["definition"]["nodes"]:
-            if node["type"] == "asr":
-                node["engine_id"] = first.json()["id"]
-            if node["type"] == "physical_vad":
-                node["engine_id"] = vad.json()["id"]
+        draft["definition"]["stages"]["asr"]["engine_id"] = first.json()["id"]
+        draft["definition"]["stages"]["physical_vad"]["engine_id"] = vad.json()["id"]
         saved = (
             await control_plane.client.put(
                 "/api/v1/pipeline/draft",
@@ -614,11 +704,7 @@ async def test_hot_switch_keeps_existing_lease(
             old_asr = old_lease[(first.json()["id"], 1)]
             assert old_asr.endpoint.target.endswith(str(first_port))
             next_definition = saved["definition"]
-            next(
-                node
-                for node in next_definition["nodes"]
-                if node["type"] == "asr"
-            )["engine_id"] = second.json()["id"]
+            next_definition["stages"]["asr"]["engine_id"] = second.json()["id"]
             switched_draft = (
                 await control_plane.client.put(
                     "/api/v1/pipeline/draft",
@@ -680,3 +766,79 @@ async def test_hot_switch_keeps_existing_lease(
     finally:
         await first_server.stop(0)
         await second_server.stop(0)
+
+
+@pytest.mark.asyncio
+async def test_v2_workflow_create_autosave_status_and_public_route(
+    control_plane: ControlPlane,
+) -> None:
+    created = await control_plane.client.post(
+        "/api/v1/workflows",
+        json={
+            "slug": "support-agent",
+            "name": "客服语音 Agent",
+            "kind": "voice_agent",
+        },
+    )
+    assert created.status_code == 201
+    draft = created.json()
+    assert draft["workflow_id"]
+    assert draft["definition"]["schema_version"] == 2
+    assert draft["definition"]["stages"]["responses_agent"] is not None
+    assert draft["definition"]["stages"]["duplex_tts"] is not None
+
+    duplicate = await control_plane.client.post(
+        "/api/v1/workflows",
+        json={
+            "slug": "support-agent",
+            "name": "重复工作流",
+            "kind": "voice_agent",
+        },
+    )
+    assert duplicate.status_code == 409
+
+    workflow_id = draft["workflow_id"]
+    routes = (await control_plane.client.get("/api/v1/model-routes")).json()
+    assert any(
+        route["model"] == "support-agent"
+        and route["workflow_id"] == workflow_id
+        and route["visibility"] == "public"
+        for route in routes
+    )
+
+    status_response = await control_plane.client.get(
+        f"/api/v1/workflows/{workflow_id}/status"
+    )
+    assert status_response.status_code == 200
+    workflow_status = status_response.json()
+    assert workflow_status["state"] == "incomplete"
+    assert workflow_status["public_models"] == ["support-agent"]
+    assert {stage["stage"] for stage in workflow_status["stages"]} == {
+        "physical_vad",
+        "asr",
+        "responses_agent",
+        "duplex_tts",
+    }
+
+    saved_definition = draft["definition"]
+    saved_definition["stages"]["responses_agent"]["config"]["model"] = (
+        "gpt-4.1-mini"
+    )
+    saved = await control_plane.client.put(
+        f"/api/v1/workflows/{workflow_id}/draft",
+        json={
+            "expected_revision": draft["revision"],
+            "definition": saved_definition,
+        },
+    )
+    assert saved.status_code == 200
+    assert saved.json()["revision"] == draft["revision"] + 1
+
+    conflict = await control_plane.client.put(
+        f"/api/v1/workflows/{workflow_id}/draft",
+        json={
+            "expected_revision": draft["revision"],
+            "definition": saved_definition,
+        },
+    )
+    assert conflict.status_code == 409

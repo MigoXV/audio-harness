@@ -93,6 +93,17 @@ class EngineRouter:
         for snapshot in snapshots:
             await self.prepare(snapshot)
 
+    async def probe(self, snapshot: EngineSnapshot) -> None:
+        """使用临时客户端探测引擎，绝不复用会话运行时缓存。"""
+        async with self._lock:
+            if self._closed:
+                raise RuntimeError("引擎路由器已经关闭")
+        inferencer = self._inferencer_factory.create(snapshot)
+        try:
+            await inferencer.probe()
+        finally:
+            await inferencer.close()
+
     @asynccontextmanager
     async def lease_snapshots(
         self,

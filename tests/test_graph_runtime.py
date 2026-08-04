@@ -62,6 +62,27 @@ class FakeVad:
         return self.turn_results.pop(0)
 
 
+class LateReportedStartVad(FakeVad):
+    async def stream_detect(
+        self,
+        audio_chunks: AsyncIterator[bytes],
+        sample_rate: int,
+    ) -> AsyncIterator[VadUpdate]:
+        processed = 0
+        index = 0
+        async for chunk in audio_chunks:
+            self.received.extend(chunk)
+            processed += len(chunk) // 2
+            index += 1
+            if index < 3:
+                yield VadUpdate(boundaries=(), processed_samples=processed)
+                continue
+            yield VadUpdate(
+                boundaries=(VadBoundary(2, processed),),
+                processed_samples=processed,
+            )
+
+
 class FakeAsr:
     def __init__(self) -> None:
         self.calls: list[AudioSegment] = []
@@ -115,7 +136,10 @@ def engine_asset(
     )
 
 
-def graph_definition() -> PipelineDefinition:
+def graph_definition(
+    *,
+    semantic_max_buffer_seconds: float = 60,
+) -> PipelineDefinition:
     return PipelineDefinition.model_validate(
         {
             "nodes": [
@@ -135,6 +159,9 @@ def graph_definition() -> PipelineDefinition:
                     "id": "semantic",
                     "type": "semantic_vad",
                     "engine_id": "vad-engine",
+                    "config": {
+                        "max_buffer_seconds": semantic_max_buffer_seconds,
+                    },
                     "failure_policy": "fail_open",
                 },
                 {
@@ -202,6 +229,7 @@ def runner(
     physical: FakeVad,
     semantic: FakeVad,
     asr: FakeAsr,
+    semantic_max_buffer_seconds: float = 60,
 ) -> GraphSessionRunner:
     assets = {
         "vad-engine": engine_asset(
@@ -216,7 +244,9 @@ def runner(
         ),
     }
     plan = compile_pipeline(
-        graph_definition(),
+        graph_definition(
+            semantic_max_buffer_seconds=semantic_max_buffer_seconds,
+        ),
         registry=default_node_registry(),
         assets=assets,
     )
@@ -267,12 +297,72 @@ async def test_graph_runner_preserves_semantic_turn_merging() -> None:
         (item.transcript, item.is_final, item.turn_completed)
         for item in transcriptions
     ] == [
-        ("", True, False),
         ("临时", False, True),
         ("最终", True, True),
     ]
     assert len(asr.calls) == 1
     assert (asr.calls[0].start_sample, asr.calls[0].end_sample) == (0, 8)
+
+
+@pytest.mark.asyncio
+async def test_graph_runner_hard_commits_only_pending_audio_on_semantic_buffer_overflow() -> None:
+    physical = FakeVad(
+        [
+            VadUpdate(
+                boundaries=(VadBoundary(0, 4), VadBoundary(4, 8)),
+                processed_samples=8,
+            )
+        ]
+    )
+    semantic = FakeVad([], turn_results=[False, False])
+    asr = FakeAsr()
+
+    results = [
+        item
+        async for item in runner(
+            physical=physical,
+            semantic=semantic,
+            asr=asr,
+            semantic_max_buffer_seconds=1,
+        ).run(chunks(bytes(16)))
+    ]
+
+    assert len(asr.calls) == 1
+    assert (asr.calls[0].start_sample, asr.calls[0].end_sample) == (0, 4)
+    assert all(
+        not (
+            isinstance(item, TranscriptionResult)
+            and item.turn_completed is False
+        )
+        for item in results
+    )
+
+
+@pytest.mark.asyncio
+async def test_graph_runner_hard_splits_a_single_oversized_semantic_candidate() -> None:
+    physical = FakeVad(
+        [
+            VadUpdate(
+                boundaries=(VadBoundary(0, 12),),
+                processed_samples=12,
+            )
+        ]
+    )
+    semantic = FakeVad([])
+    asr = FakeAsr()
+
+    async for _item in runner(
+        physical=physical,
+        semantic=semantic,
+        asr=asr,
+        semantic_max_buffer_seconds=1,
+    ).run(chunks(bytes(24))):
+        pass
+
+    assert [
+        (segment.start_sample, segment.end_sample) for segment in asr.calls
+    ] == [(0, 4), (4, 8), (8, 12)]
+    assert semantic.turn_calls == []
 
 
 @pytest.mark.asyncio
@@ -303,6 +393,32 @@ async def test_graph_runner_applies_semantic_fail_open() -> None:
         if isinstance(item, TranscriptionResult)
     ] == ["临时", "最终"]
     assert len(asr.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_graph_runner_keeps_audio_until_late_vad_start_is_reported() -> None:
+    physical = LateReportedStartVad([])
+    semantic = FakeVad([], turn_results=[True])
+    asr = FakeAsr()
+    audio = bytes(range(24))
+
+    results = [
+        item
+        async for item in runner(
+            physical=physical,
+            semantic=semantic,
+            asr=asr,
+        ).run(chunks(audio[:8], audio[8:16], audio[16:]))
+    ]
+
+    assert [
+        item.transcript
+        for item in results
+        if isinstance(item, TranscriptionResult)
+    ] == ["临时", "最终"]
+    assert len(asr.calls) == 1
+    assert (asr.calls[0].start_sample, asr.calls[0].end_sample) == (2, 12)
+    assert asr.calls[0].audio == audio[4:24]
 
 
 @pytest.mark.asyncio

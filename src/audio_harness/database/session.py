@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 
 from alembic import command
 from alembic.config import Config
@@ -12,6 +13,9 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+
+
+CONTROL_PLANE_V2_REVISION = "0009_control_plane_v2"
 
 
 def _ensure_sqlite_parent(database_url: str) -> None:
@@ -40,6 +44,43 @@ def upgrade_database(database_url: str) -> None:
     config.set_main_option("script_location", str(migrations))
     config.set_main_option("sqlalchemy.url", _sync_database_url(database_url))
     command.upgrade(config, "head")
+
+
+def require_control_plane_v2_database(database_url: str) -> None:
+    """拒绝由旧控制面原地升级的 SQLite；空库和当前代数据库可以启动。"""
+
+    url = make_url(database_url)
+    if not url.drivername.startswith("sqlite"):
+        raise ValueError("第一版数据库只支持 SQLite")
+    if not url.database or url.database == ":memory:":
+        return
+    database_path = Path(url.database).expanduser().resolve()
+    if not database_path.exists() or database_path.stat().st_size == 0:
+        return
+    with sqlite3.connect(f"file:{database_path}?mode=ro", uri=True) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        if not tables:
+            return
+        if "alembic_version" not in tables:
+            raise RuntimeError(
+                f"数据库 {database_path} 不是可识别的 Audio Harness 数据库；"
+                "请人工移走该文件后重新启动"
+            )
+        revision_row = connection.execute(
+            "SELECT version_num FROM alembic_version LIMIT 1"
+        ).fetchone()
+    revision = revision_row[0] if revision_row is not None else None
+    if revision != CONTROL_PLANE_V2_REVISION:
+        raise RuntimeError(
+            "第二代控制面不支持原地升级旧业务数据。请停止服务并人工移走 "
+            f"{database_path}、{database_path}-wal 和 {database_path}-shm，"
+            "再重新启动以创建干净数据库"
+        )
 
 
 class Database:

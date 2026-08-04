@@ -20,12 +20,13 @@ from audio_harness.domain import (
 )
 from audio_harness.protos.asr import ux_speech_pb2 as pb2
 from audio_harness.protos.asr import ux_speech_pb2_grpc as pb2_grpc
-from audio_harness.pipelines.service import PipelineNotActiveError
+from audio_harness.pipelines.service import PipelineNotActiveError, PipelineStore
 from audio_harness.sessions import (
     TranscriptionSession,
     TranscriptionSessionService,
 )
 from audio_harness.workflow_settings import WorkflowSettingsStore
+from audio_harness.workflow_types import GRPC_DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -77,10 +78,12 @@ class SpeechServicer(pb2_grpc.UxSpeechServicer):
         config: AppConfig,
         session_service: TranscriptionSessionService,
         workflow_settings: WorkflowSettingsStore | None = None,
+        pipeline_store: PipelineStore | None = None,
     ) -> None:
         self.config = config
         self.session_service = session_service
         self.workflow_settings = workflow_settings
+        self.pipeline_store = pipeline_store
 
     async def StreamingRecognize(
         self,
@@ -102,8 +105,17 @@ class SpeechServicer(pb2_grpc.UxSpeechServicer):
                 first_request,
                 default_language_code=workflow_config.default_language_code,
             )
+            pipeline = (
+                self.pipeline_store.resolve_model(
+                    GRPC_DEFAULT_MODEL,
+                    allow_internal=True,
+                )
+                if self.pipeline_store is not None
+                else None
+            )
             async with self.session_service.open(
-                settings.options
+                settings.options,
+                pipeline=pipeline,
             ) as session:
                 reader = asyncio.create_task(
                     self._read_audio(

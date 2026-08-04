@@ -16,14 +16,23 @@ from openai.types.realtime import (
 )
 from pydantic import TypeAdapter, ValidationError
 
+from audio_harness.capacity import ResizableConcurrencyLimiter
 from audio_harness.domain import CapacityExceededError
-from audio_harness.pipelines.service import PipelineStore
+from audio_harness.engines.router import EngineRouter
+from audio_harness.pipelines.service import (
+    ActivePipelineSnapshot,
+    ModelRouteNotFoundError,
+    PipelineError,
+    PipelineStore,
+)
 from audio_harness.serving.realtime.session import (
     ENGINE_SAMPLE_RATE,
     INPUT_SAMPLE_RATE,
     RealtimeTranscriptionSession,
 )
+from audio_harness.serving.realtime.agent import VoiceResolver
 from audio_harness.sessions import TranscriptionSessionService
+from audio_harness.serving.realtime.tools import ToolRegistry
 from audio_harness.workflow_settings import WorkflowSettingsStore
 
 logger = logging.getLogger(__name__)
@@ -89,6 +98,12 @@ class _RealtimeConnection:
         pipeline_store: PipelineStore,
         max_message_bytes: int,
         diagnostics_enabled: bool,
+        pipeline: ActivePipelineSnapshot,
+        engine_router: EngineRouter | None,
+        responses_limiter: ResizableConcurrencyLimiter | None,
+        tts_limiter: ResizableConcurrencyLimiter | None,
+        tool_registry: ToolRegistry,
+        voice_resolver: VoiceResolver | None,
     ) -> None:
         self.websocket = websocket
         self.max_message_bytes = max_message_bytes
@@ -103,6 +118,12 @@ class _RealtimeConnection:
             model=model,
             audio_event_handler=self._handle_audio_append,
             diagnostics_enabled=diagnostics_enabled,
+            pipeline=pipeline,
+            engine_router=engine_router,
+            responses_limiter=responses_limiter,
+            tts_limiter=tts_limiter,
+            tool_registry=tool_registry,
+            voice_resolver=voice_resolver,
         )
 
     async def _send(self, event) -> None:
@@ -191,6 +212,11 @@ class RealtimeTranscriptionService:
         pipeline_store: PipelineStore,
         api_key: str,
         max_message_bytes: int,
+        engine_router: EngineRouter | None = None,
+        responses_limiter: ResizableConcurrencyLimiter | None = None,
+        tts_limiter: ResizableConcurrencyLimiter | None = None,
+        tool_registry: ToolRegistry | None = None,
+        voice_resolver: VoiceResolver | None = None,
     ) -> None:
         if not api_key:
             raise ValueError("Realtime API Key 不能为空")
@@ -199,6 +225,11 @@ class RealtimeTranscriptionService:
         self.pipeline_store = pipeline_store
         self.api_key = api_key
         self.max_message_bytes = max_message_bytes
+        self.engine_router = engine_router
+        self.responses_limiter = responses_limiter
+        self.tts_limiter = tts_limiter
+        self.tool_registry = tool_registry or ToolRegistry()
+        self.voice_resolver = voice_resolver
 
     async def handle(
         self,
@@ -206,14 +237,28 @@ class RealtimeTranscriptionService:
         *,
         model: str,
         diagnostics_enabled: bool = False,
+        test_authorized: bool = False,
     ) -> None:
         authorization = websocket.headers.get("authorization", "")
         expected = f"Bearer {self.api_key}"
-        if not hmac.compare_digest(authorization, expected):
+        if not test_authorized and not hmac.compare_digest(authorization, expected):
             await websocket.close(code=4401, reason="Unauthorized")
             return
         if not model.strip():
             await websocket.close(code=4400, reason="model is required")
+            return
+        try:
+            resolver = getattr(self.pipeline_store, "resolve_model", None)
+            pipeline = (
+                resolver(model.strip())
+                if resolver is not None
+                else self.pipeline_store.current()
+            )
+        except ModelRouteNotFoundError:
+            await websocket.close(code=4404, reason="Model not found")
+            return
+        except PipelineError:
+            await websocket.close(code=4409, reason="Model workflow not active")
             return
         try:
             await websocket.accept()
@@ -225,6 +270,12 @@ class RealtimeTranscriptionService:
                 pipeline_store=self.pipeline_store,
                 max_message_bytes=self.max_message_bytes,
                 diagnostics_enabled=diagnostics_enabled,
+                pipeline=pipeline,
+                engine_router=self.engine_router,
+                responses_limiter=self.responses_limiter,
+                tts_limiter=self.tts_limiter,
+                tool_registry=self.tool_registry,
+                voice_resolver=self.voice_resolver,
             )
             await connection.run()
         except CapacityExceededError:

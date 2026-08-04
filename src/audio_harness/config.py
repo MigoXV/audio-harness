@@ -94,6 +94,11 @@ class RealtimeConfig(StrictModel):
     api_key: SecretStr | None = None
 
 
+class VoiceConfig(StrictModel):
+    storage_dir: Path = Path("./data/voices")
+    max_upload_bytes: int = Field(default=20 * 1024 * 1024, gt=0)
+
+
 class IceServerConfig(StrictModel):
     urls: str | list[str]
     username: str | None = None
@@ -147,6 +152,8 @@ class CapacityConfig(StrictModel):
         default_factory=ProtocolCapacityConfig
     )
     max_asr_concurrency: int = Field(default=8, gt=0)
+    max_responses_concurrency: int = Field(default=8, gt=0)
+    max_tts_concurrency: int = Field(default=1, gt=0)
 
 
 class DatabaseConfig(StrictModel):
@@ -172,6 +179,7 @@ class AppConfig(StrictModel):
     http: HttpConfig = Field(default_factory=HttpConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
     realtime: RealtimeConfig = Field(default_factory=RealtimeConfig)
+    voices: VoiceConfig = Field(default_factory=VoiceConfig)
     webrtc: WebRtcConfig = Field(default_factory=WebRtcConfig)
 
     @model_validator(mode="after")

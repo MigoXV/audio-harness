@@ -8,6 +8,7 @@ from audio_harness.domain import EngineConfigurationInvalidError
 from audio_harness.inferencers.contracts import ManagedInferencer
 from audio_harness.inferencers.grpc.asr import GrpcAsrInferencer
 from audio_harness.inferencers.grpc.vad import GrpcVadInferencer
+from audio_harness.inferencers.grpc.tts import GrpcDuplexTtsInferencer
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,11 @@ class GrpcInferencerFactory:
             )
         if snapshot.api is EngineApi.UX_VAD:
             return GrpcVadInferencer(
+                endpoint,
+                max_message_bytes=self.max_message_bytes,
+            )
+        if snapshot.api is EngineApi.QWEN_TTS_DUPLEX:
+            return GrpcDuplexTtsInferencer(
                 endpoint,
                 max_message_bytes=self.max_message_bytes,
             )

@@ -12,7 +12,10 @@ import uvicorn
 from pydantic import SecretStr
 
 from audio_harness.config import AppConfig, parse_ice_servers_json
-from audio_harness.database import upgrade_database
+from audio_harness.database import (
+    require_control_plane_v2_database,
+    upgrade_database,
+)
 from audio_harness.serving import AudioHarnessHost
 
 logging.basicConfig(
@@ -113,7 +116,7 @@ def serve(
         ...,
         "--config",
         "-c",
-        envvar="AUDIO_HARNESS_CONFIG",
+        envvar="CONFIG",
         exists=True,
         readable=True,
         resolve_path=True,
@@ -122,13 +125,13 @@ def serve(
     grpc_host: Optional[str] = typer.Option(
         None,
         "--grpc-host",
-        envvar="AUDIO_HARNESS_GRPC_HOST",
+        envvar="GRPC_HOST",
         help="覆盖 gRPC 监听地址。",
     ),
     grpc_port: Optional[int] = typer.Option(
         None,
         "--grpc-port",
-        envvar="AUDIO_HARNESS_GRPC_PORT",
+        envvar="GRPC_PORT",
         min=1,
         max=65535,
         help="覆盖 gRPC 监听端口。",
@@ -136,27 +139,27 @@ def serve(
     max_message_bytes: int = typer.Option(
         4 * 1024 * 1024,
         "--max-message-bytes",
-        envvar="AUDIO_HARNESS_MAX_MESSAGE_BYTES",
+        envvar="MAX_MESSAGE_BYTES",
         min=1,
         help="gRPC、WebSocket 与 WebRTC 信令单消息字节上限。",
     ),
     grpc_shutdown_grace_seconds: float = typer.Option(
         5.0,
         "--grpc-shutdown-grace-seconds",
-        envvar="AUDIO_HARNESS_GRPC_SHUTDOWN_GRACE_SECONDS",
+        envvar="GRPC_SHUTDOWN_GRACE_SECONDS",
         min=0,
         help="gRPC 优雅关闭宽限秒数。",
     ),
     http_host: Optional[str] = typer.Option(
         None,
         "--http-host",
-        envvar="AUDIO_HARNESS_HTTP_HOST",
+        envvar="HTTP_HOST",
         help="覆盖 HTTP/WS/WebRTC 信令监听地址。",
     ),
     http_port: Optional[int] = typer.Option(
         None,
         "--http-port",
-        envvar="AUDIO_HARNESS_HTTP_PORT",
+        envvar="HTTP_PORT",
         min=1,
         max=65535,
         help="覆盖 HTTP/WS/WebRTC 信令监听端口。",
@@ -164,14 +167,14 @@ def serve(
     http_shutdown_grace_seconds: float = typer.Option(
         5.0,
         "--http-shutdown-grace-seconds",
-        envvar="AUDIO_HARNESS_HTTP_SHUTDOWN_GRACE_SECONDS",
+        envvar="HTTP_SHUTDOWN_GRACE_SECONDS",
         min=0,
         help="HTTP/WS 优雅关闭宽限秒数。",
     ),
     tls_cert_file: Path = typer.Option(
         Path("model-bin/realtime-tls/cert.pem"),
         "--tls-cert-file",
-        envvar="AUDIO_HARNESS_HTTP_TLS_CERT_FILE",
+        envvar="HTTP_TLS_CERT_FILE",
         exists=True,
         file_okay=True,
         dir_okay=False,
@@ -182,7 +185,7 @@ def serve(
     tls_key_file: Path = typer.Option(
         Path("model-bin/realtime-tls/key.pem"),
         "--tls-key-file",
-        envvar="AUDIO_HARNESS_HTTP_TLS_KEY_FILE",
+        envvar="HTTP_TLS_KEY_FILE",
         exists=True,
         file_okay=True,
         dir_okay=False,
@@ -193,38 +196,38 @@ def serve(
     realtime_api_key: str = typer.Option(
         ...,
         "--realtime-api-key",
-        envvar="AUDIO_HARNESS_REALTIME_API_KEY",
+        envvar="REALTIME_API_KEY",
         help="本地 OpenAI Realtime Bearer Token。",
         show_default=False,
     ),
     webrtc_ice_servers_json: str = typer.Option(
         "[]",
         "--webrtc-ice-servers-json",
-        envvar="AUDIO_HARNESS_WEBRTC_ICE_SERVERS_JSON",
+        envvar="WEBRTC_ICE_SERVERS_JSON",
         help="WebRTC ICE servers JSON 数组。",
     ),
     webrtc_negotiation_timeout_seconds: float = typer.Option(
         10.0,
         "--webrtc-negotiation-timeout-seconds",
-        envvar="AUDIO_HARNESS_WEBRTC_NEGOTIATION_TIMEOUT_SECONDS",
+        envvar="WEBRTC_NEGOTIATION_TIMEOUT_SECONDS",
         min=0.1,
         help="WebRTC SDP/ICE 协商超时秒数。",
     ),
     webrtc_disconnected_grace_seconds: float = typer.Option(
         10.0,
         "--webrtc-disconnected-grace-seconds",
-        envvar="AUDIO_HARNESS_WEBRTC_DISCONNECTED_GRACE_SECONDS",
+        envvar="WEBRTC_DISCONNECTED_GRACE_SECONDS",
         min=0,
         help="WebRTC disconnected 状态保留秒数。",
     ),
     log_level: str = typer.Option(
         "INFO",
         "--log-level",
-        envvar="AUDIO_HARNESS_LOG_LEVEL",
+        envvar="LOG_LEVEL",
         help="日志级别。",
     ),
 ) -> None:
-    """启动异步 ASR + VAD gRPC、HTTP/WS 与 WebRTC 服务。"""
+    """启动多工作流语音转写与 Realtime Agent 服务。"""
 
     logging.getLogger().setLevel(log_level.upper())
     config = AppConfig.load(config_path)
@@ -282,6 +285,7 @@ def serve(
             ),
         }
     )
+    require_control_plane_v2_database(config.database.url)
     logger.info("升级 SQLite 数据库: url=%s", config.database.url)
     upgrade_database(config.database.url)
     asyncio.run(_serve(config))

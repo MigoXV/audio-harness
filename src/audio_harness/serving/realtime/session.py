@@ -10,6 +10,7 @@ from typing import Any
 from uuid import uuid4
 
 from openai.types.realtime import (
+    ConversationItemCreateEvent,
     ConversationItemCreatedEvent,
     ConversationItemInputAudioTranscriptionCompletedEvent,
     ConversationItemInputAudioTranscriptionDeltaEvent,
@@ -29,6 +30,8 @@ from openai.types.realtime import (
     SessionCreatedEvent,
     SessionUpdateEvent,
     SessionUpdatedEvent,
+    ResponseCancelEvent,
+    ResponseCreateEvent,
 )
 from openai.types.realtime.conversation_item_input_audio_transcription_completed_event import (
     UsageTranscriptTextUsageDuration,
@@ -42,15 +45,26 @@ from audio_harness.domain import (
     SpeechStarted,
     SpeechStopped,
     TranscriptionResult,
-    VadUpdate,
 )
-from audio_harness.pipelines.service import PipelineStore
+from audio_harness.capacity import ResizableConcurrencyLimiter
+from audio_harness.engines.router import EngineRouter
+from audio_harness.pipelines.dag import PhysicalVadNodeConfig
+from audio_harness.pipelines.service import ActivePipelineSnapshot, PipelineStore
+from audio_harness.serving.realtime.agent import (
+    AudioClearer,
+    AudioFinisher,
+    AudioSender,
+    RealtimeAgentRuntime,
+    VoiceResolver,
+)
+from audio_harness.serving.realtime.tools import ToolRegistry
 from audio_harness.sessions import (
     TranscriptionSession,
     TranscriptionSessionReservation,
     TranscriptionSessionService,
 )
 from audio_harness.workflow_settings import WorkflowSettingsStore
+from audio_harness.workflow_types import WorkflowKind
 
 logger = logging.getLogger(__name__)
 
@@ -164,33 +178,84 @@ class RealtimeTranscriptionSession:
         workflow_settings: WorkflowSettingsStore,
         pipeline_store: PipelineStore,
         model: str,
-        initial_session: RealtimeTranscriptionSessionCreateRequest | None = None,
+        initial_session: Any | None = None,
         reservation: TranscriptionSessionReservation | None = None,
         audio_event_handler: AudioEventHandler | None = None,
         diagnostics_enabled: bool = False,
+        pipeline: ActivePipelineSnapshot | None = None,
+        engine_router: EngineRouter | None = None,
+        responses_limiter: ResizableConcurrencyLimiter | None = None,
+        tts_limiter: ResizableConcurrencyLimiter | None = None,
+        tool_registry: ToolRegistry | None = None,
+        send_audio: AudioSender | None = None,
+        clear_audio: AudioClearer | None = None,
+        voice_resolver: VoiceResolver | None = None,
+        finish_audio: AudioFinisher | None = None,
     ) -> None:
         self._send_event = send_event
         self._session_service = session_service
         self._workflow_config = workflow_settings.current().config
-        self._physical_vad_config = pipeline_store.physical_vad_config()
+        self._pipeline = pipeline or pipeline_store.current()
+        physical_node = next(
+            (
+                node
+                for node in self._pipeline.plan.nodes.values()
+                if node.node_type.type == "physical_vad"
+            ),
+            None,
+        )
+        if physical_node is None or not isinstance(
+            physical_node.config,
+            PhysicalVadNodeConfig,
+        ):
+            raise RuntimeError("所选工作流缺少物理 VAD 配置")
+        self._physical_vad_config = physical_node.config
         self._reservation = reservation
         self._audio_event_handler = audio_event_handler
-        self._diagnostics_enabled = diagnostics_enabled
         self.model = model
         self.language = self._workflow_config.default_language_code
-        if initial_session is not None:
+        if (
+            initial_session is not None
+            and self._pipeline.kind is WorkflowKind.TRANSCRIPTION
+        ):
             self.model, self.language = session_values(
                 initial_session,
                 default_model=self.model,
                 default_language=self.language,
             )
-        self.session = default_transcription_session(
-            model=self.model,
-            language=self.language,
-            prefix_padding_ms=round(
-                self._physical_vad_config.speech_pre_roll_seconds * 1000
-            ),
-        )
+        self._agent: RealtimeAgentRuntime | None = None
+        if self._pipeline.kind is WorkflowKind.VOICE_AGENT:
+            if engine_router is None:
+                raise RuntimeError("语音 Agent 会话缺少引擎路由器")
+            self._agent = RealtimeAgentRuntime(
+                pipeline=self._pipeline,
+                engine_router=engine_router,
+                send_event=self._send_event,
+                send_audio=send_audio,
+                clear_audio=clear_audio,
+                responses_limiter=responses_limiter,
+                tts_limiter=tts_limiter,
+                tool_registry=tool_registry or ToolRegistry(),
+                voice_resolver=voice_resolver,
+                finish_audio=finish_audio,
+            )
+            if initial_session is not None:
+                self._agent.update_options(
+                    initial_session.model_dump(
+                        mode="json",
+                        exclude_none=True,
+                        exclude_unset=True,
+                    )
+                )
+            self.session = self._agent.session_document(model=self.model)
+        else:
+            self.session = default_transcription_session(
+                model=self.model,
+                language=self.language,
+                prefix_padding_ms=round(
+                    self._physical_vad_config.speech_pre_roll_seconds * 1000
+                ),
+            )
         self._transcription: TranscriptionSession | None = None
         self._session_context: Any | None = None
         self._workflow_task: asyncio.Task[None] | None = None
@@ -205,13 +270,22 @@ class RealtimeTranscriptionSession:
         return self._audio_started
 
     async def start(self) -> None:
-        await self._send_event(
-            SessionCreatedEvent(
-                event_id=event_id(),
-                session=self.session,
-                type="session.created",
+        if self._agent is not None:
+            await self._send_event(
+                {
+                    "event_id": event_id(),
+                    "session": self.session,
+                    "type": "session.created",
+                }
             )
-        )
+        else:
+            await self._send_event(
+                SessionCreatedEvent(
+                    event_id=event_id(),
+                    session=self.session,
+                    type="session.created",
+                )
+            )
 
     async def handle_client_event(self, event: RealtimeClientEvent) -> None:
         if isinstance(event, SessionUpdateEvent):
@@ -236,6 +310,55 @@ class RealtimeTranscriptionSession:
                     type="input_audio_buffer.cleared",
                 )
             )
+            return
+        if isinstance(event, ResponseCancelEvent):
+            if self._agent is None:
+                await self.send_error(
+                    message="转写工作流没有可取消的响应",
+                    code="unsupported_event",
+                    client_event_id=event.event_id,
+                )
+            else:
+                await self._agent.interrupt(reason="client_cancelled")
+            return
+        if isinstance(event, ResponseCreateEvent):
+            if self._agent is None:
+                await self.send_error(
+                    message="转写工作流不支持 response.create",
+                    code="unsupported_event",
+                    client_event_id=event.event_id,
+                )
+            return
+        if isinstance(event, ConversationItemCreateEvent):
+            if self._agent is None:
+                await self.send_error(
+                    message="转写工作流不支持 conversation.item.create",
+                    code="unsupported_event",
+                    client_event_id=event.event_id,
+                )
+                return
+            item = event.item
+            try:
+                if item.type == "function_call_output":
+                    await self._agent.submit_function_output(
+                        item.call_id,
+                        item.output,
+                    )
+                elif item.type == "mcp_approval_response":
+                    await self._agent.submit_mcp_approval(
+                        item.approval_request_id,
+                        item.approve,
+                    )
+                else:
+                    raise ValueError(
+                        "Agent 仅接受 function_call_output 或 MCP 审批"
+                    )
+            except ValueError as exc:
+                await self.send_error(
+                    message=str(exc),
+                    code="invalid_conversation_item",
+                    client_event_id=event.event_id,
+                )
             return
         if isinstance(event, InputAudioBufferCommitEvent):
             await self.send_error(
@@ -294,6 +417,8 @@ class RealtimeTranscriptionSession:
         )
 
     async def reset(self) -> None:
+        if self._agent is not None:
+            await self._agent.interrupt(reason="input_audio_buffer.clear")
         await self._finish_workflow(send_results=False)
         self._active_item_id = None
         self._pending_items.clear()
@@ -303,15 +428,42 @@ class RealtimeTranscriptionSession:
         if self._closed:
             return
         self._closed = True
+        if self._agent is not None:
+            await self._agent.close()
         await self._finish_workflow(send_results=False)
 
     async def _handle_session_update(self, event: SessionUpdateEvent) -> None:
-        if self._audio_started:
+        if self._audio_started and self._agent is None:
             await self.send_error(
                 message="音频开始后不能修改转写会话",
                 code="session_update_after_audio",
                 client_event_id=event.event_id,
                 param="session",
+            )
+            return
+        if self._agent is not None:
+            try:
+                payload = event.session.model_dump(
+                    mode="json",
+                    exclude_none=True,
+                    exclude_unset=True,
+                )
+                self._agent.update_options(payload)
+                self.session = self._agent.session_document(model=self.model)
+            except ValueError as exc:
+                await self.send_error(
+                    message=str(exc),
+                    code="invalid_session",
+                    client_event_id=event.event_id,
+                    param="session",
+                )
+                return
+            await self._send_event(
+                {
+                    "event_id": event_id(),
+                    "session": self.session,
+                    "type": "session.updated",
+                }
             )
             return
         try:
@@ -360,13 +512,15 @@ class RealtimeTranscriptionSession:
             self._transcription = self._reservation.create(
                 options=options,
                 include_vad_events=True,
-                include_vad_progress=self._diagnostics_enabled,
+                include_vad_progress=False,
+                pipeline=self._pipeline,
             )
         else:
             self._session_context = self._session_service.open(
                 options,
                 include_vad_events=True,
-                include_vad_progress=self._diagnostics_enabled,
+                include_vad_progress=False,
+                pipeline=self._pipeline,
             )
             self._transcription = await self._session_context.__aenter__()
         self._workflow_task = asyncio.create_task(
@@ -410,18 +564,11 @@ class RealtimeTranscriptionSession:
                 )
 
     async def _handle_workflow_event(self, event: Any) -> None:
-        if isinstance(event, VadUpdate):
-            await self._send_event(
-                {
-                    "type": "audio_harness.vad_progress",
-                    "event_id": event_id(),
-                    "processed_audio_ms": (
-                        event.processed_samples * 1000 / ENGINE_SAMPLE_RATE
-                    ),
-                }
-            )
-            return
         if isinstance(event, SpeechStarted):
+            if self._active_item_id is not None:
+                return
+            if self._agent is not None:
+                await self._agent.interrupt(reason="speech_started")
             self._active_item_id = item_id()
             await self._send_event(
                 InputAudioBufferSpeechStartedEvent(
@@ -532,6 +679,11 @@ class RealtimeTranscriptionSession:
                 )
             )
             self._pending_items.popleft()
+            if self._agent is not None and event.transcript.strip():
+                await self._agent.respond(
+                    event.transcript,
+                    input_item_id=item.item_id,
+                )
 
     async def _finish_workflow(self, *, send_results: bool) -> None:
         task = self._workflow_task

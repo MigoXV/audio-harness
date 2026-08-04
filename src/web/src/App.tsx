@@ -1,121 +1,43 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link, Navigate, Route, Routes } from "react-router-dom";
+import { useState } from "react";
+import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 
-import {
-  apiClient,
-  errorMessage,
-  reportRequestError,
-} from "./api/client";
-import type {
-  AudioHarnessApi,
-  HealthStatus,
-} from "./api/types";
-import { RuntimeSettingsPanel } from "./components/RuntimeSettingsPanel";
-import { StatusBar } from "./components/StatusBar";
-import { EngineLibraryPage } from "./pages/EngineLibraryPage";
-import { OrchestrationPage } from "./pages/OrchestrationPage";
+import { apiClient } from "./api/client";
+import type { AudioHarnessApi, HealthStatus } from "./api/types";
+import { useReadiness } from "./features/health/useReadiness";
+import { EngineConsolePage } from "./pages/EngineConsolePage";
+import { RuntimePage } from "./pages/RuntimePage";
+import { WorkflowDetailPage } from "./pages/WorkflowDetailPage";
+import { WorkflowListPage } from "./pages/WorkflowListPage";
 
-interface AppProps {
-  api?: AudioHarnessApi;
-}
+interface AppProps { api?: AudioHarnessApi; }
 
-function NotFoundPage() {
-  return (
-    <main className="not-found-page">
-      <strong>页面不存在</strong>
-      <p>当前地址不属于 Audio Harness 控制面。</p>
-      <Link className="button button-primary" to="/orchestration">
-        返回编排工作台
-      </Link>
-    </main>
-  );
+function ShellNavigation({ health, onRefresh }: { health: HealthStatus | null; onRefresh: () => void }) {
+  return <>
+    <header className="topbar">
+      <div><span className="brand-mark">AH</span><strong>Audio Harness</strong></div>
+      <nav className="primary-navigation" aria-label="主导航"><NavLink to="/workflows">工作流</NavLink><NavLink to="/engines">推理引擎</NavLink><NavLink to="/runtime">运行状态</NavLink></nav>
+      <div className="topbar-meta"><span className={`health-dot ${health?.status === "ready" ? "healthy" : "warning"}`} aria-label={health?.status === "ready" ? "控制面已就绪" : "控制面需关注"} /><span>{health?.status === "ready" ? "控制面已就绪" : "控制面需关注"}</span><button className="text-button" onClick={onRefresh}>刷新</button></div>
+    </header>
+  </>;
 }
 
 export function App({ api = apiClient }: AppProps) {
-  const [health, setHealth] = useState<HealthStatus | null>(null);
-  const [healthLoading, setHealthLoading] = useState(true);
-  const [healthError, setHealthError] = useState<string | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const readiness = useReadiness(api);
+  const refreshAll = () => { void readiness.refetch(); setRefreshVersion((value) => value + 1); };
 
-  const refreshHealth = useCallback(async () => {
-    setHealthLoading(true);
-    setHealthError(null);
-    try {
-      setHealth(await api.getReadiness());
-    } catch (reason) {
-      reportRequestError("读取系统状态失败", reason);
-      setHealth(null);
-      setHealthError(
-        errorMessage(reason, "暂时无法确认管理服务和数据面状态。"),
-      );
-    } finally {
-      setHealthLoading(false);
-    }
-  }, [api]);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void refreshHealth();
-    }, 0);
-    return () => window.clearTimeout(timeout);
-  }, [refreshHealth, refreshVersion]);
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      if (document.visibilityState === "visible") {
-        void refreshHealth();
-      }
-    }, 10_000);
-    return () => window.clearInterval(interval);
-  }, [refreshHealth]);
-
-  const refreshAll = () => {
-    setRefreshVersion((version) => version + 1);
-  };
-
-  return (
-    <div className="app-shell">
-      <StatusBar
-        health={health}
-        loading={healthLoading}
-        onRefresh={refreshAll}
-      />
-
-      <Routes>
-        <Route path="/" element={<Navigate replace to="/orchestration" />} />
-        <Route
-          path="/orchestration"
-          element={
-            <OrchestrationPage
-              api={api}
-              health={health}
-              healthLoading={healthLoading}
-              healthError={healthError}
-              refreshVersion={refreshVersion}
-              onRefreshHealth={refreshHealth}
-            />
-          }
-        />
-        <Route
-          path="/engines"
-          element={
-            <EngineLibraryPage
-              api={api}
-              refreshVersion={refreshVersion}
-            />
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            <RuntimeSettingsPanel
-              api={api}
-              refreshVersion={refreshVersion}
-            />
-          }
-        />
-        <Route path="*" element={<NotFoundPage />} />
-      </Routes>
-    </div>
-  );
+  return <div className="app-shell-new">
+    <ShellNavigation health={readiness.data ?? null} onRefresh={refreshAll} />
+    <div className="app-content"><Routes>
+      <Route path="/" element={<Navigate replace to="/workflows" />} />
+      <Route path="/workflows" element={<WorkflowListPage api={api} refreshVersion={refreshVersion} />} />
+      <Route path="/workflows/:workflowId" element={<Navigate replace to="overview" />} />
+      <Route path="/workflows/:workflowId/:tab" element={<WorkflowDetailPage api={api} refreshVersion={refreshVersion} />} />
+      <Route path="/engines" element={<EngineConsolePage api={api} refreshVersion={refreshVersion} />} />
+      <Route path="/runtime" element={<RuntimePage api={api} refreshVersion={refreshVersion} />} />
+      <Route path="/orchestration" element={<Navigate replace to="/workflows" />} />
+      <Route path="/settings" element={<Navigate replace to="/runtime" />} />
+      <Route path="*" element={<main className="workspace-page"><div className="empty-state"><strong>页面不存在</strong><NavLink to="/workflows">返回工作流</NavLink></div></main>} />
+    </Routes></div>
+  </div>;
 }

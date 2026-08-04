@@ -1,8 +1,9 @@
 import react from "@vitejs/plugin-react";
+import { vanillaExtractPlugin } from "@vanilla-extract/vite-plugin";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), vanillaExtractPlugin()],
   server: {
     host: "127.0.0.1",
     port: 5173,
