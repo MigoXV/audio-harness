@@ -22,9 +22,9 @@ from audio_harness.domain import (
 from audio_harness.protos.asr import ux_speech_pb2 as pb2
 from audio_harness.protos.asr import ux_speech_pb2_grpc as pb2_grpc
 from audio_harness.serving.grpc import SpeechServicer
-from audio_harness.sessions import TranscriptionSessionService
+from audio_harness.sessions import AudioWorkflowSessionService
 from audio_harness.workflow_settings import WorkflowSettingsSnapshot
-from tests.graph_fakes import static_graph
+from tests.graph_fakes import static_audio_workflow
 
 
 class CompleteVad:
@@ -73,6 +73,7 @@ class StaticSettings:
     def __init__(self, config) -> None:
         self._snapshot = WorkflowSettingsSnapshot(
             config=config,
+            grpc_audio_workflow_id="default-audio",
             revision=1,
             updated_at=datetime.now(timezone.utc),
         )
@@ -104,14 +105,14 @@ async def start_server(
         )
     )
     capacity = ServingCapacity(CapacityConfig())
-    engine_router, pipeline_store = static_graph(
+    inferencer_pool, workflows, _workflow = static_audio_workflow(
         asr=EchoAsr(),
         vad=CompleteVad(),
         semantic_vad=semantic_vad,
     )
-    sessions = TranscriptionSessionService(
-        engine_router=engine_router,
-        pipeline_store=pipeline_store,
+    sessions = AudioWorkflowSessionService(
+        inferencer_pool=inferencer_pool,
+        workflows=workflows,
         workflow_settings=settings,
         session_limiter=capacity.grpc_sessions,
         asr_limiter=capacity.asr,

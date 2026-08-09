@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
+from typing import cast
 from uuid import uuid4
 
 from openai.types.realtime import (
@@ -47,9 +48,7 @@ from audio_harness.domain import (
     TranscriptionResult,
 )
 from audio_harness.capacity import ResizableConcurrencyLimiter
-from audio_harness.engines.router import EngineRouter
-from audio_harness.pipelines.dag import PhysicalVadNodeConfig
-from audio_harness.pipelines.service import ActivePipelineSnapshot, PipelineStore
+from audio_harness.engines.pool import InferencerPool
 from audio_harness.serving.realtime.agent import (
     AudioClearer,
     AudioFinisher,
@@ -59,12 +58,14 @@ from audio_harness.serving.realtime.agent import (
 )
 from audio_harness.serving.realtime.tools import ToolRegistry
 from audio_harness.sessions import (
-    TranscriptionSession,
-    TranscriptionSessionReservation,
-    TranscriptionSessionService,
+    AudioWorkflowSession,
+    AudioWorkflowSessionReservation,
+    AudioWorkflowSessionService,
 )
+from audio_harness.voice_agents.service import ActiveVoiceAgent, RealtimeTarget
 from audio_harness.workflow_settings import WorkflowSettingsStore
-from audio_harness.workflow_types import WorkflowKind
+from audio_harness.workflows.models import PhysicalVadNode
+from audio_harness.workflows.service import ActiveAudioWorkflow
 
 logger = logging.getLogger(__name__)
 
@@ -174,16 +175,15 @@ class RealtimeTranscriptionSession:
         self,
         *,
         send_event: EventSender,
-        session_service: TranscriptionSessionService,
+        session_service: AudioWorkflowSessionService,
         workflow_settings: WorkflowSettingsStore,
-        pipeline_store: PipelineStore,
         model: str,
+        target: RealtimeTarget,
         initial_session: Any | None = None,
-        reservation: TranscriptionSessionReservation | None = None,
+        reservation: AudioWorkflowSessionReservation | None = None,
         audio_event_handler: AudioEventHandler | None = None,
         diagnostics_enabled: bool = False,
-        pipeline: ActivePipelineSnapshot | None = None,
-        engine_router: EngineRouter | None = None,
+        inferencer_pool: InferencerPool | None = None,
         responses_limiter: ResizableConcurrencyLimiter | None = None,
         tts_limiter: ResizableConcurrencyLimiter | None = None,
         tool_registry: ToolRegistry | None = None,
@@ -195,28 +195,35 @@ class RealtimeTranscriptionSession:
         self._send_event = send_event
         self._session_service = session_service
         self._workflow_config = workflow_settings.current().config
-        self._pipeline = pipeline or pipeline_store.current()
+        self._workflow = (
+            target.audio_workflow
+            if isinstance(target, ActiveVoiceAgent)
+            else target
+        )
         physical_node = next(
             (
                 node
-                for node in self._pipeline.plan.nodes.values()
-                if node.node_type.type == "physical_vad"
+                for node in self._workflow.plan.nodes.values()
+                if node.spec.kind == "physical_vad"
             ),
             None,
         )
         if physical_node is None or not isinstance(
-            physical_node.config,
-            PhysicalVadNodeConfig,
+            physical_node.definition,
+            PhysicalVadNode,
         ):
             raise RuntimeError("所选工作流缺少物理 VAD 配置")
-        self._physical_vad_config = physical_node.config
+        self._physical_vad_config = cast(
+            PhysicalVadNode,
+            physical_node.definition,
+        ).config
         self._reservation = reservation
         self._audio_event_handler = audio_event_handler
         self.model = model
         self.language = self._workflow_config.default_language_code
         if (
             initial_session is not None
-            and self._pipeline.kind is WorkflowKind.TRANSCRIPTION
+            and isinstance(target, ActiveAudioWorkflow)
         ):
             self.model, self.language = session_values(
                 initial_session,
@@ -224,12 +231,12 @@ class RealtimeTranscriptionSession:
                 default_language=self.language,
             )
         self._agent: RealtimeAgentRuntime | None = None
-        if self._pipeline.kind is WorkflowKind.VOICE_AGENT:
-            if engine_router is None:
-                raise RuntimeError("语音 Agent 会话缺少引擎路由器")
+        if isinstance(target, ActiveVoiceAgent):
+            if inferencer_pool is None:
+                raise RuntimeError("语音智能体会话缺少引擎路由器")
             self._agent = RealtimeAgentRuntime(
-                pipeline=self._pipeline,
-                engine_router=engine_router,
+                profile=target,
+                inferencer_pool=inferencer_pool,
                 send_event=self._send_event,
                 send_audio=send_audio,
                 clear_audio=clear_audio,
@@ -256,7 +263,7 @@ class RealtimeTranscriptionSession:
                     self._physical_vad_config.speech_pre_roll_seconds * 1000
                 ),
             )
-        self._transcription: TranscriptionSession | None = None
+        self._transcription: AudioWorkflowSession | None = None
         self._session_context: Any | None = None
         self._workflow_task: asyncio.Task[None] | None = None
         self._active_item_id: str | None = None
@@ -351,7 +358,7 @@ class RealtimeTranscriptionSession:
                     )
                 else:
                     raise ValueError(
-                        "Agent 仅接受 function_call_output 或 MCP 审批"
+                        "语音智能体仅接受 function_call_output 或 MCP 审批"
                     )
             except ValueError as exc:
                 await self.send_error(
@@ -513,14 +520,14 @@ class RealtimeTranscriptionSession:
                 options=options,
                 include_vad_events=True,
                 include_vad_progress=False,
-                pipeline=self._pipeline,
+                workflow=self._workflow,
             )
         else:
             self._session_context = self._session_service.open(
                 options,
                 include_vad_events=True,
                 include_vad_progress=False,
-                pipeline=self._pipeline,
+                workflow=self._workflow,
             )
             self._transcription = await self._session_context.__aenter__()
         self._workflow_task = asyncio.create_task(
@@ -531,7 +538,8 @@ class RealtimeTranscriptionSession:
     async def _run_workflow(self) -> None:
         try:
             assert self._transcription is not None
-            async for event in self._transcription.events():
+            async for output in self._transcription.outputs():
+                event = output.payload
                 await self._handle_workflow_event(event)
         except asyncio.CancelledError:
             raise

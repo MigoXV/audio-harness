@@ -3,16 +3,15 @@ from __future__ import annotations
 from enum import Enum
 
 
-class WorkflowKind(str, Enum):
-    TRANSCRIPTION = "transcription"
-    VOICE_AGENT = "voice_agent"
-
-
 class ModelRouteVisibility(str, Enum):
     PUBLIC = "public"
     INTERNAL = "internal"
 
 
-DEFAULT_TRANSCRIPTION_WORKFLOW_ID = "default-transcription"
+class RealtimeRouteTargetType(str, Enum):
+    AUDIO_WORKFLOW = "audio_workflow"
+    VOICE_AGENT = "voice_agent"
+
+
+DEFAULT_AUDIO_WORKFLOW_ID = "default-audio"
 DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-transcribe"
-GRPC_DEFAULT_MODEL = "grpc-default"

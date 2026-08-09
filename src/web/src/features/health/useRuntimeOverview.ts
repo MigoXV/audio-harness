@@ -2,10 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 
 import type { AudioHarnessApi } from "../../api/types";
 
-export function useReadiness(api: AudioHarnessApi) {
+export function useRuntimeOverview(api: AudioHarnessApi) {
   return useQuery({
-    queryKey: ["health", "readiness"],
-    queryFn: () => api.getReadiness(),
+    queryKey: ["runtime", "overview"],
+    queryFn: () => api.getRuntimeOverview(),
     refetchInterval: () => (document.visibilityState === "visible" ? 15_000 : false),
   });
 }

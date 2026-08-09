@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import contextmanager
+import json
 import logging
 import signal
 from pathlib import Path
@@ -9,11 +10,10 @@ from typing import Optional
 
 import typer
 import uvicorn
-from pydantic import SecretStr
 
-from audio_harness.config import AppConfig, parse_ice_servers_json
+from audio_harness.config import AppConfig, DatabaseConfig, parse_ice_servers_json
 from audio_harness.database import (
-    require_control_plane_v2_database,
+    require_fresh_database,
     upgrade_database,
 )
 from audio_harness.serving import AudioHarnessHost
@@ -37,6 +37,29 @@ class _ManagedUvicornServer(uvicorn.Server):
     @contextmanager
     def capture_signals(self):
         yield
+
+
+@app.command("export-openapi")
+def export_openapi(
+    output: Path = typer.Option(
+        Path("src/web/openapi.json"),
+        "--output",
+        dir_okay=False,
+        help="OpenAPI JSON 输出路径。",
+    ),
+) -> None:
+    """导出控制面 OpenAPI，供前端生成唯一可信的接口类型。"""
+
+    config = AppConfig.from_environment().model_copy(
+        update={"database": DatabaseConfig(url="sqlite+aiosqlite:///:memory:")}
+    )
+    server = AudioHarnessHost(config)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(server.http_app.openapi(), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    typer.echo(f"已导出 OpenAPI: {output}")
 
 
 async def _serve(config: AppConfig) -> None:
@@ -196,7 +219,7 @@ def serve(
         help="日志级别。",
     ),
 ) -> None:
-    """启动多工作流语音转写与 Realtime Agent 服务。"""
+    """启动多工作流语音转写与 Realtime 语音智能体服务。"""
 
     logging.getLogger().setLevel(log_level.upper())
     config = AppConfig.from_environment()
@@ -249,7 +272,7 @@ def serve(
             ),
         }
     )
-    require_control_plane_v2_database(config.database.url)
+    require_fresh_database(config.database.url)
     logger.info("升级 SQLite 数据库: url=%s", config.database.url)
     upgrade_database(config.database.url)
     asyncio.run(_serve(config))

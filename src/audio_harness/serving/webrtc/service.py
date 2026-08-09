@@ -6,6 +6,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
+from typing import cast
 from uuid import uuid4
 
 from aiortc import (
@@ -25,8 +26,7 @@ from pydantic import TypeAdapter, ValidationError
 from audio_harness.config import WebRtcConfig
 from audio_harness.capacity import ResizableConcurrencyLimiter
 from audio_harness.domain import CapacityExceededError
-from audio_harness.engines.router import EngineRouter
-from audio_harness.pipelines.service import ActivePipelineSnapshot, PipelineStore
+from audio_harness.engines.pool import InferencerPool
 from audio_harness.serving.realtime.session import (
     RealtimeTranscriptionSession,
     default_transcription_session,
@@ -36,13 +36,18 @@ from audio_harness.serving.webrtc.tracks import (
     ServerAudioTrack,
 )
 from audio_harness.sessions import (
-    TranscriptionSessionReservation,
-    TranscriptionSessionService,
+    AudioWorkflowSessionReservation,
+    AudioWorkflowSessionService,
 )
 from audio_harness.serving.realtime.tools import ToolRegistry
 from audio_harness.serving.realtime.agent import VoiceResolver
 from audio_harness.workflow_settings import WorkflowSettingsStore
-from audio_harness.workflow_types import WorkflowKind
+from audio_harness.voice_agents.service import (
+    ActiveVoiceAgent,
+    RealtimeRouteService,
+    RealtimeTarget,
+)
+from audio_harness.workflows.models import PhysicalVadNode
 
 logger = logging.getLogger(__name__)
 
@@ -66,19 +71,18 @@ class WebRtcCall:
         call_id: str,
         configuration: RTCConfiguration,
         webrtc_config: WebRtcConfig,
-        session_service: TranscriptionSessionService,
+        session_service: AudioWorkflowSessionService,
         workflow_settings: WorkflowSettingsStore,
-        pipeline_store: PipelineStore,
-        reservation: TranscriptionSessionReservation,
+        reservation: AudioWorkflowSessionReservation,
         reservation_context: Any,
         initial_session: (
             RealtimeTranscriptionSessionCreateRequest
             | RealtimeSessionCreateRequest
             | None
         ),
-        pipeline: ActivePipelineSnapshot,
+        target: RealtimeTarget,
         model: str,
-        engine_router: EngineRouter,
+        inferencer_pool: InferencerPool,
         responses_limiter: ResizableConcurrencyLimiter | None,
         tts_limiter: ResizableConcurrencyLimiter | None,
         tool_registry: ToolRegistry,
@@ -104,13 +108,12 @@ class WebRtcCall:
             send_event=self._send_event,
             session_service=session_service,
             workflow_settings=workflow_settings,
-            pipeline_store=pipeline_store,
             model=model,
+            target=target,
             initial_session=initial_session,
             reservation=reservation,
             diagnostics_enabled=diagnostics_enabled,
-            pipeline=pipeline,
-            engine_router=engine_router,
+            inferencer_pool=inferencer_pool,
             responses_limiter=responses_limiter,
             tts_limiter=tts_limiter,
             tool_registry=tool_registry,
@@ -341,11 +344,11 @@ class WebRtcCallService:
         self,
         *,
         config: WebRtcConfig,
-        session_service: TranscriptionSessionService,
+        session_service: AudioWorkflowSessionService,
         workflow_settings: WorkflowSettingsStore,
-        pipeline_store: PipelineStore,
+        routes: RealtimeRouteService,
         max_message_bytes: int,
-        engine_router: EngineRouter | None = None,
+        inferencer_pool: InferencerPool | None = None,
         responses_limiter: ResizableConcurrencyLimiter | None = None,
         tts_limiter: ResizableConcurrencyLimiter | None = None,
         tool_registry: ToolRegistry | None = None,
@@ -354,9 +357,9 @@ class WebRtcCallService:
         self._config = config
         self._session_service = session_service
         self._workflow_settings = workflow_settings
-        self._pipeline_store = pipeline_store
+        self._routes = routes
         self._max_message_bytes = max_message_bytes
-        self._engine_router = engine_router or session_service._engine_router
+        self._inferencer_pool = inferencer_pool or session_service.inferencer_pool
         self._responses_limiter = responses_limiter
         self._tts_limiter = tts_limiter
         self._tool_registry = tool_registry or ToolRegistry()
@@ -401,20 +404,21 @@ class WebRtcCallService:
             raise ValueError("sdp 不能为空")
         if len(offer_sdp.encode("utf-8")) > self._max_message_bytes:
             raise ValueError("sdp 超过 max_message_bytes")
-        resolver = getattr(self._pipeline_store, "resolve_model", None)
-        pipeline = (
-            resolver(model)
-            if resolver is not None
-            else self._pipeline_store.current()
+        target = self._routes.resolve(model)
+        audio_workflow = (
+            target.audio_workflow
+            if isinstance(target, ActiveVoiceAgent)
+            else target
         )
         workflow = self._workflow_settings.current().config
-        physical_vad = next(
-            node.config
-            for node in pipeline.plan.nodes.values()
-            if node.node_type.type == "physical_vad"
+        physical_definition = next(
+            node.definition
+            for node in audio_workflow.plan.nodes.values()
+            if node.spec.kind == "physical_vad"
         )
+        physical_vad = cast(PhysicalVadNode, physical_definition).config
         initial_session = session
-        if initial_session is None and pipeline.kind is WorkflowKind.TRANSCRIPTION:
+        if initial_session is None and not isinstance(target, ActiveVoiceAgent):
             initial_session = default_transcription_session(
                 model=model,
                 language=workflow.default_language_code,
@@ -434,13 +438,12 @@ class WebRtcCallService:
             webrtc_config=self._config,
             session_service=self._session_service,
             workflow_settings=self._workflow_settings,
-            pipeline_store=self._pipeline_store,
             reservation=reservation,
             reservation_context=reservation_context,
             initial_session=initial_session,
-            pipeline=pipeline,
+            target=target,
             model=model,
-            engine_router=self._engine_router,
+            inferencer_pool=self._inferencer_pool,
             responses_limiter=self._responses_limiter,
             tts_limiter=self._tts_limiter,
             tool_registry=self._tool_registry,

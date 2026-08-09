@@ -25,7 +25,7 @@ from audio_harness.assets import (
 )
 from audio_harness.workflow_types import (
     ModelRouteVisibility,
-    WorkflowKind,
+    RealtimeRouteTargetType,
 )
 
 
@@ -104,6 +104,7 @@ class WorkflowSetting(Base):
     audio_queue_capacity: Mapped[int] = mapped_column(Integer, nullable=False)
     segment_queue_capacity: Mapped[int] = mapped_column(Integer, nullable=False)
     result_queue_capacity: Mapped[int] = mapped_column(Integer, nullable=False)
+    grpc_audio_workflow_id: Mapped[str | None] = mapped_column(String(100))
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -133,63 +134,15 @@ class CapacitySetting(Base):
     )
 
 
-class PipelineWorkingCopy(Base):
-    __tablename__ = "pipeline_working_copy"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=utc_now,
-        onupdate=utc_now,
-    )
-
-
-class PipelineRevision(Base):
-    __tablename__ = "pipeline_revisions"
-
-    revision: Mapped[int] = mapped_column(Integer, primary_key=True)
-    definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
-    compiled_plan: Mapped[dict[str, Any]] = mapped_column(
-        JSON,
-        nullable=False,
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=utc_now,
-    )
-    activated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=utc_now,
-    )
-
-
-class PipelineActivation(Base):
-    __tablename__ = "pipeline_activation"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    active_revision: Mapped[int | None] = mapped_column(
-        ForeignKey("pipeline_revisions.revision", ondelete="RESTRICT"),
-        nullable=True,
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=utc_now,
-        onupdate=utc_now,
-    )
-
-
-class Workflow(Base):
-    __tablename__ = "workflows"
+class AudioWorkflow(Base):
+    __tablename__ = "audio_workflows"
 
     id: Mapped[str] = mapped_column(String(100), primary_key=True)
     slug: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(200))
-    kind: Mapped[WorkflowKind] = mapped_column(enum_type(WorkflowKind))
     description: Mapped[str | None] = mapped_column(Text)
     draft_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    draft_definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    draft_document: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utc_now,
@@ -201,24 +154,24 @@ class Workflow(Base):
     )
 
 
-class WorkflowRevision(Base):
-    __tablename__ = "workflow_revisions"
+class AudioWorkflowRevision(Base):
+    __tablename__ = "audio_workflow_revisions"
     __table_args__ = (
         UniqueConstraint(
-            "workflow_id",
+            "audio_workflow_id",
             "revision",
-            name="uq_workflow_revision_number",
+            name="uq_audio_workflow_revision_number",
         ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    workflow_id: Mapped[str] = mapped_column(
-        ForeignKey("workflows.id", ondelete="CASCADE"),
+    audio_workflow_id: Mapped[str] = mapped_column(
+        ForeignKey("audio_workflows.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
-    definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    document: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     compiled_plan: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -230,15 +183,15 @@ class WorkflowRevision(Base):
     )
 
 
-class WorkflowActivation(Base):
-    __tablename__ = "workflow_activations"
+class AudioWorkflowActivation(Base):
+    __tablename__ = "audio_workflow_activations"
 
-    workflow_id: Mapped[str] = mapped_column(
-        ForeignKey("workflows.id", ondelete="CASCADE"),
+    audio_workflow_id: Mapped[str] = mapped_column(
+        ForeignKey("audio_workflows.id", ondelete="CASCADE"),
         primary_key=True,
     )
     active_revision_id: Mapped[int | None] = mapped_column(
-        ForeignKey("workflow_revisions.id", ondelete="RESTRICT"),
+        ForeignKey("audio_workflow_revisions.id", ondelete="RESTRICT"),
         nullable=True,
     )
     updated_at: Mapped[datetime] = mapped_column(
@@ -248,15 +201,72 @@ class WorkflowActivation(Base):
     )
 
 
-class ModelRoute(Base):
-    __tablename__ = "model_routes"
+class VoiceAgentProfile(Base):
+    __tablename__ = "voice_agent_profiles"
 
-    model: Mapped[str] = mapped_column(String(100), primary_key=True)
-    workflow_id: Mapped[str] = mapped_column(
-        ForeignKey("workflows.id", ondelete="RESTRICT"),
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    slug: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str | None] = mapped_column(Text)
+    draft_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    draft_definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
+class VoiceAgentRevision(Base):
+    __tablename__ = "voice_agent_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "voice_agent_id",
+            "revision",
+            name="uq_voice_agent_revision_number",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    voice_agent_id: Mapped[str] = mapped_column(
+        ForeignKey("voice_agent_profiles.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    compiled_profile: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    audio_workflow_revision_id: Mapped[int] = mapped_column(
+        ForeignKey("audio_workflow_revisions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    activated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class VoiceAgentActivation(Base):
+    __tablename__ = "voice_agent_activations"
+
+    voice_agent_id: Mapped[str] = mapped_column(
+        ForeignKey("voice_agent_profiles.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    active_revision_id: Mapped[int | None] = mapped_column(
+        ForeignKey("voice_agent_revisions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
+class RealtimeRoute(Base):
+    __tablename__ = "realtime_routes"
+
+    model: Mapped[str] = mapped_column(String(100), primary_key=True)
+    target_type: Mapped[RealtimeRouteTargetType] = mapped_column(
+        enum_type(RealtimeRouteTargetType)
+    )
+    target_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     visibility: Mapped[ModelRouteVisibility] = mapped_column(
         enum_type(ModelRouteVisibility)
     )

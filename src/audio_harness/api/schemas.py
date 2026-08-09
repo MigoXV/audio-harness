@@ -5,19 +5,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from audio_harness.assets import (
-    EngineApi,
-    EngineKind,
-    EngineProtocol,
-    EngineStatus,
-)
+from audio_harness.assets import EngineApi, EngineKind, EngineProtocol, EngineStatus
 from audio_harness.config import CapacityConfig, WorkflowRuntimeConfig
-from audio_harness.pipelines.dag import PipelineDefinition
-from audio_harness.pipelines.stages import (
-    StageWorkflowDefinition,
-    WorkflowDefinition,
-)
-from audio_harness.workflow_types import ModelRouteVisibility, WorkflowKind
+from audio_harness.voice_agents.models import VoiceAgentDefinition
+from audio_harness.workflow_types import ModelRouteVisibility, RealtimeRouteTargetType
+from audio_harness.workflows.models import AudioWorkflowDocument
 
 
 class StrictSchema(BaseModel):
@@ -53,10 +45,8 @@ class EngineCreate(StrictSchema):
     @classmethod
     def strip_required_text(cls, value: str) -> str:
         value = value.strip()
-        if not value:
-            raise ValueError("字段不能为空")
-        if "${" in value:
-            raise ValueError("字段包含未展开的环境变量")
+        if not value or "${" in value:
+            raise ValueError("字段为空或包含未展开的环境变量")
         return value
 
 
@@ -74,13 +64,8 @@ class EnginePatch(StrictSchema):
     target: str | None = Field(default=None, min_length=1, max_length=500)
     connect_timeout_seconds: float | None = Field(default=None, gt=0)
     request_timeout_seconds: float | None = Field(default=None, gt=0)
-    credential_env: str | None = Field(
-        default=None,
-        min_length=1,
-        max_length=200,
-        pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
-    )
-    api_key: str | None = Field(default=None, min_length=1, max_length=8192)
+    credential_env: str | None = Field(default=None, max_length=200)
+    api_key: str | None = Field(default=None, max_length=8192)
     enabled: bool | None = None
     status: EngineStatus | None = None
     image: str | None = Field(default=None, max_length=500)
@@ -89,18 +74,6 @@ class EnginePatch(StrictSchema):
     status_observed_at: datetime | None = None
     source: str | None = Field(default=None, max_length=500)
     details: dict[str, Any] | None = None
-
-    @field_validator("slug", "name", "target")
-    @classmethod
-    def strip_optional_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        value = value.strip()
-        if not value:
-            raise ValueError("字段不能为空")
-        if "${" in value:
-            raise ValueError("字段包含未展开的环境变量")
-        return value
 
 
 class EngineRead(StrictSchema):
@@ -167,30 +140,19 @@ class ErrorResponse(StrictSchema):
     error: ErrorBody
 
 
-class HealthNodeRead(StrictSchema):
-    node_id: str
-    node_type: str
-    state: str
-    engine_id: str | None = None
-    reason: str | None = None
-
-
-class HealthResponse(StrictSchema):
-    status: str
-    database: str
-    data_plane: str
-    problems: list[str] = Field(default_factory=list)
-    pipeline_revision: int | None = None
-    nodes: list[HealthNodeRead] = Field(default_factory=list)
-
-
 class WorkflowSettingsUpdate(WorkflowRuntimeConfig):
     revision: int = Field(ge=1)
 
 
 class WorkflowSettingsRead(WorkflowRuntimeConfig):
+    grpc_audio_workflow_id: str | None
     revision: int
     updated_at: datetime
+
+
+class GrpcWorkflowBindingUpdate(StrictSchema):
+    workflow_id: str = Field(min_length=1)
+    expected_revision: int = Field(ge=1)
 
 
 class CapacitySettingsUpdate(CapacityConfig):
@@ -202,49 +164,22 @@ class CapacitySettingsRead(CapacityConfig):
     updated_at: datetime
 
 
-class PipelineDraftUpdate(StrictSchema):
-    expected_revision: int = Field(ge=1)
-    definition: WorkflowDefinition
-
-
-class PipelineActivateRequest(StrictSchema):
-    expected_revision: int = Field(ge=1)
-
-
-class PipelineRestoreRequest(StrictSchema):
-    expected_revision: int = Field(ge=1)
-
-
-class PipelineDraftRead(StrictSchema):
-    workflow_id: str
-    definition: WorkflowDefinition
-    revision: int
-    updated_at: datetime
-    active_revision: int | None
-
-
-class WorkflowCreate(StrictSchema):
-    slug: str = Field(
-        min_length=1,
-        max_length=100,
-        pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$",
-    )
+class AudioWorkflowCreate(StrictSchema):
+    slug: str = Field(min_length=1, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     name: str = Field(min_length=1, max_length=200)
-    kind: WorkflowKind
     description: str | None = None
-    definition: StageWorkflowDefinition | PipelineDefinition | None = None
+    document: AudioWorkflowDocument | None = None
 
 
-class WorkflowPatch(StrictSchema):
+class AudioWorkflowPatch(StrictSchema):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = None
 
 
-class WorkflowRead(StrictSchema):
+class AudioWorkflowRead(StrictSchema):
     id: str
     slug: str
     name: str
-    kind: WorkflowKind
     description: str | None
     draft_revision: int
     active_revision: int | None
@@ -252,24 +187,171 @@ class WorkflowRead(StrictSchema):
     updated_at: datetime
 
 
-class WorkflowStageStatusRead(StrictSchema):
-    stage: str
-    engine_id: str | None
-    engine_name: str | None = None
-    health: str
-    reason: str | None = None
-    checked_at: datetime | None = None
+class AudioWorkflowDraftUpdate(StrictSchema):
+    expected_revision: int = Field(ge=1)
+    document: AudioWorkflowDocument
 
 
-class WorkflowStatusRead(StrictSchema):
+class AudioWorkflowDraftRead(StrictSchema):
+    id: str
+    slug: str
+    name: str
+    description: str | None
+    document: AudioWorkflowDocument
+    revision: int
+    active_revision: int | None
+    updated_at: datetime
+
+
+class PublishRequest(StrictSchema):
+    expected_revision: int = Field(ge=1)
+
+
+class RestoreRequest(StrictSchema):
+    expected_revision: int = Field(ge=1)
+
+
+class AudioWorkflowRevisionRead(StrictSchema):
     workflow_id: str
-    state: str
+    revision: int
+    document: AudioWorkflowDocument
+    engine_revisions: dict[str, int]
+    activated_at: datetime | None = None
+
+
+class GraphDiagnosticRead(StrictSchema):
+    code: str
+    message: str
+    node_id: str | None = None
+    edge_id: str | None = None
+    port: str | None = None
+
+
+class AudioWorkflowValidationRead(StrictSchema):
+    valid: bool
+    diagnostics: list[GraphDiagnosticRead]
+    topological_order: list[str] = Field(default_factory=list)
+
+
+class NodePortRead(StrictSchema):
+    name: str
+    kind: str
+
+
+class AudioNodeTypeRead(StrictSchema):
+    kind: str
+    display_name: str
+    required_api: EngineApi
+    inputs: list[NodePortRead]
+    outputs: list[NodePortRead]
+    config_schema: dict[str, Any]
+
+
+class VoiceAgentCreate(StrictSchema):
+    slug: str = Field(min_length=1, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    name: str = Field(min_length=1, max_length=200)
+    description: str | None = None
+    definition: VoiceAgentDefinition
+
+
+class VoiceAgentRead(StrictSchema):
+    id: str
+    slug: str
+    name: str
+    description: str | None
     draft_revision: int
     active_revision: int | None
-    has_unpublished_changes: bool
-    public_models: list[str] = Field(default_factory=list)
-    diagnostics: list[PipelineDiagnosticRead] = Field(default_factory=list)
-    stages: list[WorkflowStageStatusRead] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class VoiceAgentPatch(StrictSchema):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = None
+
+
+class VoiceAgentDraftUpdate(StrictSchema):
+    expected_revision: int = Field(ge=1)
+    definition: VoiceAgentDefinition
+
+
+class VoiceAgentDraftRead(StrictSchema):
+    id: str
+    slug: str
+    name: str
+    description: str | None
+    definition: VoiceAgentDefinition
+    revision: int
+    active_revision: int | None
+    updated_at: datetime
+
+
+class VoiceAgentRevisionRead(StrictSchema):
+    id: str
+    revision: int
+    definition: VoiceAgentDefinition
+    audio_workflow_id: str
+    audio_workflow_revision: int
+    engine_revisions: dict[str, int]
+
+
+class ConfigurationDiagnosticRead(StrictSchema):
+    code: str
+    message: str
+    field: str | None = None
+
+
+class VoiceAgentValidationRead(StrictSchema):
+    valid: bool
+    diagnostics: list[ConfigurationDiagnosticRead]
+
+
+class RealtimeRouteUpsert(StrictSchema):
+    model: str = Field(
+        min_length=1,
+        max_length=100,
+        pattern=r"^[a-z0-9][a-z0-9._-]*$",
+    )
+    target_type: RealtimeRouteTargetType
+    target_id: str = Field(min_length=1, max_length=100)
+    visibility: ModelRouteVisibility = ModelRouteVisibility.PUBLIC
+    replace_existing: bool = False
+
+
+class RealtimeRouteRead(StrictSchema):
+    model: str
+    target_type: RealtimeRouteTargetType
+    target_id: str
+    visibility: ModelRouteVisibility
+    updated_at: datetime
+
+
+class RuntimeIssueRead(StrictSchema):
+    code: str
+    severity: Literal["warning", "error"]
+    scope: Literal["control_plane", "grpc", "realtime"]
+    message: str
+    resource_id: str | None = None
+
+
+class GrpcOverviewRead(StrictSchema):
+    state: Literal["ready", "needs_configuration", "unavailable"]
+    workflow_id: str | None
+    workflow_revision: int | None
+
+
+class RealtimeOverviewRead(StrictSchema):
+    state: Literal["ready", "needs_configuration", "unavailable"]
+    public_routes: int
+    internal_routes: int
+
+
+class RuntimeOverviewRead(StrictSchema):
+    status: Literal["ready", "needs_configuration", "unavailable"]
+    control_plane: Literal["ready", "needs_configuration", "unavailable"]
+    grpc: GrpcOverviewRead
+    realtime: RealtimeOverviewRead
+    issues: list[RuntimeIssueRead]
 
 
 class RuntimeLimiterRead(StrictSchema):
@@ -288,21 +370,26 @@ class RuntimeStatusRead(StrictSchema):
     started_at: datetime
 
 
-class ModelRouteUpsert(StrictSchema):
-    model: str = Field(
-        min_length=1,
-        max_length=100,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
-    )
-    workflow_id: str = Field(min_length=1, max_length=100)
-    visibility: ModelRouteVisibility = ModelRouteVisibility.PUBLIC
+class HealthResponse(StrictSchema):
+    status: str
+    database: str
+    data_plane: str
+    problems: list[str] = Field(default_factory=list)
+    workflow_id: str | None = None
+    workflow_revision: int | None = None
 
 
-class ModelRouteRead(StrictSchema):
-    model: str
-    workflow_id: str
-    visibility: ModelRouteVisibility
-    updated_at: datetime
+class WebRtcOffer(StrictSchema):
+    sdp: str = Field(min_length=1)
+    session: dict[str, Any] | None = None
+    model: str = "gpt-4o-transcribe"
+
+
+class WebRtcAnswer(StrictSchema):
+    id: str
+    object: Literal["realtime.call"] = "realtime.call"
+    status: Literal["active"] = "active"
+    sdp: str
 
 
 class VoiceAssetRead(StrictSchema):
@@ -312,47 +399,3 @@ class VoiceAssetRead(StrictSchema):
     sample_rate: int
     duration_seconds: float
     created_at: datetime
-
-
-class PipelineRevisionRead(StrictSchema):
-    definition: WorkflowDefinition
-    revision: int
-    activated_at: datetime
-    engine_revisions: dict[str, int]
-
-
-class PipelineDiagnosticRead(StrictSchema):
-    code: str
-    message: str
-    node_id: str | None = None
-    edge_id: str | None = None
-    port: str | None = None
-    stage: str | None = None
-    field: str | None = None
-
-
-class PipelineValidationRead(StrictSchema):
-    valid: bool
-    diagnostics: list[PipelineDiagnosticRead]
-    topological_order: list[str] = Field(default_factory=list)
-
-
-class NodePortRead(StrictSchema):
-    payload_type: str
-    required: bool
-    aggregate: bool
-
-
-class NodeTypeRead(StrictSchema):
-    type: str
-    display_name: str
-    input_ports: dict[str, NodePortRead]
-    output_ports: dict[str, NodePortRead]
-    config_schema: dict[str, Any]
-    allowed_failure_policies: list[str]
-    default_failure_policy: str
-    required_api: str | None
-    max_instances: int | None
-    source: bool
-    sink: bool
-    version: int

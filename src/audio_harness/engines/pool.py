@@ -1,35 +1,27 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Iterable
-
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from audio_harness.assets import EngineSnapshot
-from audio_harness.inferencers.contracts import (
-    InferencerFactory,
-    ManagedInferencer,
-)
+from audio_harness.inferencers.contracts import InferencerFactory, ManagedInferencer
+
 
 @dataclass(eq=False)
 class _InferencerEntry:
     key: tuple[str, int]
     inferencer: ManagedInferencer
     ready_task: asyncio.Task[None]
-    refs: int = 0
+    references: int = 0
     retired: bool = False
 
 
-class EngineRouter:
-    def __init__(
-        self,
-        session_factory: async_sessionmaker[AsyncSession],
-        *,
-        inferencer_factory: InferencerFactory,
-    ) -> None:
-        del session_factory
+class InferencerPool:
+    """按不可变引擎快照管理推理客户端及其会话租约。"""
+
+    def __init__(self, *, inferencer_factory: InferencerFactory) -> None:
         self._inferencer_factory = inferencer_factory
         self._entries: dict[tuple[str, int], _InferencerEntry] = {}
         self._lock = asyncio.Lock()
@@ -39,7 +31,7 @@ class EngineRouter:
         key = (snapshot.id, snapshot.revision)
         async with self._lock:
             if self._closed:
-                raise RuntimeError("引擎路由器已经关闭")
+                raise RuntimeError("推理客户端池已经关闭")
             entry = self._entries.get(key)
             if entry is None or entry.retired:
                 inferencer = self._inferencer_factory.create(snapshot)
@@ -48,11 +40,11 @@ class EngineRouter:
                     inferencer=inferencer,
                     ready_task=asyncio.create_task(
                         inferencer.ready(),
-                        name=f"engine-ready-{snapshot.id}-{snapshot.revision}",
+                        name=f"inferencer-ready-{snapshot.id}-{snapshot.revision}",
                     ),
                 )
                 self._entries[key] = entry
-            entry.refs += 1
+            entry.references += 1
             return entry
 
     async def _acquire(self, snapshot: EngineSnapshot) -> _InferencerEntry:
@@ -72,10 +64,10 @@ class EngineRouter:
     async def _release(self, entry: _InferencerEntry) -> None:
         close_inferencer = False
         async with self._lock:
-            entry.refs -= 1
-            if entry.refs < 0:
-                raise RuntimeError("引擎客户端租约引用计数失衡")
-            if entry.refs == 0 and entry.retired:
+            entry.references -= 1
+            if entry.references < 0:
+                raise RuntimeError("推理客户端租约引用计数失衡")
+            if entry.references == 0 and entry.retired:
                 if self._entries.get(entry.key) is entry:
                     del self._entries[entry.key]
                 close_inferencer = True
@@ -86,18 +78,16 @@ class EngineRouter:
         entry = await self._acquire(snapshot)
         await self._release(entry)
 
-    async def prepare_all(
-        self,
-        snapshots: Iterable[EngineSnapshot],
-    ) -> None:
+    async def prepare_all(self, snapshots: Iterable[EngineSnapshot]) -> None:
         for snapshot in snapshots:
             await self.prepare(snapshot)
 
     async def probe(self, snapshot: EngineSnapshot) -> None:
-        """使用临时客户端探测引擎，绝不复用会话运行时缓存。"""
+        """使用临时客户端探测引擎，不复用会话运行时缓存。"""
+
         async with self._lock:
             if self._closed:
-                raise RuntimeError("引擎路由器已经关闭")
+                raise RuntimeError("推理客户端池已经关闭")
         inferencer = self._inferencer_factory.create(snapshot)
         try:
             await inferencer.probe()
@@ -105,22 +95,13 @@ class EngineRouter:
             await inferencer.close()
 
     @asynccontextmanager
-    async def lease_snapshots(
-        self,
-        snapshots: Iterable[EngineSnapshot],
-    ):
-        unique = {
-            (snapshot.id, snapshot.revision): snapshot
-            for snapshot in snapshots
-        }
+    async def lease(self, snapshots: Iterable[EngineSnapshot]):
+        unique = {(snapshot.id, snapshot.revision): snapshot for snapshot in snapshots}
         acquired: list[_InferencerEntry] = []
         try:
             for key in sorted(unique):
                 acquired.append(await self._acquire(unique[key]))
-            yield {
-                entry.key: entry.inferencer
-                for entry in acquired
-            }
+            yield {entry.key: entry.inferencer for entry in acquired}
         finally:
             for entry in reversed(acquired):
                 await self._release(entry)
@@ -139,7 +120,7 @@ class EngineRouter:
                 if before_revision is not None and key[1] >= before_revision:
                     continue
                 entry.retired = True
-                if entry.refs == 0:
+                if entry.references == 0:
                     del self._entries[key]
                     closing.append(entry)
         await asyncio.gather(
@@ -147,11 +128,7 @@ class EngineRouter:
             return_exceptions=True,
         )
 
-    async def retire_snapshot(
-        self,
-        asset_id: str,
-        revision: int,
-    ) -> None:
+    async def retire_snapshot(self, asset_id: str, revision: int) -> None:
         key = (asset_id, revision)
         close_inferencer: ManagedInferencer | None = None
         async with self._lock:
@@ -159,7 +136,7 @@ class EngineRouter:
             if entry is None:
                 return
             entry.retired = True
-            if entry.refs == 0:
+            if entry.references == 0:
                 del self._entries[key]
                 close_inferencer = entry.inferencer
         if close_inferencer is not None:

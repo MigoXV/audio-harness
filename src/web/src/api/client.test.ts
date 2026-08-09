@@ -18,32 +18,30 @@ describe("audio harness API client", () => {
     expect(errorMessage(new TypeError("Failed to fetch"))).toBe(
       "暂时无法连接管理服务，请稍后重试。",
     );
-    expect(errorMessage(new Error("internal stack detail"))).toBe(
-      "操作未完成，请稍后重试。",
-    );
+    expect(errorMessage(new Error("保存失败"))).toBe("保存失败");
   });
 
-  it("treats readiness 503 as a valid not-ready state", async () => {
+  it("reads configuration gaps from the always-available runtime overview", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
         jsonResponse(
           {
-            status: "not_ready",
-            database: "ready",
-            data_plane: "not_ready",
-            problems: ["ASR 未绑定"],
-            pipeline_revision: null,
-            nodes: [],
+            status: "needs_configuration",
+            ready: false,
+            control_plane: "ready",
+            problems: ["尚未绑定 gRPC 语音工作流"],
+            issues: [{ code: "grpc_workflow_unconfigured", scope: "grpc", message: "尚未绑定 gRPC 语音工作流" }],
+            grpc: { status: "needs_configuration", workflow_id: null, workflow_revision: null },
+            realtime: { status: "needs_configuration", public_routes: 0, internal_routes: 0, invalid_routes: 0 },
           },
-          503,
         ),
       ),
     );
 
-    await expect(apiClient.getReadiness()).resolves.toMatchObject({
-      status: "not_ready",
-      problems: ["ASR 未绑定"],
+    await expect(apiClient.getRuntimeOverview()).resolves.toMatchObject({
+      status: "needs_configuration",
+      problems: ["尚未绑定 gRPC 语音工作流"],
     });
   });
 
@@ -107,7 +105,7 @@ describe("audio harness API client", () => {
       response,
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/workflow-settings",
+      "/api/v1/settings/workflow",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify(payload),
@@ -133,7 +131,7 @@ describe("audio harness API client", () => {
       response,
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/capacity-settings",
+      "/api/v1/settings/capacity",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify(payload),

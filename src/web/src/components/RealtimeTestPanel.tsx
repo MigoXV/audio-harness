@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 
 import { errorMessage } from "../api/client";
-import type { WorkflowKind } from "../api/types";
+import type { AudioHarnessApi, RealtimeSessionKind } from "../api/types";
 import { PcmPlayer, startMicrophone, type MicrophoneCapture } from "../realtimeAudio";
 
 interface Props {
+  api: AudioHarnessApi;
   model: string;
-  workflowKind: WorkflowKind;
+  workflowKind: RealtimeSessionKind;
   canTest: boolean;
   blockedReason?: string;
 }
@@ -52,7 +53,7 @@ function displayMs(value: number | undefined, waiting: string): string {
   return value < 1000 ? `${Math.round(value)} ms` : `${(value / 1000).toFixed(2)} s`;
 }
 
-export function realtimeSessionUpdate(workflowKind: WorkflowKind) {
+export function realtimeSessionUpdate(workflowKind: RealtimeSessionKind) {
   return {
     type: "session.update",
     session: {
@@ -81,7 +82,7 @@ export function appendGroupedEvent(
   return [event, ...current].slice(0, 100);
 }
 
-export function RealtimeTestPanel({ model, workflowKind, canTest, blockedReason }: Props) {
+export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedReason }: Props) {
   const [protocol, setProtocol] = useState<"wss" | "webrtc">("webrtc");
   const [connection, setConnection] = useState<"idle" | "connecting" | "connected" | "error">("idle");
   const [notice, setNotice] = useState("等待开始测试");
@@ -135,7 +136,7 @@ export function RealtimeTestPanel({ model, workflowKind, canTest, blockedReason 
       transcriptAt.current = now;
       setTranscript(String(event.transcript ?? ""));
       if (speechStoppedAt.current !== null) setLatencies((current) => ({ ...current, transcription: now - speechStoppedAt.current! }));
-      setNotice("转写完成，大模型正在回复");
+      setNotice(workflowKind === "voice_agent" ? "转写完成，大模型正在回复" : "转写完成，可以继续说话");
     } else if (isResponseTextDelta(type)) {
       const now = performance.now();
       if (modelAt.current === null) {
@@ -192,7 +193,8 @@ export function RealtimeTestPanel({ model, workflowKind, canTest, blockedReason 
       socket.onclose = (event) => {
         if (!stoppingRef.current && socketRef.current === socket) {
           setConnection("error");
-          setNotice(`WSS 已关闭（${event.code}）`);
+          const reason = ({ 4404: "Realtime model 路由不存在", 4409: "路由目标尚未发布", 4429: "会话容量已满" } as Record<number, string>)[event.code];
+          setNotice(reason ?? `WSS 已关闭（${event.code}）`);
         }
       };
       socket.onmessage = (message) => {
@@ -255,6 +257,8 @@ export function RealtimeTestPanel({ model, workflowKind, canTest, blockedReason 
     transcriptAt.current = null;
     modelAt.current = null;
     try {
+      const route = await api.getRealtimeRoute(model);
+      if (route.visibility !== "public") throw new Error("当前 Realtime model 不是公开路由");
       const endpoint = protocol === "wss"
         ? `/v1/realtime?model=${encodeURIComponent(model)}`
         : `/v1/realtime/calls?model=${encodeURIComponent(model)}`;
@@ -272,7 +276,7 @@ export function RealtimeTestPanel({ model, workflowKind, canTest, blockedReason 
   return (
     <div className="test-console">
       <section className="panel test-control-panel">
-        <div className="panel-heading"><div><h2>端到端实时测试</h2><p>音频、转写和回复仅保留在当前浏览器内存。</p></div><span className={`connection-indicator connection-${connection}`}>{connection === "connected" ? "已连接" : connection === "connecting" ? "连接中" : connection === "error" ? "连接失败" : "未连接"}</span></div>
+        <div className="panel-heading"><div><h2>{workflowKind === "voice_agent" ? "端到端对话测试" : "实时转写测试"}</h2><p>{workflowKind === "voice_agent" ? "音频、转写和回复仅保留在当前浏览器内存。" : "验证 VAD、切段与 ASR 转写；不会调用 Responses 或 TTS。"}</p></div><span className={`connection-indicator connection-${connection}`}>{connection === "connected" ? "已连接" : connection === "connecting" ? "连接中" : connection === "error" ? "连接失败" : "未连接"}</span></div>
         <div className="protocol-tabs"><button className={protocol === "webrtc" ? "active" : ""} disabled={connection === "connected"} onClick={() => setProtocol("webrtc")}>WebRTC</button><button className={protocol === "wss" ? "active" : ""} disabled={connection === "connected"} onClick={() => setProtocol("wss")}>WSS</button></div>
         <div className="test-status"><span className="pulse-dot" /><strong>{notice}</strong></div>
         {!canTest && <div className="alert alert-warning">{blockedReason ?? "请先完成配置并发布工作流。"}</div>}
@@ -280,15 +284,14 @@ export function RealtimeTestPanel({ model, workflowKind, canTest, blockedReason 
         <audio ref={remoteAudioRef} autoPlay className="remote-audio" />
       </section>
 
-      <section className="conversation-grid">
+      <section className={`conversation-grid ${workflowKind === "transcription" ? "transcription-only" : ""}`}>
         <article className="panel conversation-card"><div className="conversation-label">用户转写</div><p>{transcript || "开始说话后，实时转写会显示在这里。"}</p></article>
-        <article className="panel conversation-card assistant-card"><div className="conversation-label">模型回复</div><p>{assistant || "Responses 文本增量会显示在这里，并同步送入 TTS。"}</p></article>
+        {workflowKind === "voice_agent" && <article className="panel conversation-card assistant-card"><div className="conversation-label">模型回复</div><p>{assistant || "Responses 文本增量会显示在这里，并同步送入 TTS。"}</p></article>}
       </section>
 
-      <section className="latency-grid">
+      <section className={`latency-grid ${workflowKind === "transcription" ? "transcription-only" : ""}`}>
         <div className="metric-card"><span>话音结束 → 最终转写</span><strong>{displayMs(latencies.transcription, "等待最终转写")}</strong></div>
-        <div className="metric-card"><span>转写 → 模型首字</span><strong>{displayMs(latencies.model, "等待模型首字")}</strong></div>
-        <div className="metric-card"><span>模型首字 → TTS 首个音频块</span><strong>{displayMs(latencies.audio, "等待 TTS 音频")}</strong></div>
+        {workflowKind === "voice_agent" && <><div className="metric-card"><span>转写 → 模型首字</span><strong>{displayMs(latencies.model, "等待模型首字")}</strong></div><div className="metric-card"><span>模型首字 → TTS 首个音频块</span><strong>{displayMs(latencies.audio, "等待 TTS 音频")}</strong></div></>}
       </section>
 
       <details className="panel event-log"><summary>协议事件 <span>{eventTotal}</span></summary><div>{events.map((event) => <div className="event-row" key={event.id}><time>{event.time}</time><code>{event.type}</code>{event.count > 1 && <b>×{event.count}</b>}<span>{event.detail}</span></div>)}</div></details>

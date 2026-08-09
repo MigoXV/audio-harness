@@ -13,7 +13,7 @@ from mcp import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 
-from audio_harness.pipelines.dag import McpServerNodeConfig
+from audio_harness.voice_agents.models import McpServerConfig
 
 ToolHandler = Callable[[dict[str, Any]], Any | Awaitable[Any]]
 
@@ -113,7 +113,7 @@ class McpTool:
 class McpToolPool:
     def __init__(
         self,
-        servers: list[McpServerNodeConfig],
+        servers: list[McpServerConfig],
         *,
         memory_headers: dict[str, dict[str, str]] | None = None,
     ) -> None:
@@ -121,7 +121,7 @@ class McpToolPool:
         self._tools: dict[str, McpTool] = {}
         self._memory_headers = memory_headers or {}
 
-    def _headers(self, config: McpServerNodeConfig) -> dict[str, str]:
+    def _headers(self, config: McpServerConfig) -> dict[str, str]:
         headers = dict(self._memory_headers.get(config.server_label, {}))
         for name, variable in config.headers_env.items():
             value = os.environ.get(variable)
@@ -133,7 +133,7 @@ class McpToolPool:
         return headers
 
     @asynccontextmanager
-    async def _session(self, config: McpServerNodeConfig):
+    async def _session(self, config: McpServerConfig):
         headers = self._headers(config)
         stack = AsyncExitStack()
         try:

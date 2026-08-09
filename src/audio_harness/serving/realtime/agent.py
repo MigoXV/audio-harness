@@ -19,19 +19,14 @@ from audio_harness.domain import (
     PresetVoice,
     VoiceSelection,
 )
-from audio_harness.engines.router import EngineRouter
-from audio_harness.pipelines.dag import (
-    DuplexTtsNodeConfig,
-    McpServerNodeConfig,
-    ResponsesAgentNodeConfig,
-)
-from audio_harness.pipelines.service import ActivePipelineSnapshot
-from audio_harness.pipelines.stages import StageWorkflowDefinition
+from audio_harness.engines.pool import InferencerPool
 from audio_harness.serving.realtime.tools import (
     McpToolPool,
     ToolRegistry,
     json_tool_output,
 )
+from audio_harness.voice_agents.models import McpServerConfig
+from audio_harness.voice_agents.service import ActiveVoiceAgent
 
 EventSender = Callable[[dict[str, Any]], Awaitable[None]]
 AudioSender = Callable[[bytes, int, int], Awaitable[None]]
@@ -73,8 +68,8 @@ class RealtimeAgentRuntime:
     def __init__(
         self,
         *,
-        pipeline: ActivePipelineSnapshot,
-        engine_router: EngineRouter,
+        profile: ActiveVoiceAgent,
+        inferencer_pool: InferencerPool,
         send_event: EventSender,
         send_audio: AudioSender | None,
         clear_audio: AudioClearer | None,
@@ -84,30 +79,7 @@ class RealtimeAgentRuntime:
         voice_resolver: VoiceResolver | None = None,
         finish_audio: AudioFinisher | None = None,
     ) -> None:
-        if isinstance(pipeline.definition, StageWorkflowDefinition):
-            response_nodes = [pipeline.plan.nodes.get("responses-agent")]
-            tts_nodes = [pipeline.plan.nodes.get("duplex-tts")]
-            response_nodes = [node for node in response_nodes if node is not None]
-            tts_nodes = [node for node in tts_nodes if node is not None]
-        else:
-            response_nodes = [
-                node
-                for node in pipeline.plan.nodes.values()
-                if node.node_type.type == "responses_agent"
-            ]
-            tts_nodes = [
-                node
-                for node in pipeline.plan.nodes.values()
-                if node.node_type.type == "duplex_tts"
-            ]
-        if len(response_nodes) != 1 or len(tts_nodes) != 1:
-            raise RuntimeError("语音 Agent 工作流缺少 Responses 或 TTS 节点")
-        response_node = response_nodes[0]
-        tts_node = tts_nodes[0]
-        if response_node.engine_snapshot is None or tts_node.engine_snapshot is None:
-            raise RuntimeError("Agent 节点缺少引擎快照")
-        self._pipeline = pipeline
-        self._router = engine_router
+        self._pool = inferencer_pool
         self._send_event = send_event
         self._send_audio = send_audio
         self._clear_audio = clear_audio
@@ -116,13 +88,10 @@ class RealtimeAgentRuntime:
         self._tool_registry = tool_registry
         self._voice_resolver = voice_resolver
         self._finish_audio = finish_audio
-        self._response_snapshot = response_node.engine_snapshot
-        self._tts_snapshot = tts_node.engine_snapshot
-        self._response_config = cast(
-            ResponsesAgentNodeConfig,
-            response_node.config,
-        )
-        self._tts_config = cast(DuplexTtsNodeConfig, tts_node.config)
+        self._response_snapshot = profile.responses_engine
+        self._tts_snapshot = profile.tts_engine
+        self._response_config = profile.definition.responses
+        self._tts_config = profile.definition.tts
         self.options = AgentSessionOptions(
             voice=self._tts_config.default_voice,
         )
@@ -166,7 +135,7 @@ class RealtimeAgentRuntime:
 
     def update_options(self, payload: dict[str, Any]) -> None:
         if payload.get("type", "realtime") != "realtime":
-            raise ValueError("语音 Agent 模型只支持 realtime session")
+            raise ValueError("语音智能体模型只支持 realtime session")
         modalities = payload.get("output_modalities")
         if modalities is not None:
             if modalities not in (["audio"], ["text"]):
@@ -323,7 +292,7 @@ class RealtimeAgentRuntime:
                 else _unlimited_slot()
             )
             async with response_slot, tts_slot:
-                async with self._router.lease_snapshots(
+                async with self._pool.lease(
                     (self._response_snapshot, self._tts_snapshot)
                     if audio_output
                     else (self._response_snapshot,)
@@ -426,7 +395,7 @@ class RealtimeAgentRuntime:
             if isinstance(allowed, dict):
                 allowed = allowed.get("tool_names")
             mcp_configs.append(
-                McpServerNodeConfig(
+                McpServerConfig(
                     server_label=label,
                     server_url=url,
                     require_approval=tool.get("require_approval") or "always",

@@ -25,9 +25,9 @@ from audio_harness.serving.realtime.connection import (
     RealtimeTranscriptionService,
     _OnlinePcmResampler,
 )
-from audio_harness.sessions import TranscriptionSessionService
+from audio_harness.sessions import AudioWorkflowSessionService
 from audio_harness.workflow_settings import WorkflowSettingsSnapshot
-from tests.graph_fakes import static_graph
+from tests.graph_fakes import StaticRouteService, static_audio_workflow
 
 _SERVER_EVENT_ADAPTER = TypeAdapter(RealtimeServerEvent)
 
@@ -71,6 +71,7 @@ class StaticSettings:
     def __init__(self, config: WorkflowRuntimeConfig) -> None:
         self._snapshot = WorkflowSettingsSnapshot(
             config=config,
+            grpc_audio_workflow_id="default-audio",
             revision=1,
             updated_at=datetime.now(timezone.utc),
         )
@@ -86,14 +87,14 @@ def build_app(vad: ImmediateVad | None = None) -> FastAPI:
     settings = StaticSettings(config)
     capacity = ServingCapacity(CapacityConfig())
     selected_vad = vad or ImmediateVad()
-    engine_router, pipeline_store = static_graph(
+    inferencer_pool, workflows, workflow = static_audio_workflow(
         asr=FinalAsr(),
         vad=selected_vad,
         semantic_vad=selected_vad,
     )
-    sessions = TranscriptionSessionService(
-        engine_router=engine_router,
-        pipeline_store=pipeline_store,
+    sessions = AudioWorkflowSessionService(
+        inferencer_pool=inferencer_pool,
+        workflows=workflows,
         workflow_settings=settings,
         session_limiter=capacity.realtime_sessions,
         asr_limiter=capacity.asr,
@@ -101,8 +102,9 @@ def build_app(vad: ImmediateVad | None = None) -> FastAPI:
     service = RealtimeTranscriptionService(
         session_service=sessions,
         workflow_settings=settings,
-        pipeline_store=pipeline_store,
+        routes=StaticRouteService(workflow),
         max_message_bytes=1024 * 1024,
+        inferencer_pool=inferencer_pool,
     )
     app = FastAPI()
 

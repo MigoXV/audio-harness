@@ -32,9 +32,9 @@ from audio_harness.domain import (
     VadUpdate,
 )
 from audio_harness.serving.webrtc import WebRtcCallService
-from audio_harness.sessions import TranscriptionSessionService
+from audio_harness.sessions import AudioWorkflowSessionService
 from audio_harness.workflow_settings import WorkflowSettingsSnapshot
-from tests.graph_fakes import static_graph
+from tests.graph_fakes import StaticRouteService, static_audio_workflow
 
 _SERVER_EVENT_ADAPTER = TypeAdapter(RealtimeServerEvent)
 
@@ -80,6 +80,7 @@ class _StaticSettings:
             config=WorkflowRuntimeConfig(
                 min_chunk_bytes=6400,
             ),
+            grpc_audio_workflow_id="default-audio",
             revision=1,
             updated_at=datetime.now(timezone.utc),
         )
@@ -113,14 +114,14 @@ def _build_service() -> tuple[WebRtcCallService, ServingCapacity]:
     settings = _StaticSettings()
     capacity = ServingCapacity(CapacityConfig())
     vad = _ImmediateVad()
-    engine_router, pipeline_store = static_graph(
+    inferencer_pool, workflows, workflow = static_audio_workflow(
         asr=_FinalAsr(),
         vad=vad,
         semantic_vad=vad,
     )
-    sessions = TranscriptionSessionService(
-        engine_router=engine_router,
-        pipeline_store=pipeline_store,
+    sessions = AudioWorkflowSessionService(
+        inferencer_pool=inferencer_pool,
+        workflows=workflows,
         workflow_settings=settings,
         session_limiter=capacity.webrtc_sessions,
         asr_limiter=capacity.asr,
@@ -130,8 +131,9 @@ def _build_service() -> tuple[WebRtcCallService, ServingCapacity]:
             config=WebRtcConfig(),
             session_service=sessions,
             workflow_settings=settings,
-            pipeline_store=pipeline_store,
+            routes=StaticRouteService(workflow),
             max_message_bytes=1024 * 1024,
+            inferencer_pool=inferencer_pool,
         ),
         capacity,
     )

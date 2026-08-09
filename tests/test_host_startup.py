@@ -18,6 +18,15 @@ class AsyncRecorder:
         return self._result
 
 
+class Recorder:
+    def __init__(self, events: list[str], name: str) -> None:
+        self._events = events
+        self._name = name
+
+    def __call__(self, *_args, **_kwargs) -> None:
+        self._events.append(self._name)
+
+
 @pytest.mark.asyncio
 async def test_host_start_does_not_prepare_inference_engines() -> None:
     events: list[str] = []
@@ -39,8 +48,14 @@ async def test_host_start_does_not_prepare_inference_engines() -> None:
     host.capacity = SimpleNamespace(
         apply=AsyncRecorder(events, "capacity.apply"),
     )
-    host.pipeline_store = SimpleNamespace(
-        initialize=AsyncRecorder(events, "pipeline_store.initialize"),
+    host.audio_workflows = SimpleNamespace(
+        initialize=AsyncRecorder(events, "audio_workflows.initialize"),
+    )
+    host.voice_agents = SimpleNamespace(
+        initialize=AsyncRecorder(events, "voice_agents.initialize"),
+    )
+    host.realtime_routes = SimpleNamespace(
+        initialize=AsyncRecorder(events, "realtime_routes.initialize"),
     )
     host.grpc_server = SimpleNamespace(
         start=AsyncRecorder(events, "grpc_server.start"),
@@ -49,9 +64,12 @@ async def test_host_start_does_not_prepare_inference_engines() -> None:
     async def reject_prepare(*_args, **_kwargs) -> None:
         raise AssertionError("启动期间不应准备或探测推理引擎")
 
-    host.engine_router = SimpleNamespace(
+    host.inferencer_pool = SimpleNamespace(
         prepare_all=reject_prepare,
-        close=AsyncRecorder(events, "engine_router.close"),
+        close=AsyncRecorder(events, "inferencer_pool.close"),
+    )
+    host.engine_health = SimpleNamespace(
+        start=Recorder(events, "engine_health.start"),
     )
     host._started = False
     host._closed = False
@@ -64,6 +82,9 @@ async def test_host_start_does_not_prepare_inference_engines() -> None:
         "workflow_settings.initialize",
         "capacity_settings.initialize",
         "capacity.apply",
-        "pipeline_store.initialize",
+        "audio_workflows.initialize",
+        "voice_agents.initialize",
+        "realtime_routes.initialize",
         "grpc_server.start",
+        "engine_health.start",
     ]

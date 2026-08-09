@@ -2,42 +2,59 @@ import { useState } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 
 import { apiClient } from "./api/client";
-import type { AudioHarnessApi, HealthStatus } from "./api/types";
-import { useReadiness } from "./features/health/useReadiness";
+import type { AudioHarnessApi, RuntimeOverview } from "./api/types";
+import { useRuntimeOverview } from "./features/health/useRuntimeOverview";
 import { EngineConsolePage } from "./pages/EngineConsolePage";
 import { RuntimePage } from "./pages/RuntimePage";
 import { WorkflowDetailPage } from "./pages/WorkflowDetailPage";
 import { WorkflowListPage } from "./pages/WorkflowListPage";
+import { VoiceAgentPage } from "./pages/VoiceAgentPage";
+import { VoiceAgentDetailPage } from "./pages/VoiceAgentDetailPage";
+import { VoiceAgentWizardPage } from "./pages/VoiceAgentWizardPage";
 
 interface AppProps { api?: AudioHarnessApi; }
 
-function ShellNavigation({ health, onRefresh }: { health: HealthStatus | null; onRefresh: () => void }) {
+function statusText(overview: RuntimeOverview | null, failed: boolean): string {
+  if (failed) return "管理服务不可用";
+  if (!overview) return "正在连接";
+  if (overview.status === "ready") return "服务在线";
+  if (overview.status === "unavailable") return "管理服务不可用";
+  return `服务在线 · ${overview.issues.length} 项待配置`;
+}
+
+function ShellNavigation({ overview, failed, onRefresh }: { overview: RuntimeOverview | null; failed: boolean; onRefresh: () => void }) {
+  const state = failed || overview?.status === "unavailable" ? "error" : overview?.status === "ready" ? "healthy" : "warning";
   return <>
     <header className="topbar">
       <div><span className="brand-mark">AH</span><strong>Audio Harness</strong></div>
-      <nav className="primary-navigation" aria-label="主导航"><NavLink to="/workflows">工作流</NavLink><NavLink to="/engines">推理引擎</NavLink><NavLink to="/runtime">运行状态</NavLink></nav>
-      <div className="topbar-meta"><span className={`health-dot ${health?.status === "ready" ? "healthy" : "warning"}`} aria-label={health?.status === "ready" ? "控制面已就绪" : "控制面需关注"} /><span>{health?.status === "ready" ? "控制面已就绪" : "控制面需关注"}</span><button className="text-button" onClick={onRefresh}>刷新</button></div>
+      <nav className="primary-navigation" aria-label="主导航"><NavLink to="/audio-workflows">语音工作流</NavLink><NavLink to="/voice-agents">语音智能体</NavLink><NavLink to="/engines">推理引擎</NavLink><NavLink to="/runtime">接入与运行</NavLink></nav>
+      <div className="topbar-meta"><span className={`health-dot ${state}`} /><NavLink className="status-link" to="/runtime#access">{statusText(overview, failed)}</NavLink><button className="text-button" onClick={onRefresh}>刷新</button></div>
     </header>
   </>;
 }
 
 export function App({ api = apiClient }: AppProps) {
   const [refreshVersion, setRefreshVersion] = useState(0);
-  const readiness = useReadiness(api);
-  const refreshAll = () => { void readiness.refetch(); setRefreshVersion((value) => value + 1); };
+  const overview = useRuntimeOverview(api);
+  const refreshAll = () => { void overview.refetch(); setRefreshVersion((value) => value + 1); };
 
   return <div className="app-shell-new">
-    <ShellNavigation health={readiness.data ?? null} onRefresh={refreshAll} />
+    <ShellNavigation overview={overview.data ?? null} failed={overview.isError} onRefresh={refreshAll} />
     <div className="app-content"><Routes>
-      <Route path="/" element={<Navigate replace to="/workflows" />} />
-      <Route path="/workflows" element={<WorkflowListPage api={api} refreshVersion={refreshVersion} />} />
-      <Route path="/workflows/:workflowId" element={<Navigate replace to="overview" />} />
-      <Route path="/workflows/:workflowId/:tab" element={<WorkflowDetailPage api={api} refreshVersion={refreshVersion} />} />
+      <Route path="/" element={<Navigate replace to="/audio-workflows" />} />
+      <Route path="/audio-workflows" element={<WorkflowListPage api={api} refreshVersion={refreshVersion} />} />
+      <Route path="/audio-workflows/:workflowId" element={<Navigate replace to="build" />} />
+      <Route path="/audio-workflows/:workflowId/:tab" element={<WorkflowDetailPage api={api} refreshVersion={refreshVersion} />} />
+      <Route path="/voice-agents" element={<VoiceAgentPage api={api} refreshVersion={refreshVersion} />} />
+      <Route path="/voice-agents/new" element={<VoiceAgentWizardPage api={api} />} />
+      <Route path="/voice-agents/:profileId" element={<Navigate replace to="configure" />} />
+      <Route path="/voice-agents/:profileId/:tab" element={<VoiceAgentDetailPage api={api} refreshVersion={refreshVersion} />} />
       <Route path="/engines" element={<EngineConsolePage api={api} refreshVersion={refreshVersion} />} />
       <Route path="/runtime" element={<RuntimePage api={api} refreshVersion={refreshVersion} />} />
-      <Route path="/orchestration" element={<Navigate replace to="/workflows" />} />
+      <Route path="/workflows" element={<Navigate replace to="/audio-workflows" />} />
+      <Route path="/orchestration" element={<Navigate replace to="/audio-workflows" />} />
       <Route path="/settings" element={<Navigate replace to="/runtime" />} />
-      <Route path="*" element={<main className="workspace-page"><div className="empty-state"><strong>页面不存在</strong><NavLink to="/workflows">返回工作流</NavLink></div></main>} />
+      <Route path="*" element={<main className="workspace-page"><div className="empty-state"><strong>页面不存在</strong><NavLink to="/audio-workflows">返回工作流</NavLink></div></main>} />
     </Routes></div>
   </div>;
 }

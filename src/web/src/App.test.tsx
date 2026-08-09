@@ -4,130 +4,198 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
-import type { AudioHarnessApi, StageWorkflowDefinition } from "./api/types";
+import type { AudioHarnessApi, AudioWorkflowDocument, VoiceAgentDefinition } from "./api/types";
 
-const definition: StageWorkflowDefinition = {
-  schema_version: 2,
-  stages: {
-    physical_vad: { engine_id: "vad-1", config: { min_segment_seconds: .5, max_segment_seconds: 60, audio_buffer_seconds: 120, speech_pre_roll_seconds: .3 } },
-    semantic_vad: null,
-    asr: { engine_id: "asr-1", config: {} },
-    responses_agent: { engine_id: "llm-1", config: { model: "model-a", thinking_enabled: false, instructions: "", max_output_tokens: 1024, max_tool_rounds: 8, max_parallel_tools: 4, tool_timeout_seconds: 30, service_tools: [], mcp_servers: [], history_max_items: 128 } },
-    duplex_tts: { engine_id: "tts-1", config: { default_voice: "voice-a", allowed_voices: ["voice-a"], language: "Auto", decoder_chunk_size: 0 } },
-  },
+const document: AudioWorkflowDocument = {
+  schema_version: 1,
+  nodes: [
+    { id: "physical-vad", kind: "physical_vad", engine_id: "vad-1", config: { min_segment_seconds: .5, max_segment_seconds: 60, audio_buffer_seconds: 120, speech_pre_roll_seconds: .3 } },
+    { id: "asr", kind: "asr", engine_id: "asr-1", config: {} },
+  ],
+  edges: [
+    { id: "audio-vad", source: { kind: "input", name: "audio" }, target: { node_id: "physical-vad", port: "audio" } },
+    { id: "vad-asr", source: { kind: "node", node_id: "physical-vad", port: "segments" }, target: { node_id: "asr", port: "segments" } },
+  ],
+  outputs: [
+    { name: "primary_transcript", source: { kind: "node", node_id: "asr", port: "transcripts" } },
+    { name: "speech_started", source: { kind: "node", node_id: "physical-vad", port: "speech_started" } },
+    { name: "speech_stopped", source: { kind: "node", node_id: "physical-vad", port: "speech_stopped" } },
+  ],
+  layout: { "physical-vad": { x: 240, y: 120 }, asr: { x: 520, y: 120 } },
 };
 
 function fakeApi() {
-  const saveManagedWorkflowDraft = vi.fn().mockImplementation(async (_id, next, revision) => ({ workflow_id: "wf-1", definition: next, revision: revision + 1, updated_at: "2026-08-04T00:00:00Z", active_revision: 1 }));
-  const createManagedWorkflow = vi.fn().mockResolvedValue({ workflow_id: "wf-new", definition, revision: 1, updated_at: "2026-08-04T00:00:00Z", active_revision: null });
+  const agentDefinition: VoiceAgentDefinition = {
+    schema_version: 1,
+    audio_workflow_id: "wf-1",
+    responses_engine_id: "llm-1",
+    responses: { model: "deepseek-chat", thinking_enabled: false, instructions: "简洁回答", max_output_tokens: 1024, max_tool_rounds: 8, max_parallel_tools: 4, tool_timeout_seconds: 30, service_tools: [], mcp_servers: [], history_max_items: 128 },
+    tts_engine_id: "tts-1",
+    tts: { default_voice: "Cherry", allowed_voices: ["Cherry"], language: "Auto", decoder_chunk_size: 0 },
+  };
+  const agent = { id: "agent-1", slug: "voice-helper", name: "语音助手", description: null, draft_revision: 3, active_revision: 1, created_at: "2026-08-09T00:00:00Z", updated_at: "2026-08-09T00:00:00Z" };
+  const createAudioWorkflow = vi.fn().mockResolvedValue({ id: "wf-new", slug: "new-audio", name: "New", description: null, draft_revision: 1, active_revision: null, created_at: "2026-08-09T00:00:00Z", updated_at: "2026-08-09T00:00:00Z" });
+  const saveAudioWorkflowDraft = vi.fn().mockImplementation(async (_id, next, revision) => ({ id: "wf-1", slug: "audio-main", name: "主语音图", description: null, document: next, revision: revision + 1, active_revision: 1, updated_at: "2026-08-09T00:00:00Z" }));
+  const saveVoiceAgentDraft = vi.fn().mockImplementation(async (_id, next, revision) => ({ ...agent, definition: next, revision: revision + 1 }));
+  const engine = (id: string, kind: "vad" | "asr" | "llm" | "tts", api: "ux_vad" | "ux_speech" | "responses" | "qwen_tts_duplex") => ({
+    id, slug: id, name: id.toUpperCase(), kind, api, protocol: "grpc", target: "test:1", connect_timeout_seconds: 1,
+    request_timeout_seconds: null, credential_env: null, api_key: null, enabled: true, status: "healthy", image: null,
+    description: null, status_basis: "人工连通性校验通过", status_observed_at: "2026-08-09T00:00:00Z", last_success_at: null,
+    probe_latency_ms: 2, consecutive_failures: 0, next_probe_at: null, source: null, details: {}, revision: 1,
+    created_at: "2026-08-09T00:00:00Z", updated_at: "2026-08-09T00:00:00Z",
+  });
   const api = {
-    getReadiness: vi.fn().mockResolvedValue({ status: "ready", database: "ready", data_plane: "ready", problems: [], pipeline_revision: 1, nodes: [] }),
-    listWorkflows: vi.fn().mockResolvedValue([{ id: "wf-1", slug: "voice-agent", name: "客服 Agent", kind: "voice_agent", description: null, draft_revision: 2, active_revision: 1, created_at: "2026-08-04T00:00:00Z", updated_at: "2026-08-04T00:00:00Z" }]),
-    getWorkflowStatus: vi.fn().mockResolvedValue({ workflow_id: "wf-1", state: "published_healthy", draft_revision: 2, active_revision: 1, has_unpublished_changes: false, public_models: ["voice-agent"], diagnostics: [], stages: [
-      { stage: "physical_vad", engine_id: "vad-1", engine_name: "VAD", health: "healthy", reason: null, checked_at: "2026-08-04T00:00:00Z" },
-      { stage: "asr", engine_id: "asr-1", engine_name: "ASR", health: "healthy", reason: null, checked_at: "2026-08-04T00:00:00Z" },
-      { stage: "responses_agent", engine_id: "llm-1", engine_name: "LLM", health: "healthy", reason: null, checked_at: "2026-08-04T00:00:00Z" },
-      { stage: "duplex_tts", engine_id: "tts-1", engine_name: "TTS", health: "healthy", reason: null, checked_at: "2026-08-04T00:00:00Z" },
-    ] }),
-    getManagedWorkflowDraft: vi.fn().mockResolvedValue({ workflow_id: "wf-1", definition, revision: 2, updated_at: "2026-08-04T00:00:00Z", active_revision: 1 }),
-    saveManagedWorkflowDraft,
-    createManagedWorkflow,
-    listWorkflowRevisions: vi.fn().mockResolvedValue([]),
-    listEngines: vi.fn().mockResolvedValue({ items: [
-      { id: "vad-1", slug: "vad", name: "VAD", kind: "vad", api: "ux_vad", protocol: "grpc", target: "127.0.0.1:1", connect_timeout_seconds: 10, request_timeout_seconds: null, enabled: true, status: "healthy", image: null, description: null, status_basis: "后台连通性校验通过", status_observed_at: "2026-08-04T00:00:00Z", source: null, details: {}, revision: 1, created_at: "2026-08-04T00:00:00Z", updated_at: "2026-08-04T00:00:00Z" },
-      { id: "asr-1", slug: "asr", name: "ASR", kind: "asr", api: "ux_speech", protocol: "grpc", target: "127.0.0.1:2", connect_timeout_seconds: 10, request_timeout_seconds: null, enabled: true, status: "healthy", image: null, description: null, status_basis: null, status_observed_at: null, source: null, details: {}, revision: 1, created_at: "2026-08-04T00:00:00Z", updated_at: "2026-08-04T00:00:00Z" },
-    ], total: 2, limit: 200, offset: 0 }),
-    getRuntimeStatus: vi.fn().mockResolvedValue({ grpc: { active: 1, capacity: 64, rejected: 0 }, realtime: { active: 2, capacity: 64, rejected: 1 }, webrtc: { active: 1, capacity: 64, rejected: 0 }, asr: { active: 2, capacity: 8, rejected: 0 }, responses: { active: 1, capacity: 8, rejected: 0 }, tts: { active: 1, capacity: 1, rejected: 2 }, started_at: "2026-08-04T00:00:00Z" }),
-    getCapacitySettings: vi.fn().mockResolvedValue({ grpc: { max_sessions: 64 }, realtime: { max_sessions: 64 }, webrtc: { max_sessions: 64 }, max_asr_concurrency: 8, max_responses_concurrency: 8, max_tts_concurrency: 1, revision: 1, updated_at: "2026-08-04T00:00:00Z" }),
-    getWorkflowSettings: vi.fn().mockResolvedValue({ min_chunk_bytes: 640, default_language_code: "zh-CN", audio_queue_capacity: 32, segment_queue_capacity: 8, result_queue_capacity: 32, revision: 1, updated_at: "2026-08-04T00:00:00Z" }),
-    updateCapacitySettings: vi.fn(), updateWorkflowSettings: vi.fn(), createEngine: vi.fn(), updateEngine: vi.fn(), deleteEngine: vi.fn(), listNodeTypes: vi.fn(), getPipeline: vi.fn(), updatePipelineDraft: vi.fn(), validatePipeline: vi.fn(), activatePipeline: vi.fn(), getActivePipeline: vi.fn(),
+    getRuntimeOverview: vi.fn().mockResolvedValue({
+      status: "ready", ready: true, control_plane: "ready", problems: [], issues: [],
+      grpc: { status: "ready", workflow_id: "wf-1", workflow_revision: 1 },
+      realtime: { status: "ready", public_routes: 1, internal_routes: 0, invalid_routes: 0 },
+    }),
+    listAudioWorkflows: vi.fn().mockResolvedValue([{ id: "wf-1", slug: "audio-main", name: "主语音图", description: null, draft_revision: 2, active_revision: 1, created_at: "2026-08-09T00:00:00Z", updated_at: "2026-08-09T00:00:00Z" }]),
+    createAudioWorkflow,
+    getAudioWorkflowDraft: vi.fn().mockResolvedValue({ id: "wf-1", slug: "audio-main", name: "主语音图", description: null, document, revision: 2, active_revision: 1, updated_at: "2026-08-09T00:00:00Z" }),
+    saveAudioWorkflowDraft,
+    validateAudioWorkflow: vi.fn().mockResolvedValue({ valid: true, diagnostics: [], topological_order: ["physical-vad", "asr"] }),
+    listAudioNodeTypes: vi.fn().mockResolvedValue([
+      { kind: "physical_vad", display_name: "物理 VAD", required_api: "ux_vad", inputs: [{ name: "audio", kind: "pcm_chunk" }], outputs: [{ name: "segments", kind: "audio_segment" }, { name: "speech_started", kind: "speech_started" }, { name: "speech_stopped", kind: "speech_stopped" }], config_schema: {} },
+      { kind: "semantic_vad", display_name: "语义 VAD", required_api: "ux_vad", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "segments", kind: "audio_segment" }], config_schema: {} },
+      { kind: "asr", display_name: "语音识别", required_api: "ux_speech", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "transcripts", kind: "transcription" }], config_schema: {} },
+    ]),
+    listAudioWorkflowRevisions: vi.fn().mockResolvedValue([]),
+    listEngines: vi.fn().mockResolvedValue({ items: [engine("vad-1", "vad", "ux_vad"), engine("asr-1", "asr", "ux_speech"), engine("llm-1", "llm", "responses"), engine("tts-1", "tts", "qwen_tts_duplex")], total: 4, limit: 200, offset: 0 }),
+    getRuntimeStatus: vi.fn().mockResolvedValue({ grpc: { active: 1, capacity: 64, rejected: 0 }, realtime: { active: 2, capacity: 64, rejected: 1 }, webrtc: { active: 1, capacity: 64, rejected: 0 }, asr: { active: 2, capacity: 8, rejected: 0 }, responses: { active: 1, capacity: 8, rejected: 0 }, tts: { active: 1, capacity: 1, rejected: 2 }, started_at: "2026-08-09T00:00:00Z" }),
+    getCapacitySettings: vi.fn().mockResolvedValue({ grpc: { max_sessions: 64 }, realtime: { max_sessions: 64 }, webrtc: { max_sessions: 64 }, max_asr_concurrency: 8, max_responses_concurrency: 8, max_tts_concurrency: 1, revision: 1, updated_at: "2026-08-09T00:00:00Z" }),
+    getWorkflowSettings: vi.fn().mockResolvedValue({ min_chunk_bytes: 640, default_language_code: "zh-CN", audio_queue_capacity: 32, segment_queue_capacity: 8, result_queue_capacity: 32, grpc_audio_workflow_id: "wf-1", revision: 1, updated_at: "2026-08-09T00:00:00Z" }),
+    listVoiceAgents: vi.fn().mockResolvedValue([agent]),
+    getVoiceAgentDraft: vi.fn().mockResolvedValue({ ...agent, definition: agentDefinition, revision: 3 }),
+    saveVoiceAgentDraft,
+    validateVoiceAgent: vi.fn().mockResolvedValue({ valid: true, diagnostics: [] }),
+    publishVoiceAgent: vi.fn().mockResolvedValue({ ...agent, definition: agentDefinition, revision: 2, audio_workflow_revision: 1, engine_revisions: {} }),
+    listVoiceAgentRevisions: vi.fn().mockResolvedValue([]),
+    restoreVoiceAgentRevision: vi.fn(),
+    createVoiceAgent: vi.fn(),
+    listRealtimeRoutes: vi.fn().mockResolvedValue([{ model: "voice-helper", target_type: "voice_agent", target_id: "agent-1", visibility: "public", created_at: "2026-08-09T00:00:00Z", updated_at: "2026-08-09T00:00:00Z" }]),
+    updateCapacitySettings: vi.fn(), updateWorkflowSettings: vi.fn(), createEngine: vi.fn(), updateEngine: vi.fn(), deleteEngine: vi.fn(), getEngineUsage: vi.fn().mockResolvedValue({ engine_id: "vad-1", references: [] }), probeEngine: vi.fn(),
   } as unknown as AudioHarnessApi;
-  return { api, saveManagedWorkflowDraft, createManagedWorkflow };
+  return { api, createAudioWorkflow, saveAudioWorkflowDraft, saveVoiceAgentDraft };
 }
 
 function renderApp(api: AudioHarnessApi, path = "/") {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={[path]}><App api={api} /></MemoryRouter></QueryClientProvider>);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><App api={api} /></MemoryRouter></QueryClientProvider>);
 }
 
-describe("Audio Harness v2 control plane", () => {
-  it("uses workflows as the product home", async () => {
+describe("typed audio workflow control plane", () => {
+  it("uses audio workflows as the product home", async () => {
     const { api } = fakeApi(); renderApp(api);
-    expect(await screen.findByRole("heading", { name: "实时语音工作流" })).toBeVisible();
-    expect(await screen.findByText("客服 Agent")).toBeVisible();
-    expect(screen.getByText("运行健康")).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "语音推理工作流" })).toBeVisible();
+    expect(await screen.findByText("主语音图")).toBeVisible();
   });
 
-  it("creates a workflow whose public model follows the slug", async () => {
-    const { api, createManagedWorkflow } = fakeApi(); renderApp(api, "/workflows");
-    fireEvent.click(await screen.findByRole("button", { name: "新建工作流" }));
-    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "新的 Agent" } });
-    fireEvent.change(screen.getByPlaceholderText("customer-service-agent"), { target: { value: "new-agent" } });
-    fireEvent.click(screen.getByRole("button", { name: "创建并进入构建" }));
-    await waitFor(() => expect(createManagedWorkflow).toHaveBeenCalledWith(expect.objectContaining({ slug: "new-agent", kind: "voice_agent" })));
+  it("creates a standalone audio workflow", async () => {
+    const { api, createAudioWorkflow } = fakeApi(); renderApp(api, "/audio-workflows");
+    fireEvent.click(await screen.findByRole("button", { name: "新建语音工作流" }));
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "新语音图" } });
+    fireEvent.change(screen.getAllByRole("textbox")[1], { target: { value: "new-audio" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建并编辑" }));
+    await waitFor(() => expect(createAudioWorkflow).toHaveBeenCalledWith(expect.objectContaining({ slug: "new-audio" })));
   });
 
-  it("renders the constrained runtime topology and autosaves typed fields", async () => {
-    const { api, saveManagedWorkflowDraft } = fakeApi(); renderApp(api, "/workflows/wf-1/build");
-    expect(await screen.findByRole("heading", { name: "真实运行拓扑" })).toBeVisible();
-    expect(screen.getByText("双向流式 TTS", { selector: ".topology-node strong" })).toBeVisible();
-    expect(screen.getByLabelText("启用思考（默认关闭）")).not.toBeChecked();
-    fireEvent.click(screen.getByLabelText("启用思考（默认关闭）"));
-    fireEvent.change(screen.getByLabelText("模型名称"), { target: { value: "model-b" } });
-    await waitFor(() => expect(saveManagedWorkflowDraft).toHaveBeenCalled(), { timeout: 1800 });
-    expect(saveManagedWorkflowDraft).toHaveBeenLastCalledWith(
-      "wf-1",
-      expect.objectContaining({
-        stages: expect.objectContaining({
-          responses_agent: expect.objectContaining({
-            config: expect.objectContaining({ thinking_enabled: true }),
-          }),
-        }),
-      }),
-      2,
-    );
+  it("renders a real port-based DAG editor", async () => {
+    const { api } = fakeApi(); renderApp(api, "/audio-workflows/wf-1/build");
+    expect(await screen.findByRole("heading", { name: "节点目录" })).toBeVisible();
+    expect(screen.getByRole("region", { name: "语音工作流画布" })).toBeVisible();
+    expect(screen.getByRole("navigation", { name: "工作流页面" })).toBeVisible();
+    expect(screen.getByRole("button", { name: /语义 VAD/ })).toBeVisible();
+
+    const inputNode = screen.getByLabelText("节点 PCM 输入");
+    const processorNode = screen.getByLabelText("节点 physical-vad");
+    const outputNode = screen.getByLabelText("节点 命名出口");
+    expect(inputNode).toHaveAttribute("data-node-role", "input");
+    expect(processorNode).toHaveAttribute("data-node-role", "processor");
+    expect(processorNode).toHaveAttribute("data-node-state", "configured");
+    expect(outputNode).toHaveAttribute("data-node-role", "output");
+
+    fireEvent.click(screen.getByRole("button", { name: "收起工作流侧栏" }));
+    expect(screen.getByRole("button", { name: "展开工作流侧栏" })).toBeVisible();
+    expect(screen.queryByRole("navigation", { name: "工作流页面" })).not.toBeInTheDocument();
+
+    fireEvent.click(processorNode);
+    expect(await screen.findByLabelText("节点配置面板")).toBeVisible();
+    expect(screen.getByDisplayValue("physical-vad")).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "关闭节点配置" }));
+    expect(screen.queryByLabelText("节点配置面板")).not.toBeInTheDocument();
   });
 
-  it("shows WSS and WebRTC in the built-in test console", async () => {
-    const { api } = fakeApi(); renderApp(api, "/workflows/wf-1/test");
-    expect(await screen.findByRole("heading", { name: "端到端实时测试" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "WebRTC" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "WSS" })).toBeVisible();
+  it("keeps one left sidebar across workflow pages", async () => {
+    const { api } = fakeApi(); renderApp(api, "/audio-workflows/wf-1/build");
+    expect(await screen.findByLabelText("工作流侧栏")).toBeVisible();
+    expect(screen.getByRole("navigation", { name: "工作流页面" })).toBeVisible();
+
+    expect(screen.queryByRole("link", { name: "概览" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "发布" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: /测试/ }));
+    expect(await screen.findByRole("heading", { name: "发布当前草稿" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "编译并发布" })).toBeVisible();
+    expect(screen.getByLabelText("工作流侧栏")).toBeVisible();
+    expect(screen.getByRole("navigation", { name: "工作流页面" })).toBeVisible();
   });
 
-  it("reviews the release snapshot before publishing", async () => {
-    const { api } = fakeApi(); renderApp(api, "/workflows/wf-1/publish");
-    expect(await screen.findByRole("heading", { name: "重新发布当前草稿" })).toBeVisible();
-    expect(screen.getByRole("heading", { name: "运行阶段快照" })).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "检查并发布" }));
-    expect(await screen.findByRole("alertdialog", { name: "确认重新发布当前草稿？" })).toBeVisible();
-    expect(screen.getByText("若检查或激活失败，当前运行版本不会改变。", { exact: false })).toBeVisible();
+  it("uses the shared workbench for voice intelligence pages", async () => {
+    const { api, saveVoiceAgentDraft } = fakeApi(); renderApp(api, "/voice-agents/agent-1/configure");
+    expect(await screen.findByLabelText("语音智能体侧栏")).toBeVisible();
+    expect(screen.getByRole("navigation", { name: "语音智能体页面" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "语音智能体配置" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: "概览" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "发布" })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Responses 模型"), { target: { value: "new-model" } });
+    const saveButton = screen.getByRole("button", { name: "保存草稿" });
+    expect(saveButton).toBeEnabled();
+    fireEvent.click(saveButton);
+    await waitFor(() => expect(saveVoiceAgentDraft).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("link", { name: /测试/ }));
+    expect(await screen.findByRole("heading", { name: "发布当前草稿" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "编译并发布" })).toBeVisible();
+    expect(screen.getByLabelText("语音智能体侧栏")).toBeVisible();
   });
 
-  it("shows live capacity and rejects", async () => {
+  it("moves voice intelligence creation steps into the sidebar", async () => {
+    const { api } = fakeApi(); renderApp(api, "/voice-agents/new");
+    expect(await screen.findByLabelText("语音智能体创建侧栏")).toBeVisible();
+    expect(screen.getByRole("list", { name: "创建步骤" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "给语音智能体一个清晰身份" })).toBeVisible();
+    expect(screen.getByRole("button", { name: /语音工作流/ })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "客服助手" } });
+    fireEvent.change(screen.getAllByRole("textbox")[1], { target: { value: "support-agent" } });
+    fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+    expect(await screen.findByRole("heading", { name: "选择语音处理基础" })).toBeVisible();
+    expect(screen.getByRole("button", { name: /基本信息/ })).toBeEnabled();
+  });
+
+  it("persists an explicit automatic graph layout", async () => {
+    const { api, saveAudioWorkflowDraft } = fakeApi(); renderApp(api, "/audio-workflows/wf-1/build");
+    fireEvent.click(await screen.findByRole("button", { name: "自动排列" }));
+
+    await waitFor(() => expect(saveAudioWorkflowDraft).toHaveBeenCalled(), { timeout: 2_000 });
+    const savedDocument = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
+    const physicalVadPosition = savedDocument.layout?.["physical-vad"];
+    const asrPosition = savedDocument.layout?.asr;
+    expect(physicalVadPosition).toBeDefined();
+    expect(asrPosition).toBeDefined();
+    expect(physicalVadPosition!.x).toBeLessThan(asrPosition!.x);
+  });
+
+  it("shows live runtime capacity", async () => {
     const { api } = fakeApi(); renderApp(api, "/runtime");
-    expect(await screen.findByRole("heading", { name: "运行状态与容量" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "接入与运行" })).toBeVisible();
     expect(screen.getByText(/累计拒绝 2/)).toBeVisible();
-    expect(screen.getByText("TTS 可能成为容量瓶颈")).toBeVisible();
   });
 
-  it("uses the new engine console", async () => {
+  it("uses the generated engine contract", async () => {
     const { api } = fakeApi(); renderApp(api, "/engines");
     expect(await screen.findByRole("heading", { name: "推理引擎" })).toBeVisible();
-    expect(await screen.findByText("后台连通性校验通过")).toBeVisible();
-  });
-
-  it("confirms an engine deletion in an accessible dialog", async () => {
-    const { api } = fakeApi(); renderApp(api, "/engines");
-    await screen.findByRole("heading", { name: "推理引擎" });
-    fireEvent.click((await screen.findAllByRole("button", { name: "删除" }))[0]);
-    expect(await screen.findByRole("alertdialog", { name: "删除引擎？" })).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "取消" }));
-    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
-  });
-
-  it("has a safe unknown route", () => {
-    const { api } = fakeApi(); renderApp(api, "/missing");
-    expect(screen.getByRole("link", { name: "返回工作流" })).toBeVisible();
+    expect((await screen.findAllByText("人工连通性校验通过"))[0]).toBeVisible();
   });
 });

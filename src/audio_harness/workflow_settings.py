@@ -28,6 +28,7 @@ class WorkflowSettingsValidationError(WorkflowSettingsError):
 @dataclass(frozen=True)
 class WorkflowSettingsSnapshot:
     config: WorkflowRuntimeConfig
+    grpc_audio_workflow_id: str | None
     revision: int
     updated_at: datetime
 
@@ -51,6 +52,7 @@ def _config_from_model(model: WorkflowSetting) -> WorkflowRuntimeConfig:
 def _snapshot(model: WorkflowSetting) -> WorkflowSettingsSnapshot:
     return WorkflowSettingsSnapshot(
         config=_config_from_model(model),
+        grpc_audio_workflow_id=model.grpc_audio_workflow_id,
         revision=model.revision,
         updated_at=model.updated_at,
     )
@@ -121,6 +123,32 @@ class WorkflowSettingsStore:
                     )
                 for field, value in config.model_dump().items():
                     setattr(model, field, value)
+                model.revision += 1
+                model.updated_at = utc_now()
+                await session.commit()
+                await session.refresh(model)
+                next_snapshot = _snapshot(model)
+            self._current = next_snapshot
+            for listener in self._listeners:
+                await listener(next_snapshot)
+            return next_snapshot
+
+    async def set_grpc_audio_workflow(
+        self,
+        workflow_id: str,
+        *,
+        expected_revision: int,
+    ) -> WorkflowSettingsSnapshot:
+        async with self._lock:
+            async with self._session_factory() as session:
+                model = await session.get(WorkflowSetting, _SETTING_ID)
+                if model is None:
+                    raise RuntimeError("数据库缺少 workflow_settings 单例记录")
+                if model.revision != expected_revision:
+                    raise WorkflowRevisionConflictError(
+                        "工作流设置已被其他操作更新，请重新加载"
+                    )
+                model.grpc_audio_workflow_id = workflow_id
                 model.revision += 1
                 model.updated_at = utc_now()
                 await session.commit()

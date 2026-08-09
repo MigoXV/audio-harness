@@ -1,3 +1,3 @@
-from audio_harness.engines.router import EngineRouter
+from audio_harness.engines.pool import InferencerPool
 
-__all__ = ["EngineRouter"]
+__all__ = ["InferencerPool"]
