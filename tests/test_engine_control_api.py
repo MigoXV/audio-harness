@@ -9,23 +9,52 @@ import pytest_asyncio
 
 from audio_harness.config import AppConfig
 from audio_harness.database import require_fresh_database, upgrade_database
+from audio_harness.domain import EngineDeadlineError, EngineUnavailableError
 from audio_harness.serving.host import AudioHarnessHost
 
 
 class ReadyInferencer:
+    def __init__(self) -> None:
+        self.closed = False
+
     async def ready(self) -> None:
         return None
 
     async def probe(self) -> None:
         return None
 
+    async def list_models(self) -> tuple[str, ...]:
+        return ("model-z", "model-a")
+
     async def close(self) -> None:
-        return None
+        self.closed = True
 
 
 class ReadyFactory:
+    def __init__(self) -> None:
+        self.created: list[ReadyInferencer] = []
+
     def create(self, _snapshot) -> ReadyInferencer:
-        return ReadyInferencer()
+        inferencer = ReadyInferencer()
+        self.created.append(inferencer)
+        return inferencer
+
+
+class FailingModelInferencer(ReadyInferencer):
+    def __init__(self, error: Exception) -> None:
+        super().__init__()
+        self.error = error
+
+    async def list_models(self) -> tuple[str, ...]:
+        raise self.error
+
+
+class FailingModelFactory:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def create(self, _snapshot) -> FailingModelInferencer:
+        return FailingModelInferencer(self.error)
 
 
 @dataclass
@@ -154,6 +183,113 @@ async def test_fresh_baseline_is_explicitly_unconfigured(
         "grpc_workflow_unpublished",
         "realtime_route_unconfigured",
     }
+
+
+@pytest.mark.asyncio
+async def test_responses_engine_discovers_models_without_exposing_credentials(
+    control_plane: ControlPlane,
+) -> None:
+    factory = ReadyFactory()
+    control_plane.host.inferencer_pool._inferencer_factory = factory
+    created = await control_plane.client.post(
+        "/api/v1/engines",
+        json=engine_payload(
+            "responses-models",
+            kind="llm",
+            api="responses",
+            protocol="https",
+        ),
+    )
+    engine_id = created.json()["id"]
+
+    response = await control_plane.client.get(
+        f"/api/v1/engines/{engine_id}/models"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "engine_id": engine_id,
+        "engine_revision": 1,
+        "items": ["model-z", "model-a"],
+    }
+    assert "api_key" not in response.text
+    assert factory.created[-1].closed is True
+
+
+@pytest.mark.asyncio
+async def test_model_discovery_rejects_incompatible_and_disabled_engines(
+    control_plane: ControlPlane,
+) -> None:
+    incompatible = await control_plane.client.post(
+        "/api/v1/engines",
+        json=engine_payload("asr-models", kind="asr", api="ux_speech"),
+    )
+    mismatch = await control_plane.client.get(
+        f"/api/v1/engines/{incompatible.json()['id']}/models"
+    )
+    assert mismatch.status_code == 409
+    assert mismatch.json()["error"]["code"] == "engine_model_capability_mismatch"
+
+    responses = await control_plane.client.post(
+        "/api/v1/engines",
+        json=engine_payload(
+            "disabled-models",
+            kind="llm",
+            api="responses",
+            protocol="https",
+        ),
+    )
+    engine_id = responses.json()["id"]
+    disabled = await control_plane.client.patch(
+        f"/api/v1/engines/{engine_id}",
+        json={"enabled": False},
+    )
+    assert disabled.status_code == 200
+    unavailable = await control_plane.client.get(
+        f"/api/v1/engines/{engine_id}/models"
+    )
+    assert unavailable.status_code == 409
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "status_code", "code"),
+    [
+        (
+            EngineUnavailableError("provider unavailable"),
+            502,
+            "engine_model_discovery_failed",
+        ),
+        (
+            EngineDeadlineError("provider timeout"),
+            504,
+            "engine_model_discovery_timeout",
+        ),
+    ],
+)
+async def test_model_discovery_maps_upstream_failures(
+    control_plane: ControlPlane,
+    error: Exception,
+    status_code: int,
+    code: str,
+) -> None:
+    created = await control_plane.client.post(
+        "/api/v1/engines",
+        json=engine_payload(
+            "failing-models",
+            kind="llm",
+            api="responses",
+            protocol="https",
+        ),
+    )
+    control_plane.host.inferencer_pool._inferencer_factory = FailingModelFactory(error)
+
+    response = await control_plane.client.get(
+        f"/api/v1/engines/{created.json()['id']}/models"
+    )
+
+    assert response.status_code == status_code
+    assert response.json()["error"]["code"] == code
 
 
 @pytest.mark.asyncio

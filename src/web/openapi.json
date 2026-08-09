@@ -289,6 +289,48 @@
         }
       }
     },
+    "/api/v1/engines/{engine_id}/models": {
+      "get": {
+        "tags": [
+          "engines"
+        ],
+        "summary": "List Engine Models",
+        "operationId": "list_engine_models_api_v1_engines__engine_id__models_get",
+        "parameters": [
+          {
+            "name": "engine_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Engine Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineModelListRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/engines/{engine_id}/validate": {
       "post": {
         "tags": [
@@ -2943,6 +2985,33 @@
           "offset"
         ],
         "title": "EngineList"
+      },
+      "EngineModelListRead": {
+        "properties": {
+          "engine_id": {
+            "type": "string",
+            "title": "Engine Id"
+          },
+          "engine_revision": {
+            "type": "integer",
+            "title": "Engine Revision"
+          },
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "engine_id",
+          "engine_revision",
+          "items"
+        ],
+        "title": "EngineModelListRead"
       },
       "EnginePatch": {
         "properties": {

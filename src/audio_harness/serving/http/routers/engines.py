@@ -5,6 +5,7 @@ from fastapi import APIRouter, Query, Response, status
 from audio_harness.api.schemas import (
     EngineCreate,
     EngineList,
+    EngineModelListRead,
     EnginePatch,
     EngineRead,
     EngineUsageRead,
@@ -66,6 +67,18 @@ def create_engine_router(catalog: EngineCatalog) -> APIRouter:
     @router.get("/engines/{engine_id}", response_model=EngineRead)
     async def get_engine(engine_id: str) -> EngineRead:
         return engine_response(await catalog.get_asset(engine_id))
+
+    @router.get(
+        "/engines/{engine_id}/models",
+        response_model=EngineModelListRead,
+    )
+    async def list_engine_models(engine_id: str) -> EngineModelListRead:
+        asset, models = await catalog.list_models(engine_id)
+        return EngineModelListRead(
+            engine_id=asset.id,
+            engine_revision=asset.revision,
+            items=list(models),
+        )
 
     @router.patch("/engines/{engine_id}", response_model=EngineRead)
     async def patch_engine(engine_id: str, payload: EnginePatch) -> EngineRead:

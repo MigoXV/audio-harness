@@ -29,6 +29,11 @@ from audio_harness.database.models import (
     VoiceAgentRevision,
     utc_now,
 )
+from audio_harness.domain import (
+    EngineConfigurationInvalidError,
+    EngineDeadlineError,
+    EngineUnavailableError,
+)
 from audio_harness.engines.pool import InferencerPool
 
 
@@ -58,6 +63,18 @@ class AssetNotFoundError(CatalogError):
 
 class CatalogConflictError(CatalogError):
     code = "catalog_conflict"
+
+
+class EngineModelCapabilityError(CatalogError):
+    code = "engine_model_capability_mismatch"
+
+
+class EngineModelDiscoveryError(CatalogError):
+    code = "engine_model_discovery_failed"
+
+
+class EngineModelDiscoveryTimeoutError(EngineModelDiscoveryError):
+    code = "engine_model_discovery_timeout"
 
 
 @dataclass(frozen=True)
@@ -174,6 +191,25 @@ class EngineCatalog:
             if model is None:
                 raise AssetNotFoundError(f"引擎资产不存在: {asset_id}")
             return asset_data(model)
+
+    async def list_models(
+        self,
+        asset_id: str,
+    ) -> tuple[EngineAssetData, tuple[str, ...]]:
+        asset = await self.get_asset(asset_id)
+        if asset.api is not EngineApi.RESPONSES:
+            raise EngineModelCapabilityError("只有 Responses 引擎可以读取模型列表")
+        if not asset.enabled:
+            raise EngineModelCapabilityError("已停用的 Responses 引擎不能读取模型列表")
+        try:
+            models = await self._router.list_models(asset.snapshot())
+        except asyncio.CancelledError:
+            raise
+        except EngineDeadlineError as exc:
+            raise EngineModelDiscoveryTimeoutError(str(exc)) from exc
+        except (EngineConfigurationInvalidError, EngineUnavailableError) as exc:
+            raise EngineModelDiscoveryError(str(exc)) from exc
+        return asset, models
 
     @staticmethod
     def _validation_message(exc: Exception) -> str:

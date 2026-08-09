@@ -62,6 +62,7 @@ function fakeApi() {
     ]),
     listAudioWorkflowRevisions: vi.fn().mockResolvedValue([]),
     listEngines: vi.fn().mockResolvedValue({ items: [engine("vad-1", "vad", "ux_vad"), engine("asr-1", "asr", "ux_speech"), engine("llm-1", "llm", "responses"), engine("tts-1", "tts", "qwen_tts_duplex")], total: 4, limit: 200, offset: 0 }),
+    listEngineModels: vi.fn().mockResolvedValue({ engine_id: "llm-1", engine_revision: 1, items: ["deepseek-chat", "deepseek-reasoner"] }),
     getRuntimeStatus: vi.fn().mockResolvedValue({ grpc: { active: 1, capacity: 64, rejected: 0 }, realtime: { active: 2, capacity: 64, rejected: 1 }, webrtc: { active: 1, capacity: 64, rejected: 0 }, asr: { active: 2, capacity: 8, rejected: 0 }, responses: { active: 1, capacity: 8, rejected: 0 }, tts: { active: 1, capacity: 1, rejected: 2 }, started_at: "2026-08-09T00:00:00Z" }),
     getCapacitySettings: vi.fn().mockResolvedValue({ grpc: { max_sessions: 64 }, realtime: { max_sessions: 64 }, webrtc: { max_sessions: 64 }, max_asr_concurrency: 8, max_responses_concurrency: 8, max_tts_concurrency: 1, revision: 1, updated_at: "2026-08-09T00:00:00Z" }),
     getWorkflowSettings: vi.fn().mockResolvedValue({ min_chunk_bytes: 640, default_language_code: "zh-CN", audio_queue_capacity: 32, segment_queue_capacity: 8, result_queue_capacity: 32, grpc_audio_workflow_id: "wf-1", revision: 1, updated_at: "2026-08-09T00:00:00Z" }),
@@ -160,6 +161,16 @@ describe("typed audio workflow control plane", () => {
     expect(screen.getByLabelText("语音智能体侧栏")).toBeVisible();
   });
 
+  it("loads Responses model choices from the selected engine", async () => {
+    const { api } = fakeApi(); renderApp(api, "/voice-agents/agent-1/configure");
+    expect(await screen.findByText("已从 LLM-1 获取 2 个模型。")).toBeVisible();
+    expect(api.listEngineModels).toHaveBeenCalledWith("llm-1", expect.any(AbortSignal));
+    const modelInput = screen.getByRole("combobox", { name: "Responses 模型" });
+    fireEvent.click(modelInput);
+    expect(screen.getByRole("listbox", { name: "可用 Responses 模型" })).toBeVisible();
+    expect(screen.getByRole("option", { name: "deepseek-reasoner" })).toBeVisible();
+  });
+
   it("moves voice intelligence creation steps into the sidebar", async () => {
     const { api } = fakeApi(); renderApp(api, "/voice-agents/new");
     expect(await screen.findByLabelText("语音智能体创建侧栏")).toBeVisible();
@@ -197,5 +208,18 @@ describe("typed audio workflow control plane", () => {
     const { api } = fakeApi(); renderApp(api, "/engines");
     expect(await screen.findByRole("heading", { name: "推理引擎" })).toBeVisible();
     expect((await screen.findAllByText("人工连通性校验通过"))[0]).toBeVisible();
+  });
+
+  it("distinguishes the initial engine load from an empty catalog", async () => {
+    const { api } = fakeApi();
+    let resolveEngines!: (value: Awaited<ReturnType<AudioHarnessApi["listEngines"]>>) => void;
+    api.listEngines = vi.fn().mockReturnValue(new Promise((resolve) => { resolveEngines = resolve; }));
+    renderApp(api, "/engines");
+
+    expect(await screen.findByRole("status")).toHaveTextContent("正在加载引擎");
+    expect(screen.queryByText("没有符合条件的引擎")).not.toBeInTheDocument();
+
+    resolveEngines({ items: [], total: 0, limit: 200, offset: 0 });
+    expect(await screen.findByText("尚未注册引擎")).toBeVisible();
   });
 });

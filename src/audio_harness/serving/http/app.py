@@ -12,6 +12,9 @@ from audio_harness.api.service import (
     CatalogConflictError,
     CatalogError,
     EngineCatalog,
+    EngineModelCapabilityError,
+    EngineModelDiscoveryError,
+    EngineModelDiscoveryTimeoutError,
 )
 from audio_harness.capacity import ServingCapacity
 from audio_harness.capacity_settings import (
@@ -110,6 +113,27 @@ def create_http_app(
     @app.exception_handler(WebRtcCallNotFoundError)
     async def not_found_handler(_request: Request, exc: Exception) -> JSONResponse:
         return _error(404, "not_found", str(exc))
+
+    @app.exception_handler(EngineModelCapabilityError)
+    async def model_capability_handler(
+        _request: Request,
+        exc: EngineModelCapabilityError,
+    ) -> JSONResponse:
+        return _error(409, exc.code, str(exc))
+
+    @app.exception_handler(EngineModelDiscoveryTimeoutError)
+    async def model_discovery_timeout_handler(
+        _request: Request,
+        exc: EngineModelDiscoveryTimeoutError,
+    ) -> JSONResponse:
+        return _error(504, exc.code, str(exc))
+
+    @app.exception_handler(EngineModelDiscoveryError)
+    async def model_discovery_handler(
+        _request: Request,
+        exc: EngineModelDiscoveryError,
+    ) -> JSONResponse:
+        return _error(502, exc.code, str(exc))
 
     @app.exception_handler(CatalogConflictError)
     @app.exception_handler(AudioWorkflowConflictError)

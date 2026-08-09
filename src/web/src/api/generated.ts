@@ -41,6 +41,23 @@ export interface paths {
         patch: operations["patch_engine_api_v1_engines__engine_id__patch"];
         trace?: never;
     };
+    "/api/v1/engines/{engine_id}/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Engine Models */
+        get: operations["list_engine_models_api_v1_engines__engine_id__models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/engines/{engine_id}/validate": {
         parameters: {
             query?: never;
@@ -924,6 +941,15 @@ export interface components {
             /** Offset */
             offset: number;
         };
+        /** EngineModelListRead */
+        EngineModelListRead: {
+            /** Engine Id */
+            engine_id: string;
+            /** Engine Revision */
+            engine_revision: number;
+            /** Items */
+            items: string[];
+        };
         /** EnginePatch */
         EnginePatch: {
             /** Slug */
@@ -1794,6 +1820,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EngineRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_engine_models_api_v1_engines__engine_id__models_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                engine_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EngineModelListRead"];
                 };
             };
             /** @description Validation Error */

@@ -112,6 +112,12 @@ class EngineList(StrictSchema):
     offset: int
 
 
+class EngineModelListRead(StrictSchema):
+    engine_id: str
+    engine_revision: int
+    items: list[str]
+
+
 class EngineValidationResultRead(StrictSchema):
     engine_id: str
     name: str

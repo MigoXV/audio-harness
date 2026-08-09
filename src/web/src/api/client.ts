@@ -87,6 +87,7 @@ export const apiClient: AudioHarnessApi = {
     return value.results[0] as EngineValidationResult;
   },
   getEngineUsage(id, signal) { return request(`/api/v1/engines/${encodeURIComponent(id)}/usage`, { signal }); },
+  listEngineModels(id, signal) { return request(`/api/v1/engines/${encodeURIComponent(id)}/models`, { signal }); },
 
   listAudioNodeTypes(signal) { return request<AudioNodeType[]>("/api/v1/audio-node-types", { signal }); },
   listAudioWorkflows(signal) { return request<AudioWorkflow[]>("/api/v1/audio-workflows", { signal }); },

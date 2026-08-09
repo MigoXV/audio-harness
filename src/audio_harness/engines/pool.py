@@ -4,9 +4,15 @@ import asyncio
 from collections.abc import Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import cast
 
-from audio_harness.assets import EngineSnapshot
-from audio_harness.inferencers.contracts import InferencerFactory, ManagedInferencer
+from audio_harness.assets import EngineApi, EngineSnapshot
+from audio_harness.domain import EngineConfigurationInvalidError
+from audio_harness.inferencers.contracts import (
+    InferencerFactory,
+    ManagedInferencer,
+    ManagedResponsesInferencer,
+)
 
 
 @dataclass(eq=False)
@@ -91,6 +97,25 @@ class InferencerPool:
         inferencer = self._inferencer_factory.create(snapshot)
         try:
             await inferencer.probe()
+        finally:
+            await inferencer.close()
+
+    async def list_models(self, snapshot: EngineSnapshot) -> tuple[str, ...]:
+        """从临时 Responses 客户端读取模型，不污染会话运行时缓存。"""
+
+        if snapshot.api is not EngineApi.RESPONSES:
+            raise EngineConfigurationInvalidError(
+                "只有 Responses 引擎可以读取模型列表"
+            )
+        async with self._lock:
+            if self._closed:
+                raise RuntimeError("推理客户端池已经关闭")
+        inferencer = cast(
+            ManagedResponsesInferencer,
+            self._inferencer_factory.create(snapshot),
+        )
+        try:
+            return await inferencer.list_models()
         finally:
             await inferencer.close()
 
