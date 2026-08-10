@@ -76,6 +76,10 @@ async def test_built_web_is_served_without_shadowing_api(tmp_path: Path) -> None
         "globalThis.audioHarness = true;",
         encoding="utf-8",
     )
+    (web_dist / "audio-harness-logo.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg"><title>Audio Harness 标志</title></svg>',
+        encoding="utf-8",
+    )
     app, host = await build_app(tmp_path, web_dist)
     try:
         async with httpx.AsyncClient(
@@ -87,6 +91,10 @@ async def test_built_web_is_served_without_shadowing_api(tmp_path: Path) -> None
                 assert page.status_code == 200
                 assert "Audio Harness Web" in page.text
             assert "audioHarness" in (await client.get("/assets/app.js")).text
+            logo = await client.get("/audio-harness-logo.svg")
+            assert logo.status_code == 200
+            assert logo.headers["content-type"].startswith("image/svg+xml")
+            assert "Audio Harness 标志" in logo.text
             assert (await client.get("/api/v1/engines")).status_code == 200
             missing_api = await client.get("/api/v1/not-found")
             assert missing_api.status_code == 404

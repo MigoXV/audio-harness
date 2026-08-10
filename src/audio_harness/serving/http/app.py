@@ -233,6 +233,7 @@ def create_http_app(
         else Path(__file__).resolve().parents[3] / "web" / "dist"
     )
     if (resolved_web_dist / "index.html").is_file():
+        web_root = resolved_web_dist.resolve()
         assets_dir = resolved_web_dist / "assets"
         if assets_dir.is_dir():
             app.mount("/assets", StaticFiles(directory=assets_dir), name="web-assets")
@@ -246,6 +247,9 @@ def create_http_app(
         async def web_spa(spa_path: str):
             if spa_path.partition("/")[0] in {"api", "docs", "openapi.json", "v1", "health"}:
                 return _error(404, "not_found", "请求路径不存在")
-            return FileResponse(resolved_web_dist / "index.html")
+            static_file = (web_root / spa_path).resolve()
+            if static_file.is_relative_to(web_root) and static_file.is_file():
+                return FileResponse(static_file)
+            return FileResponse(web_root / "index.html")
 
     return app

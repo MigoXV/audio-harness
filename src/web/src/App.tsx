@@ -26,7 +26,10 @@ function ShellNavigation({ overview, failed, onRefresh }: { overview: RuntimeOve
   const state = failed || overview?.status === "unavailable" ? "error" : overview?.status === "ready" ? "healthy" : "warning";
   return <>
     <header className="topbar">
-      <div><span className="brand-mark">AH</span><strong>Audio Harness</strong></div>
+      <NavLink className="brand" to="/audio-workflows" aria-label="Audio Harness 首页">
+        <img className="brand-mark" src="/audio-harness-logo.svg" alt="" />
+        <strong aria-hidden="true">Audio Harness</strong>
+      </NavLink>
       <nav className="primary-navigation" aria-label="主导航"><NavLink to="/audio-workflows">语音工作流</NavLink><NavLink to="/voice-agents">语音智能体</NavLink><NavLink to="/engines">推理引擎</NavLink><NavLink to="/runtime">接入与运行</NavLink></nav>
       <div className="topbar-meta"><span className={`health-dot ${state}`} /><NavLink className="status-link" to="/runtime#access">{statusText(overview, failed)}</NavLink><button className="text-button" onClick={onRefresh}>刷新</button></div>
     </header>

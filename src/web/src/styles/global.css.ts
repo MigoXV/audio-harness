@@ -20,8 +20,8 @@ globalStyle("p", { color: vars.color.textMuted });
 globalStyle(".app-shell-new", { minHeight: "100vh" });
 globalStyle(".sidebar", { display: "none" });
 globalStyle(".topbar", { position: "sticky", top: 0, zIndex: 20, minHeight: 64, display: "flex", alignItems: "center", justifyContent: "space-between", gap: vars.space.x6, padding: "0 28px", borderBottom: `1px solid ${vars.color.line}`, background: "rgba(247,247,245,.96)", backdropFilter: "blur(10px)" });
-globalStyle(".topbar > div:first-child", { display: "flex", alignItems: "center", gap: vars.space.x3 });
-globalStyle(".brand-mark", { width: 30, height: 30, display: "grid", placeItems: "center", border: `1px solid ${vars.color.text}`, borderRadius: vars.radius.sm, color: vars.color.text, background: "transparent", fontSize: 10, fontWeight: 750, letterSpacing: ".06em" });
+globalStyle(".brand", { display: "flex", alignItems: "center", gap: vars.space.x3, color: vars.color.text, textDecoration: "none" });
+globalStyle(".brand-mark", { width: 42, height: 32, display: "block", objectFit: "contain" });
 globalStyle(".topbar strong", { fontSize: 14, letterSpacing: "-.01em" });
 globalStyle(".topbar span", { color: vars.color.textMuted, fontSize: 12 });
 globalStyle(".primary-navigation", { height: 64, display: "flex", alignItems: "stretch", gap: vars.space.x6 });
@@ -455,7 +455,7 @@ globalStyle(".advanced-settings summary small", { color: vars.color.textMuted, f
 
 globalStyle(".workspace-page", { "@media": { "screen and (max-width: 800px)": { width: "min(100% - 32px, 1040px)", padding: "28px 0 64px" } } });
 globalStyle(".topbar", { "@media": { "screen and (max-width: 800px)": { minHeight: 56, padding: "0 16px" } } });
-globalStyle(".topbar > div:first-child span, .topbar-meta", { "@media": { "screen and (max-width: 620px)": { display: "none" } } });
+globalStyle(".brand strong, .topbar-meta", { "@media": { "screen and (max-width: 620px)": { display: "none" } } });
 globalStyle(".primary-navigation", { "@media": { "screen and (max-width: 620px)": { gap: vars.space.x3 } } });
 globalStyle(".page-heading, .workflow-heading, .engine-toolbar, .sticky-save-bar", { "@media": { "screen and (max-width: 700px)": { flexDirection: "column", gap: vars.space.x3, alignItems: "stretch" } } });
 globalStyle(".two-columns, .three-columns, .overview-grid, .settings-columns, .conversation-grid, .latency-grid, .runtime-metrics, .settings-grid, .agent-onboarding, .selection-cards, .review-grid, .access-overview, .access-columns, .route-form, .endpoint-examples, .route-manager-form", { "@media": { "screen and (max-width: 700px)": { gridTemplateColumns: "1fr" } } });

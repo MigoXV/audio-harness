@@ -89,6 +89,7 @@ function renderApp(api: AudioHarnessApi, path = "/") {
 describe("typed audio workflow control plane", () => {
   it("uses audio workflows as the product home", async () => {
     const { api } = fakeApi(); renderApp(api);
+    expect(screen.getByRole("link", { name: "Audio Harness 首页" })).toContainHTML('src="/audio-harness-logo.svg"');
     expect(await screen.findByRole("heading", { name: "语音推理工作流" })).toBeVisible();
     expect(await screen.findByText("主语音图")).toBeVisible();
   });
