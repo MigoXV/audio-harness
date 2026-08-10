@@ -40,7 +40,11 @@ class GrpcServer:
             raise RuntimeError(f"无法监听 gRPC 地址: {address}")
         await self._server.start()
         self._started = True
-        logger.info("Audio Harness gRPC 已启动: address=%s", address)
+        logger.info(
+            "Audio Harness gRPC 已启动: address=%s:%s",
+            self.config.host,
+            self.bound_port,
+        )
 
     async def wait_for_termination(self) -> None:
         await self._server.wait_for_termination()

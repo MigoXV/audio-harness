@@ -1,81 +1,54 @@
 import type {
   AudioHarnessApi,
+  AudioNodeType,
+  AudioWorkflow,
+  AudioWorkflowDraft,
+  AudioWorkflowRevision,
+  AudioWorkflowValidation,
   CapacitySettings,
-  CapacitySettingsUpdate,
   EngineAsset,
   EngineFilters,
   EngineListResponse,
   EngineValidation,
-  HealthStatus,
-  NodeTypeDefinition,
-  PipelineDraft,
-  PipelineRevision,
-  PipelineValidation,
-  WorkflowSettings,
-  WorkflowSettingsUpdate,
-  WorkflowCreatePayload,
-  WorkflowSummary,
-  ModelRoute,
-  ManagedWorkflowCreatePayload,
-  ManagedWorkflowDraft,
-  StageWorkflowDefinition,
-  WorkflowStatus,
+  EngineValidationResult,
+  RealtimeRoute,
+  RuntimeOverview,
   RuntimeStatus,
+  VoiceAgent,
+  VoiceAgentDraft,
+  VoiceAgentRevision,
+  WorkflowSettings,
 } from "./types";
 
 interface ErrorEnvelope {
-  error?: {
-    code?: string;
-    message?: string;
-    details?: unknown;
-  };
+  error?: { code?: string; message?: string; details?: unknown };
 }
 
 export class ApiError extends Error {
-  readonly status: number;
-  readonly code: string;
-  readonly details: unknown;
-
   constructor(
-    status: number,
-    code: string,
+    readonly status: number,
+    readonly code: string,
     message: string,
-    details: unknown = null,
+    readonly details: unknown = null,
   ) {
     super(message);
     this.name = "ApiError";
-    this.status = status;
-    this.code = code;
-    this.details = details;
   }
 }
 
 async function parseBody(response: Response): Promise<unknown> {
-  if (response.status === 204) {
-    return undefined;
-  }
+  if (response.status === 204) return undefined;
   const contentType = response.headers.get("content-type") ?? "";
-  if (!contentType.includes("application/json")) {
-    return response.text();
-  }
-  return response.json();
+  return contentType.includes("application/json")
+    ? response.json()
+    : response.text();
 }
 
-async function request<T>(
-  path: string,
-  init: RequestInit = {},
-): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  if (init.body !== undefined) {
-    headers.set("Content-Type", "application/json");
-  }
+  if (init.body !== undefined) headers.set("Content-Type", "application/json");
   headers.set("Accept", "application/json");
-
-  const response = await fetch(path, {
-    credentials: "same-origin",
-    ...init,
-    headers,
-  });
+  const response = await fetch(path, { credentials: "same-origin", ...init, headers });
   const body = await parseBody(response);
   if (!response.ok) {
     const envelope = body as ErrorEnvelope;
@@ -89,285 +62,87 @@ async function request<T>(
   return body as T;
 }
 
-function engineQuery(filters: EngineFilters): string {
+function query(filters: EngineFilters): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filters)) {
-    if (value !== undefined && value !== "") {
-      params.set(key, String(value));
-    }
+    if (value !== undefined && value !== "") params.set(key, String(value));
   }
-  const query = params.toString();
-  return query ? `?${query}` : "";
+  return params.size ? `?${params}` : "";
 }
 
-function workflowPath(workflowId: string | undefined, suffix = ""): string {
-  return workflowId
-    ? `/api/v1/workflows/${encodeURIComponent(workflowId)}${suffix}`
-    : `/api/v1/pipeline${suffix}`;
-}
+const workflowPath = (id: string, suffix = "") =>
+  `/api/v1/audio-workflows/${encodeURIComponent(id)}${suffix}`;
 
 export const apiClient: AudioHarnessApi = {
   listEngines(filters = {}, signal) {
-    return request<EngineListResponse>(
-      `/api/v1/engines${engineQuery(filters)}`,
-      { signal },
-    );
+    return request<EngineListResponse>(`/api/v1/engines${query(filters)}`, { signal });
   },
-
-  getEngine(engineId, signal) {
-    return request<EngineAsset>(`/api/v1/engines/${engineId}`, {
-      signal,
-    });
+  getEngine(id, signal) { return request<EngineAsset>(`/api/v1/engines/${encodeURIComponent(id)}`, { signal }); },
+  createEngine(payload) { return request<EngineAsset>("/api/v1/engines", { method: "POST", body: JSON.stringify(payload) }); },
+  updateEngine(id, payload) { return request<EngineAsset>(`/api/v1/engines/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) }); },
+  async deleteEngine(id) { await request(`/api/v1/engines/${encodeURIComponent(id)}`, { method: "DELETE" }); },
+  validateEngines() { return request<EngineValidation>("/api/v1/engines/validate", { method: "POST" }); },
+  async probeEngine(id) {
+    const value = await request<EngineValidation>(`/api/v1/engines/${encodeURIComponent(id)}/validate`, { method: "POST" });
+    return value.results[0] as EngineValidationResult;
   },
+  getEngineUsage(id, signal) { return request(`/api/v1/engines/${encodeURIComponent(id)}/usage`, { signal }); },
+  listEngineModels(id, signal) { return request(`/api/v1/engines/${encodeURIComponent(id)}/models`, { signal }); },
 
-  createEngine(payload) {
-    return request<EngineAsset>("/api/v1/engines", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
+  listAudioNodeTypes(signal) { return request<AudioNodeType[]>("/api/v1/audio-node-types", { signal }); },
+  listAudioWorkflows(signal) { return request<AudioWorkflow[]>("/api/v1/audio-workflows", { signal }); },
+  createAudioWorkflow(payload) { return request<AudioWorkflow>("/api/v1/audio-workflows", { method: "POST", body: JSON.stringify(payload) }); },
+  patchAudioWorkflow(id, payload) { return request<AudioWorkflow>(workflowPath(id), { method: "PATCH", body: JSON.stringify(payload) }); },
+  async deleteAudioWorkflow(id) { await request(workflowPath(id), { method: "DELETE" }); },
+  getAudioWorkflowDraft(id, signal) { return request<AudioWorkflowDraft>(workflowPath(id, "/draft"), { signal }); },
+  saveAudioWorkflowDraft(id, document, expectedRevision) { return request<AudioWorkflowDraft>(workflowPath(id, "/draft"), { method: "PUT", body: JSON.stringify({ document, expected_revision: expectedRevision }) }); },
+  validateAudioWorkflow(id) { return request<AudioWorkflowValidation>(workflowPath(id, "/validate"), { method: "POST" }); },
+  publishAudioWorkflow(id, expectedRevision) { return request<AudioWorkflowRevision>(workflowPath(id, "/publish"), { method: "POST", body: JSON.stringify({ expected_revision: expectedRevision }) }); },
+  getActiveAudioWorkflow(id, signal) { return request<AudioWorkflowRevision>(workflowPath(id, "/active"), { signal }); },
+  listAudioWorkflowRevisions(id, signal) { return request<AudioWorkflowRevision[]>(workflowPath(id, "/revisions"), { signal }); },
+  restoreAudioWorkflowRevision(id, revision, expectedRevision) { return request<AudioWorkflowDraft>(workflowPath(id, `/revisions/${revision}/restore`), { method: "POST", body: JSON.stringify({ expected_revision: expectedRevision }) }); },
+
+  listVoiceAgents(signal) { return request<VoiceAgent[]>("/api/v1/voice-agents", { signal }); },
+  createVoiceAgent(payload) { return request<VoiceAgent>("/api/v1/voice-agents", { method: "POST", body: JSON.stringify(payload) }); },
+  getVoiceAgentDraft(id, signal) { return request<VoiceAgentDraft>(`/api/v1/voice-agents/${encodeURIComponent(id)}/draft`, { signal }); },
+  saveVoiceAgentDraft(id, definition, expectedRevision) { return request<VoiceAgentDraft>(`/api/v1/voice-agents/${encodeURIComponent(id)}/draft`, { method: "PUT", body: JSON.stringify({ definition, expected_revision: expectedRevision }) }); },
+  validateVoiceAgent(id) { return request(`/api/v1/voice-agents/${encodeURIComponent(id)}/validate`, { method: "POST" }); },
+  publishVoiceAgent(id, expectedRevision) { return request<VoiceAgentRevision>(`/api/v1/voice-agents/${encodeURIComponent(id)}/publish`, { method: "POST", body: JSON.stringify({ expected_revision: expectedRevision }) }); },
+  listVoiceAgentRevisions(id, signal) { return request<VoiceAgentRevision[]>(`/api/v1/voice-agents/${encodeURIComponent(id)}/revisions`, { signal }); },
+  restoreVoiceAgentRevision(id, revision, expectedRevision) { return request<VoiceAgentDraft>(`/api/v1/voice-agents/${encodeURIComponent(id)}/revisions/${revision}/restore`, { method: "POST", body: JSON.stringify({ expected_revision: expectedRevision }) }); },
+  listRealtimeRoutes(signal) { return request<RealtimeRoute[]>("/api/v1/realtime-routes", { signal }); },
+  getRealtimeRoute(model, signal) { return request<RealtimeRoute>(`/api/v1/realtime-routes/${encodeURIComponent(model)}`, { signal }); },
+  putRealtimeRoute(route) { return request<RealtimeRoute>(`/api/v1/realtime-routes/${encodeURIComponent(route.model)}`, { method: "PUT", body: JSON.stringify(route) }); },
+  async deleteRealtimeRoute(model) { await request(`/api/v1/realtime-routes/${encodeURIComponent(model)}`, { method: "DELETE" }); },
+
+  getRuntimeOverview(signal) { return request<RuntimeOverview>("/api/v1/runtime/overview", { signal }); },
+  getWorkflowSettings(signal) { return request<WorkflowSettings>("/api/v1/settings/workflow", { signal }); },
+  updateWorkflowSettings(payload) {
+    const body = { ...payload } as Record<string, unknown>;
+    delete body.grpc_audio_workflow_id;
+    delete body.updated_at;
+    return request<WorkflowSettings>("/api/v1/settings/workflow", { method: "PUT", body: JSON.stringify(body) });
   },
-
-  updateEngine(engineId, payload) {
-    return request<EngineAsset>(`/api/v1/engines/${engineId}`, {
-      method: "PATCH",
-      body: JSON.stringify(payload),
-    });
-  },
-
-  async deleteEngine(engineId) {
-    await request<void>(`/api/v1/engines/${engineId}`, {
-      method: "DELETE",
-    });
-  },
-
-  validateEngines() {
-    return request<EngineValidation>("/api/v1/engines/validate", {
-      method: "POST",
-    });
-  },
-
-  listNodeTypes(signal) {
-    return request<NodeTypeDefinition[]>("/api/v1/node-types", { signal });
-  },
-
-  getPipeline(signal, workflowId) {
-    return request<PipelineDraft>(
-      workflowId
-        ? workflowPath(workflowId, "/draft")
-        : "/api/v1/pipeline",
-      { signal },
-    );
-  },
-
-  updatePipelineDraft(definition, expectedRevision, workflowId) {
-    return request<PipelineDraft>(workflowPath(workflowId, "/draft"), {
+  setGrpcAudioWorkflow(workflowId, expectedRevision) {
+    return request<WorkflowSettings>("/api/v1/settings/grpc-workflow", {
       method: "PUT",
-      body: JSON.stringify({
-        definition,
-        expected_revision: expectedRevision,
-      }),
+      body: JSON.stringify({ workflow_id: workflowId, expected_revision: expectedRevision }),
     });
   },
-
-  validatePipeline(workflowId) {
-    return request<PipelineValidation>(workflowPath(workflowId, "/validate"), {
-      method: "POST",
-    });
+  getCapacitySettings(signal) { return request<CapacitySettings>("/api/v1/settings/capacity", { signal }); },
+  updateCapacitySettings(payload) {
+    const body = { ...payload } as Record<string, unknown>;
+    delete body.updated_at;
+    return request<CapacitySettings>("/api/v1/settings/capacity", { method: "PUT", body: JSON.stringify(body) });
   },
-
-  activatePipeline(expectedRevision, workflowId) {
-    return request<PipelineRevision>(workflowPath(workflowId, "/activate"), {
-      method: "POST",
-      body: JSON.stringify({ expected_revision: expectedRevision }),
-    });
-  },
-
-  getActivePipeline(signal, workflowId) {
-    return request<PipelineRevision>(workflowPath(workflowId, "/active"), {
-      signal,
-    });
-  },
-
-  listWorkflows(signal) {
-    return request<WorkflowSummary[]>("/api/v1/workflows", { signal });
-  },
-
-  createWorkflow(payload: WorkflowCreatePayload) {
-    return request<PipelineDraft>("/api/v1/workflows", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-  },
-
-  async deleteWorkflow(workflowId) {
-    await request<void>(`/api/v1/workflows/${encodeURIComponent(workflowId)}`, {
-      method: "DELETE",
-    });
-  },
-
-  listModelRoutes(signal) {
-    return request<ModelRoute[]>("/api/v1/model-routes", { signal });
-  },
-
-  putModelRoute(route) {
-    return request<ModelRoute>(
-      `/api/v1/model-routes/${encodeURIComponent(route.model)}`,
-      { method: "PUT", body: JSON.stringify(route) },
-    );
-  },
-
-  async deleteModelRoute(model) {
-    await request<void>(`/api/v1/model-routes/${encodeURIComponent(model)}`, {
-      method: "DELETE",
-    });
-  },
-
-  async getReadiness(signal) {
-    const response = await fetch("/health/ready", {
-      signal,
-      headers: { Accept: "application/json" },
-    });
-    const body = (await parseBody(response)) as HealthStatus | ErrorEnvelope;
-    if (response.status === 200 || response.status === 503) {
-      return body as HealthStatus;
-    }
-    const envelope = body as ErrorEnvelope;
-    throw new ApiError(
-      response.status,
-      envelope.error?.code ?? "health_request_failed",
-      envelope.error?.message ?? `健康状态读取失败（${response.status}）`,
-      envelope.error?.details,
-    );
-  },
-
-  getWorkflowSettings(signal) {
-    return request<WorkflowSettings>("/api/v1/workflow-settings", { signal });
-  },
-
-  updateWorkflowSettings(payload: WorkflowSettingsUpdate) {
-    return request<WorkflowSettings>("/api/v1/workflow-settings", {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    });
-  },
-
-  getCapacitySettings(signal) {
-    return request<CapacitySettings>("/api/v1/capacity-settings", {
-      signal,
-    });
-  },
-
-  updateCapacitySettings(payload: CapacitySettingsUpdate) {
-    return request<CapacitySettings>("/api/v1/capacity-settings", {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    });
-  },
-
-  createManagedWorkflow(payload: ManagedWorkflowCreatePayload) {
-    return request<ManagedWorkflowDraft>("/api/v1/workflows", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-  },
-
-  getManagedWorkflowDraft(workflowId, signal) {
-    return request<ManagedWorkflowDraft>(
-      `/api/v1/workflows/${encodeURIComponent(workflowId)}/draft`,
-      { signal },
-    );
-  },
-
-  saveManagedWorkflowDraft(workflowId, definition: StageWorkflowDefinition, expectedRevision) {
-    return request<ManagedWorkflowDraft>(
-      `/api/v1/workflows/${encodeURIComponent(workflowId)}/draft`,
-      {
-        method: "PUT",
-        body: JSON.stringify({
-          definition,
-          expected_revision: expectedRevision,
-        }),
-      },
-    );
-  },
-
-  publishWorkflow(workflowId, expectedRevision) {
-    return request<PipelineRevision>(
-      `/api/v1/workflows/${encodeURIComponent(workflowId)}/publish`,
-      {
-        method: "POST",
-        body: JSON.stringify({ expected_revision: expectedRevision }),
-      },
-    );
-  },
-
-  getWorkflowStatus(workflowId, signal) {
-    return request<WorkflowStatus>(
-      `/api/v1/workflows/${encodeURIComponent(workflowId)}/status`,
-      { signal },
-    );
-  },
-
-  listWorkflowRevisions(workflowId, signal) {
-    return request<PipelineRevision[]>(
-      `/api/v1/workflows/${encodeURIComponent(workflowId)}/revisions`,
-      { signal },
-    );
-  },
-
-  restoreWorkflowRevision(workflowId, revision, expectedRevision) {
-    return request<ManagedWorkflowDraft>(
-      `/api/v1/workflows/${encodeURIComponent(workflowId)}/revisions/${revision}/restore`,
-      {
-        method: "POST",
-        body: JSON.stringify({ expected_revision: expectedRevision }),
-      },
-    );
-  },
-
-  patchWorkflow(workflowId, payload) {
-    return request<ManagedWorkflowDraft>(
-      `/api/v1/workflows/${encodeURIComponent(workflowId)}`,
-      { method: "PATCH", body: JSON.stringify(payload) },
-    );
-  },
-
-  probeEngine(engineId) {
-    return request<EngineValidation["results"][number]>(
-      `/api/v1/engines/${encodeURIComponent(engineId)}/probe`,
-      { method: "POST" },
-    );
-  },
-
-  getEngineUsage(engineId, signal) {
-    return request<{ engine_id: string; references: string[] }>(
-      `/api/v1/engines/${encodeURIComponent(engineId)}/usage`,
-      { signal },
-    );
-  },
-
-  getRuntimeStatus(signal) {
-    return request<RuntimeStatus>("/api/v1/runtime/status", { signal });
-  },
+  getRuntimeStatus(signal) { return request<RuntimeStatus>("/api/v1/runtime/status", { signal }); },
 };
 
-export function errorMessage(
-  error: unknown,
-  fallback = "操作未完成，请稍后重试。",
-): string {
-  if (error instanceof ApiError) {
-    return error.message;
-  }
-  if (
-    error instanceof TypeError ||
-    (error instanceof Error &&
-      /failed to fetch|network|load failed/i.test(error.message))
-  ) {
+export function errorMessage(error: unknown, fallback = "操作未完成，请稍后重试。"): string {
+  if (error instanceof ApiError) return error.message;
+  if (error instanceof TypeError && /fetch|network/i.test(error.message)) {
     return "暂时无法连接管理服务，请稍后重试。";
   }
+  if (error instanceof Error && error.message.trim()) return error.message;
   return fallback;
-}
-
-export function reportRequestError(context: string, error: unknown): void {
-  console.error(`[Audio Harness] ${context}`, error);
 }

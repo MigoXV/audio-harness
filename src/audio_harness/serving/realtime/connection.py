@@ -17,22 +17,21 @@ from pydantic import TypeAdapter, ValidationError
 
 from audio_harness.capacity import ResizableConcurrencyLimiter
 from audio_harness.domain import CapacityExceededError
-from audio_harness.engines.router import EngineRouter
-from audio_harness.pipelines.service import (
-    ActivePipelineSnapshot,
-    ModelRouteNotFoundError,
-    PipelineError,
-    PipelineStore,
-)
+from audio_harness.engines.pool import InferencerPool
 from audio_harness.serving.realtime.session import (
     ENGINE_SAMPLE_RATE,
     INPUT_SAMPLE_RATE,
     RealtimeTranscriptionSession,
 )
 from audio_harness.serving.realtime.agent import VoiceResolver
-from audio_harness.sessions import TranscriptionSessionService
+from audio_harness.sessions import AudioWorkflowSessionService
 from audio_harness.serving.realtime.tools import ToolRegistry
 from audio_harness.workflow_settings import WorkflowSettingsStore
+from audio_harness.voice_agents.service import (
+    RealtimeRouteNotFoundError,
+    RealtimeRouteService,
+    RealtimeTarget,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -92,13 +91,13 @@ class _RealtimeConnection:
         *,
         websocket: WebSocket,
         model: str,
-        session_service: TranscriptionSessionService,
+        session_service: AudioWorkflowSessionService,
         workflow_settings: WorkflowSettingsStore,
-        pipeline_store: PipelineStore,
         max_message_bytes: int,
         diagnostics_enabled: bool,
-        pipeline: ActivePipelineSnapshot,
-        engine_router: EngineRouter | None,
+        aha_version: str | None,
+        target: RealtimeTarget,
+        inferencer_pool: InferencerPool | None,
         responses_limiter: ResizableConcurrencyLimiter | None,
         tts_limiter: ResizableConcurrencyLimiter | None,
         tool_registry: ToolRegistry,
@@ -113,12 +112,12 @@ class _RealtimeConnection:
             send_event=self._send,
             session_service=session_service,
             workflow_settings=workflow_settings,
-            pipeline_store=pipeline_store,
             model=model,
+            target=target,
             audio_event_handler=self._handle_audio_append,
             diagnostics_enabled=diagnostics_enabled,
-            pipeline=pipeline,
-            engine_router=engine_router,
+            aha_version=aha_version,
+            inferencer_pool=inferencer_pool,
             responses_limiter=responses_limiter,
             tts_limiter=tts_limiter,
             tool_registry=tool_registry,
@@ -206,11 +205,11 @@ class RealtimeTranscriptionService:
     def __init__(
         self,
         *,
-        session_service: TranscriptionSessionService,
+        session_service: AudioWorkflowSessionService,
         workflow_settings: WorkflowSettingsStore,
-        pipeline_store: PipelineStore,
+        routes: RealtimeRouteService,
         max_message_bytes: int,
-        engine_router: EngineRouter | None = None,
+        inferencer_pool: InferencerPool | None = None,
         responses_limiter: ResizableConcurrencyLimiter | None = None,
         tts_limiter: ResizableConcurrencyLimiter | None = None,
         tool_registry: ToolRegistry | None = None,
@@ -218,9 +217,9 @@ class RealtimeTranscriptionService:
     ) -> None:
         self.session_service = session_service
         self.workflow_settings = workflow_settings
-        self.pipeline_store = pipeline_store
+        self.routes = routes
         self.max_message_bytes = max_message_bytes
-        self.engine_router = engine_router
+        self.inferencer_pool = inferencer_pool
         self.responses_limiter = responses_limiter
         self.tts_limiter = tts_limiter
         self.tool_registry = tool_registry or ToolRegistry()
@@ -232,21 +231,17 @@ class RealtimeTranscriptionService:
         *,
         model: str,
         diagnostics_enabled: bool = False,
+        aha_version: str | None = None,
     ) -> None:
         if not model.strip():
             await websocket.close(code=4400, reason="model is required")
             return
         try:
-            resolver = getattr(self.pipeline_store, "resolve_model", None)
-            pipeline = (
-                resolver(model.strip())
-                if resolver is not None
-                else self.pipeline_store.current()
-            )
-        except ModelRouteNotFoundError:
+            target = self.routes.resolve(model.strip())
+        except RealtimeRouteNotFoundError:
             await websocket.close(code=4404, reason="Model not found")
             return
-        except PipelineError:
+        except RuntimeError:
             await websocket.close(code=4409, reason="Model workflow not active")
             return
         try:
@@ -256,11 +251,11 @@ class RealtimeTranscriptionService:
                 model=model.strip(),
                 session_service=self.session_service,
                 workflow_settings=self.workflow_settings,
-                pipeline_store=self.pipeline_store,
                 max_message_bytes=self.max_message_bytes,
                 diagnostics_enabled=diagnostics_enabled,
-                pipeline=pipeline,
-                engine_router=self.engine_router,
+                aha_version=aha_version,
+                target=target,
+                inferencer_pool=self.inferencer_pool,
                 responses_limiter=self.responses_limiter,
                 tts_limiter=self.tts_limiter,
                 tool_registry=self.tool_registry,

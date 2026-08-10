@@ -1,11 +1,11 @@
 from audio_harness.sessions.transcription import (
-    TranscriptionSession,
-    TranscriptionSessionReservation,
-    TranscriptionSessionService,
+    AudioWorkflowSession,
+    AudioWorkflowSessionReservation,
+    AudioWorkflowSessionService,
 )
 
 __all__ = [
-    "TranscriptionSession",
-    "TranscriptionSessionReservation",
-    "TranscriptionSessionService",
+    "AudioWorkflowSession",
+    "AudioWorkflowSessionReservation",
+    "AudioWorkflowSessionService",
 ]

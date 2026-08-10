@@ -1,27 +1,35 @@
 from audio_harness.database.models import (
+    AudioWorkflow,
+    AudioWorkflowActivation,
+    AudioWorkflowRevision,
     Base,
     CapacitySetting,
     EngineAsset,
-    PipelineActivation,
-    PipelineRevision,
-    PipelineWorkingCopy,
+    RealtimeRoute,
+    VoiceAgentActivation,
+    VoiceAgentProfile,
+    VoiceAgentRevision,
     WorkflowSetting,
 )
 from audio_harness.database.session import (
     Database,
-    require_control_plane_v2_database,
+    require_fresh_database,
     upgrade_database,
 )
 
 __all__ = [
+    "AudioWorkflow",
+    "AudioWorkflowActivation",
+    "AudioWorkflowRevision",
     "Base",
     "CapacitySetting",
     "Database",
     "EngineAsset",
-    "PipelineActivation",
-    "PipelineRevision",
-    "PipelineWorkingCopy",
+    "RealtimeRoute",
+    "VoiceAgentActivation",
+    "VoiceAgentProfile",
+    "VoiceAgentRevision",
     "WorkflowSetting",
-    "require_control_plane_v2_database",
+    "require_fresh_database",
     "upgrade_database",
 ]

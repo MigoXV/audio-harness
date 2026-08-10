@@ -27,6 +27,18 @@ def test_load_config_from_environment(
     assert config.webrtc.ice_servers == []
 
 
+def test_listen_ports_allow_automatic_selection() -> None:
+    config = AppConfig.model_validate(
+        {
+            "grpc": {"port": 0},
+            "http": {"port": 0},
+        }
+    )
+
+    assert config.grpc.port == 0
+    assert config.http.port == 0
+
+
 def test_rejects_odd_pcm_chunk_size() -> None:
     with pytest.raises(ValidationError, match="min_chunk_bytes"):
         AppConfig.model_validate(

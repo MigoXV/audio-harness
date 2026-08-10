@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-8 0 376 270" fill="none">
+  <title>Audio Harness 标志</title>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path
+      d="M66 119c0-23 12-42 34-57 9-6 13-21 24-22 20-2 17 30 30 30 16 0 9-55 26-55s10 55 26 55c13 0 10-32 30-30 11 1 15 16 24 22 22 15 34 34 34 57v48c0 43-32 69-83 69h-62c-51 0-83-26-83-69v-48Z"
+      stroke="#202522"
+      stroke-width="14"
+    />
+    <path d="M44 121c-13 17-13 39 0 56" stroke="#202522" stroke-width="13" />
+    <path d="M25 108c-24 30-24 66 0 82" stroke="#202522" stroke-width="14" />
+    <path d="M316 121c13 17 13 39 0 56" stroke="#202522" stroke-width="13" />
+    <path d="M335 108c24 30 24 66 0 82" stroke="#202522" stroke-width="14" />
+  </g>
+  <rect x="135" y="124" width="17" height="28" rx="8.5" fill="#202522" />
+  <rect x="208" y="124" width="17" height="28" rx="8.5" fill="#202522" />
+</svg>

@@ -4,13 +4,13 @@ import asyncio
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from time import perf_counter
+from typing import Any, Mapping
 from uuid import uuid4
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from audio_harness.api.schemas import EngineCreate, EnginePatch
 from audio_harness.assets import (
     EngineApi,
     EngineAssetData,
@@ -20,14 +20,37 @@ from audio_harness.assets import (
 )
 from audio_harness.database.mappers import asset_data
 from audio_harness.database.models import (
+    AudioWorkflow,
+    AudioWorkflowActivation,
+    AudioWorkflowRevision,
     EngineAsset,
-    Workflow,
-    WorkflowActivation,
-    WorkflowRevision,
+    VoiceAgentActivation,
+    VoiceAgentProfile,
+    VoiceAgentRevision,
     utc_now,
 )
-from audio_harness.engines.router import EngineRouter
-from audio_harness.pipelines.service import definition_engine_ids
+from audio_harness.domain import (
+    EngineConfigurationInvalidError,
+    EngineDeadlineError,
+    EngineUnavailableError,
+)
+from audio_harness.engines.pool import InferencerPool
+
+
+def _audio_engine_ids(document: Mapping[str, Any]) -> set[str]:
+    return {
+        str(node["engine_id"])
+        for node in document.get("nodes", [])
+        if isinstance(node, dict) and node.get("engine_id")
+    }
+
+
+def _agent_engine_ids(definition: Mapping[str, Any]) -> set[str]:
+    return {
+        str(value)
+        for key in ("responses_engine_id", "tts_engine_id")
+        if (value := definition.get(key))
+    }
 
 
 class CatalogError(Exception):
@@ -40,6 +63,18 @@ class AssetNotFoundError(CatalogError):
 
 class CatalogConflictError(CatalogError):
     code = "catalog_conflict"
+
+
+class EngineModelCapabilityError(CatalogError):
+    code = "engine_model_capability_mismatch"
+
+
+class EngineModelDiscoveryError(CatalogError):
+    code = "engine_model_discovery_failed"
+
+
+class EngineModelDiscoveryTimeoutError(EngineModelDiscoveryError):
+    code = "engine_model_discovery_timeout"
 
 
 @dataclass(frozen=True)
@@ -65,7 +100,7 @@ class EngineCatalog:
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
-        router: EngineRouter,
+        router: InferencerPool,
     ) -> None:
         self._session_factory = session_factory
         self._router = router
@@ -156,6 +191,25 @@ class EngineCatalog:
             if model is None:
                 raise AssetNotFoundError(f"引擎资产不存在: {asset_id}")
             return asset_data(model)
+
+    async def list_models(
+        self,
+        asset_id: str,
+    ) -> tuple[EngineAssetData, tuple[str, ...]]:
+        asset = await self.get_asset(asset_id)
+        if asset.api is not EngineApi.RESPONSES:
+            raise EngineModelCapabilityError("只有 Responses 引擎可以读取模型列表")
+        if not asset.enabled:
+            raise EngineModelCapabilityError("已停用的 Responses 引擎不能读取模型列表")
+        try:
+            models = await self._router.list_models(asset.snapshot())
+        except asyncio.CancelledError:
+            raise
+        except EngineDeadlineError as exc:
+            raise EngineModelDiscoveryTimeoutError(str(exc)) from exc
+        except (EngineConfigurationInvalidError, EngineUnavailableError) as exc:
+            raise EngineModelDiscoveryError(str(exc)) from exc
+        return asset, models
 
     @staticmethod
     def _validation_message(exc: Exception) -> str:
@@ -334,10 +388,10 @@ class EngineCatalog:
             )
             return tuple(result.scalars().all())
 
-    async def create_asset(self, payload: EngineCreate) -> EngineAssetData:
-        values = payload.model_dump()
+    async def create_asset(self, payload: Mapping[str, Any]) -> EngineAssetData:
+        values = dict(payload)
         values["status"] = (
-            EngineStatus.UNKNOWN if payload.enabled else EngineStatus.DISABLED
+            EngineStatus.UNKNOWN if values["enabled"] else EngineStatus.DISABLED
         )
         candidate = EngineAssetData(
             id="candidate",
@@ -360,43 +414,53 @@ class EngineCatalog:
                 except IntegrityError as exc:
                     await session.rollback()
                     raise CatalogConflictError(
-                        f"引擎 slug 已存在: {payload.slug}"
+                        f"引擎 slug 已存在: {values['slug']}"
                     ) from exc
                 await session.refresh(model)
                 return asset_data(model)
 
-    async def _pipeline_references(
+    async def _workflow_references(
         self,
         session: AsyncSession,
         asset_id: str,
     ) -> list[str]:
         references: list[str] = []
-        result = await session.execute(select(Workflow))
+        result = await session.execute(select(AudioWorkflow))
         for workflow in result.scalars().all():
-            if asset_id in definition_engine_ids(workflow.draft_definition):
+            if asset_id in _audio_engine_ids(workflow.draft_document):
                 references.append(f"{workflow.name} 草稿")
-            activation = await session.get(WorkflowActivation, workflow.id)
+            activation = await session.get(AudioWorkflowActivation, workflow.id)
             if activation is None or activation.active_revision_id is None:
                 continue
             revision = await session.get(
-                WorkflowRevision,
+                AudioWorkflowRevision,
                 activation.active_revision_id,
             )
             if (
                 revision is not None
-                and asset_id in definition_engine_ids(revision.definition)
+                and asset_id in _audio_engine_ids(revision.document)
             ):
                 references.append(
                     f"{workflow.name} 激活修订 {revision.revision}"
                 )
+        result = await session.execute(select(VoiceAgentProfile))
+        for profile in result.scalars().all():
+            if asset_id in _agent_engine_ids(profile.draft_definition):
+                references.append(f"{profile.name} 语音智能体草稿")
+            activation = await session.get(VoiceAgentActivation, profile.id)
+            if activation is None or activation.active_revision_id is None:
+                continue
+            revision = await session.get(VoiceAgentRevision, activation.active_revision_id)
+            if revision is not None and asset_id in _agent_engine_ids(revision.definition):
+                references.append(f"{profile.name} 语音智能体激活修订 {revision.revision}")
         return references
 
     async def update_asset(
         self,
         asset_id: str,
-        payload: EnginePatch,
+        payload: Mapping[str, Any],
     ) -> EngineAssetData:
-        changes = payload.model_dump(exclude_unset=True)
+        changes = dict(payload)
         for derived in ("status", "status_basis", "status_observed_at"):
             changes.pop(derived, None)
         if not changes:
@@ -409,7 +473,7 @@ class EngineCatalog:
                     raise AssetNotFoundError(f"引擎资产不存在: {asset_id}")
                 current = asset_data(model)
                 candidate = replace(current, **changes)
-                references = await self._pipeline_references(
+                references = await self._workflow_references(
                     session,
                     asset_id,
                 )
@@ -460,13 +524,19 @@ class EngineCatalog:
                 )
             return asset_data(model)
 
+    async def references(self, asset_id: str) -> tuple[str, ...]:
+        async with self._session_factory() as session:
+            if await session.get(EngineAsset, asset_id) is None:
+                raise AssetNotFoundError(f"引擎资产不存在: {asset_id}")
+            return tuple(await self._workflow_references(session, asset_id))
+
     async def delete_asset(self, asset_id: str) -> None:
         async with self._write_lock:
             async with self._session_factory() as session:
                 model = await session.get(EngineAsset, asset_id)
                 if model is None:
                     raise AssetNotFoundError(f"引擎资产不存在: {asset_id}")
-                references = await self._pipeline_references(
+                references = await self._workflow_references(
                     session,
                     asset_id,
                 )

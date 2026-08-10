@@ -4,6 +4,8 @@ import {
   isResponseTextDelta,
   isTtsFirstAudio,
   appendGroupedEvent,
+  eventDetail,
+  realtimeEndpoint,
   realtimeSessionUpdate,
 } from "./RealtimeTestPanel";
 
@@ -32,6 +34,48 @@ describe("realtimeSessionUpdate", () => {
     expect(isTtsFirstAudio("audio_harness.tts_first_audio")).toBe(true);
     expect(isTtsFirstAudio("response.output_audio.delta")).toBe(true);
     expect(isTtsFirstAudio("response.output_text.delta")).toBe(false);
+  });
+});
+
+describe("realtimeEndpoint", () => {
+  it("enables x_aha events for the WSS test connection", () => {
+    expect(realtimeEndpoint("wss", "semantic vad", true)).toBe(
+      "/v1/realtime?model=semantic%20vad&x_aha=v1",
+    );
+  });
+
+  it("enables x_aha events for the WebRTC test connection", () => {
+    expect(realtimeEndpoint("webrtc", "voice-agent", true)).toBe(
+      "/v1/realtime/calls?model=voice-agent&x_aha=v1",
+    );
+  });
+
+  it("keeps the native protocol when the extension is disabled", () => {
+    expect(realtimeEndpoint("wss", "native-client", false)).toBe(
+      "/v1/realtime?model=native-client",
+    );
+  });
+});
+
+describe("eventDetail", () => {
+  it("omits encoded audio payloads from the event log", () => {
+    expect(eventDetail({
+      type: "response.output_audio.delta",
+      delta: "A".repeat(10_000),
+    })).toBe("音频数据已省略");
+    expect(eventDetail({
+      type: "audio_harness.tts_first_audio",
+      delta: "B".repeat(10_000),
+    })).toBe("音频数据已省略");
+  });
+
+  it("describes a pending semantic turn after the physical pause", () => {
+    expect(eventDetail({
+      type: "x_aha.vad.physical_speech_stopped",
+      audio_start_ms: 1200,
+      audio_end_ms: 2380,
+      turn_completed: false,
+    })).toBe("物理停顿 1200–2380 ms；语义轮次未结束");
   });
 });
 

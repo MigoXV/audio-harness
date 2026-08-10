@@ -9,6 +9,7 @@ from openai import AsyncOpenAI
 from audio_harness.assets import EngineSnapshot
 from audio_harness.domain import (
     EngineConfigurationInvalidError,
+    EngineDeadlineError,
     EngineUnavailableError,
 )
 
@@ -36,16 +37,34 @@ class ResponsesInferencer:
     async def ready(self) -> None:
         return None
 
-    async def probe(self) -> None:
+    async def list_models(self) -> tuple[str, ...]:
         try:
-            await asyncio.wait_for(
+            page = await asyncio.wait_for(
                 self.client.models.list(),
                 timeout=self.snapshot.connect_timeout_seconds,
             )
         except asyncio.TimeoutError as exc:
-            raise EngineUnavailableError(
-                "Responses 连通性校验超时"
+            raise EngineDeadlineError(
+                "Responses 模型列表读取超时"
             ) from exc
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            raise EngineUnavailableError(
+                "Responses 模型列表读取失败"
+            ) from exc
+        return tuple(
+            sorted(
+                {
+                    item.id.strip()
+                    for item in page.data
+                    if item.id.strip()
+                }
+            )
+        )
+
+    async def probe(self) -> None:
+        await self.list_models()
 
     async def stream_response(self, **kwargs: Any) -> Any:
         kwargs["stream"] = True

@@ -16,16 +16,16 @@ from audio_harness.assets import (
     EngineStatus,
 )
 from audio_harness.domain import SynthesizedAudioChunk
-from audio_harness.pipelines.dag import (
-    PipelineDefinition,
-    compile_pipeline,
-    default_node_registry,
-)
-from audio_harness.pipelines.service import ActivePipelineSnapshot
 from audio_harness.serving.realtime.agent import RealtimeAgentRuntime
 from audio_harness.serving.realtime.tools import ToolRegistry
 from audio_harness.capacity import ResizableConcurrencyLimiter
-from audio_harness.workflow_types import WorkflowKind
+from audio_harness.voice_agents.models import (
+    DuplexTtsConfig,
+    ResponsesConfig,
+    VoiceAgentDefinition,
+)
+from audio_harness.voice_agents.service import ActiveVoiceAgent
+from tests.graph_fakes import static_audio_workflow
 
 
 def _asset(
@@ -61,112 +61,42 @@ def _asset(
     )
 
 
-def _pipeline(*, thinking_enabled: bool = False) -> ActivePipelineSnapshot:
-    definition = PipelineDefinition.model_validate(
-        {
-            "nodes": [
-                {"id": "input", "type": "audio_input"},
-                {
-                    "id": "vad",
-                    "type": "physical_vad",
-                    "engine_id": "vad-engine",
-                    "config": {
-                        "min_segment_seconds": 0,
-                        "max_segment_seconds": 60,
-                        "audio_buffer_seconds": 61,
-                        "speech_pre_roll_seconds": 0,
-                    },
-                },
-                {"id": "asr", "type": "asr", "engine_id": "asr-engine"},
-                {
-                    "id": "agent",
-                    "type": "responses_agent",
-                    "engine_id": "responses-engine",
-                    "config": {"thinking_enabled": thinking_enabled},
-                },
-                {
-                    "id": "tts",
-                    "type": "duplex_tts",
-                    "engine_id": "tts-engine",
-                },
-                {"id": "output", "type": "session_output"},
-            ],
-            "edges": [
-                {
-                    "id": "input-vad",
-                    "source_node": "input",
-                    "source_port": "audio",
-                    "target_node": "vad",
-                    "target_port": "audio",
-                },
-                {
-                    "id": "vad-asr",
-                    "source_node": "vad",
-                    "source_port": "segments",
-                    "target_node": "asr",
-                    "target_port": "segments",
-                },
-                {
-                    "id": "asr-agent",
-                    "source_node": "asr",
-                    "source_port": "events",
-                    "target_node": "agent",
-                    "target_port": "events",
-                },
-                {
-                    "id": "agent-tts",
-                    "source_node": "agent",
-                    "source_port": "events",
-                    "target_node": "tts",
-                    "target_port": "events",
-                },
-                {
-                    "id": "tts-output",
-                    "source_node": "tts",
-                    "source_port": "events",
-                    "target_node": "output",
-                    "target_port": "events",
-                },
-            ],
-        }
+def _profile(*, thinking_enabled: bool = False) -> ActiveVoiceAgent:
+    _pool, _workflows, workflow = static_audio_workflow(
+        asr=object(),
+        vad=object(),
     )
-    assets = {
-        "vad-engine": _asset(
-            "vad-engine",
-            kind=EngineKind.VAD,
-            api=EngineApi.UX_VAD,
-            protocol=EngineProtocol.GRPC,
-        ),
-        "asr-engine": _asset(
-            "asr-engine",
-            kind=EngineKind.ASR,
-            api=EngineApi.UX_SPEECH,
-            protocol=EngineProtocol.GRPC,
-        ),
-        "responses-engine": _asset(
-            "responses-engine",
-            kind=EngineKind.LLM,
-            api=EngineApi.RESPONSES,
-            protocol=EngineProtocol.HTTPS,
-        ),
-        "tts-engine": _asset(
-            "tts-engine",
-            kind=EngineKind.TTS,
-            api=EngineApi.QWEN_TTS_DUPLEX,
-            protocol=EngineProtocol.GRPC,
-        ),
-    }
-    return ActivePipelineSnapshot(
-        definition=definition,
-        plan=compile_pipeline(
-            definition,
-            registry=default_node_registry(),
-            assets=assets,
-        ),
+    responses = _asset(
+        "responses-engine",
+        kind=EngineKind.LLM,
+        api=EngineApi.RESPONSES,
+        protocol=EngineProtocol.HTTPS,
+    ).snapshot()
+    tts = _asset(
+        "tts-engine",
+        kind=EngineKind.TTS,
+        api=EngineApi.QWEN_TTS_DUPLEX,
+        protocol=EngineProtocol.GRPC,
+    ).snapshot()
+    return ActiveVoiceAgent(
+        id="agent",
         revision=1,
-        activated_at=datetime.now(timezone.utc),
-        workflow_id="agent",
-        kind=WorkflowKind.VOICE_AGENT,
+        definition=VoiceAgentDefinition(
+            audio_workflow_id=workflow.id,
+            responses_engine_id=responses.id,
+            responses=ResponsesConfig(
+                model="test-model",
+                thinking_enabled=thinking_enabled,
+            ),
+            tts_engine_id=tts.id,
+            tts=DuplexTtsConfig(
+                default_voice="test-voice",
+                allowed_voices=["test-voice"],
+            ),
+        ),
+        audio_workflow=workflow,
+        responses_engine=responses,
+        tts_engine=tts,
     )
 
 
@@ -240,13 +170,13 @@ class HangingTts:
         await asyncio.Event().wait()
 
 
-class FakeRouter:
+class FakePool:
     def __init__(self) -> None:
         self.responses = FakeResponses()
         self.tts = FakeTts()
 
     @asynccontextmanager
-    async def lease_snapshots(self, _snapshots):
+    async def lease(self, _snapshots):
         yield {
             ("responses-engine", 1): self.responses,
             ("tts-engine", 1): self.tts,
@@ -255,7 +185,7 @@ class FakeRouter:
 
 @pytest.mark.asyncio
 async def test_agent_forwards_each_response_delta_to_one_tts_stream() -> None:
-    router = FakeRouter()
+    router = FakePool()
     events: list[dict] = []
     audio: list[tuple[bytes, int, int]] = []
 
@@ -266,8 +196,8 @@ async def test_agent_forwards_each_response_delta_to_one_tts_stream() -> None:
         audio.append((pcm, rate, epoch))
 
     runtime = RealtimeAgentRuntime(
-        pipeline=_pipeline(),
-        engine_router=router,
+        profile=_profile(),
+        inferencer_pool=router,
         send_event=send_event,
         send_audio=send_audio,
         clear_audio=None,
@@ -299,15 +229,15 @@ async def test_agent_forwards_each_response_delta_to_one_tts_stream() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_reports_first_tts_audio_for_wss_once() -> None:
-    router = FakeRouter()
+    router = FakePool()
     events: list[dict] = []
 
     async def send_event(event: dict) -> None:
         events.append(event)
 
     runtime = RealtimeAgentRuntime(
-        pipeline=_pipeline(thinking_enabled=True),
-        engine_router=router,
+        profile=_profile(thinking_enabled=True),
+        inferencer_pool=router,
         send_event=send_event,
         send_audio=None,
         clear_audio=None,
@@ -335,7 +265,7 @@ async def test_agent_reports_first_tts_audio_for_wss_once() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_interrupt_advances_epoch_and_clears_audio() -> None:
-    router = FakeRouter()
+    router = FakePool()
     cleared: list[int] = []
 
     async def send_event(_event: dict) -> None:
@@ -345,8 +275,8 @@ async def test_agent_interrupt_advances_epoch_and_clears_audio() -> None:
         cleared.append(epoch)
 
     runtime = RealtimeAgentRuntime(
-        pipeline=_pipeline(),
-        engine_router=router,
+        profile=_profile(),
+        inferencer_pool=router,
         send_event=send_event,
         send_audio=None,
         clear_audio=clear_audio,
@@ -363,7 +293,7 @@ async def test_agent_interrupt_advances_epoch_and_clears_audio() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_does_not_deadlock_when_tts_fails_early() -> None:
-    router = FakeRouter()
+    router = FakePool()
     router.tts = FailingTts()
     events: list[dict] = []
 
@@ -371,8 +301,8 @@ async def test_agent_does_not_deadlock_when_tts_fails_early() -> None:
         events.append(event)
 
     runtime = RealtimeAgentRuntime(
-        pipeline=_pipeline(),
-        engine_router=router,
+        profile=_profile(),
+        inferencer_pool=router,
         send_event=send_event,
         send_audio=None,
         clear_audio=None,
@@ -389,7 +319,7 @@ async def test_agent_does_not_deadlock_when_tts_fails_early() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_interrupt_cancels_hanging_tts_and_releases_slot() -> None:
-    router = FakeRouter()
+    router = FakePool()
     hanging_tts = HangingTts()
     router.tts = hanging_tts
     limiter = ResizableConcurrencyLimiter(1)
@@ -398,8 +328,8 @@ async def test_agent_interrupt_cancels_hanging_tts_and_releases_slot() -> None:
         return None
 
     runtime = RealtimeAgentRuntime(
-        pipeline=_pipeline(),
-        engine_router=router,
+        profile=_profile(),
+        inferencer_pool=router,
         send_event=send_event,
         send_audio=None,
         clear_audio=None,

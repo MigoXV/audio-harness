@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 
-CONTROL_PLANE_V2_REVISION = "0009_control_plane_v2"
+DATABASE_BASELINE_REVISION = "0001_initial"
 
 
 def _ensure_sqlite_parent(database_url: str) -> None:
@@ -46,8 +46,8 @@ def upgrade_database(database_url: str) -> None:
     command.upgrade(config, "head")
 
 
-def require_control_plane_v2_database(database_url: str) -> None:
-    """拒绝由旧控制面原地升级的 SQLite；空库和当前代数据库可以启动。"""
+def require_fresh_database(database_url: str) -> None:
+    """只接受空库或当前基线数据库，不提供任何历史数据迁移。"""
 
     url = make_url(database_url)
     if not url.drivername.startswith("sqlite"):
@@ -75,9 +75,9 @@ def require_control_plane_v2_database(database_url: str) -> None:
             "SELECT version_num FROM alembic_version LIMIT 1"
         ).fetchone()
     revision = revision_row[0] if revision_row is not None else None
-    if revision != CONTROL_PLANE_V2_REVISION:
+    if revision != DATABASE_BASELINE_REVISION:
         raise RuntimeError(
-            "第二代控制面不支持原地升级旧业务数据。请停止服务并人工移走 "
+            "当前版本不支持原地升级旧业务数据。请停止服务并人工移走 "
             f"{database_path}、{database_path}-wal 和 {database_path}-shm，"
             "再重新启动以创建干净数据库"
         )

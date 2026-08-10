@@ -10,13 +10,20 @@ from audio_harness.assets import (
     EngineProtocol,
     EngineStatus,
 )
-from audio_harness.pipelines.dag import (
-    PhysicalVadNodeConfig,
-    PipelineDefinition,
-    compile_pipeline,
-    default_node_registry,
+from audio_harness.workflows.compiler import compile_audio_graph
+from audio_harness.workflows.models import (
+    AsrNode,
+    AudioEdge,
+    AudioWorkflowDocument,
+    GraphInputRef,
+    NamedOutputBinding,
+    NodeInputRef,
+    NodeOutputRef,
+    PhysicalVadConfig,
+    PhysicalVadNode,
+    SemanticVadNode,
 )
-from audio_harness.pipelines.service import ActivePipelineSnapshot
+from audio_harness.workflows.service import ActiveAudioWorkflow
 
 
 def _asset(
@@ -36,12 +43,18 @@ def _asset(
         target="test:1",
         connect_timeout_seconds=1,
         request_timeout_seconds=None,
+        credential_env=None,
+        api_key=None,
         enabled=True,
         status=EngineStatus.CONFIRMED_RUNNING,
         image=None,
         description=None,
         status_basis=None,
         status_observed_at=None,
+        last_success_at=None,
+        probe_latency_ms=None,
+        consecutive_failures=0,
+        next_probe_at=None,
         source=None,
         details={},
         revision=1,
@@ -50,58 +63,67 @@ def _asset(
     )
 
 
-class StaticEngineRouter:
+class StaticInferencerPool:
     def __init__(self, engines: dict[tuple[str, int], object]) -> None:
         self._engines = engines
 
     @asynccontextmanager
-    async def lease_snapshots(self, snapshots):
+    async def lease(self, snapshots):
         keys = {(snapshot.id, snapshot.revision) for snapshot in snapshots}
         yield {key: self._engines[key] for key in keys}
 
 
-class StaticPipelineStore:
-    def __init__(self, snapshot: ActivePipelineSnapshot) -> None:
-        self._snapshot = snapshot
+class StaticAudioWorkflowService:
+    def __init__(self, workflow: ActiveAudioWorkflow) -> None:
+        self._workflow = workflow
 
-    def current(self) -> ActivePipelineSnapshot:
-        return self._snapshot
-
-    def physical_vad_config(self) -> PhysicalVadNodeConfig:
-        node = self._snapshot.plan.nodes["physical_vad"]
-        assert isinstance(node.config, PhysicalVadNodeConfig)
-        return node.config
+    def current(self, workflow_id: str) -> ActiveAudioWorkflow:
+        if workflow_id != self._workflow.id:
+            raise RuntimeError(f"语音工作流不存在: {workflow_id}")
+        return self._workflow
 
 
-def static_graph(
+class StaticRouteService:
+    def __init__(self, target) -> None:
+        self.target = target
+
+    def resolve(self, model: str, *, allow_internal: bool = False):
+        del allow_internal
+        if model != "gpt-4o-transcribe":
+            raise RuntimeError(f"模型路由不存在: {model}")
+        return self.target
+
+
+def static_audio_workflow(
     *,
     asr: object,
     vad: object,
     semantic_vad: object | None = None,
-    physical_config: PhysicalVadNodeConfig | None = None,
-) -> tuple[StaticEngineRouter, StaticPipelineStore]:
-    config = physical_config or PhysicalVadNodeConfig(
+    physical_config: PhysicalVadConfig | None = None,
+) -> tuple[StaticInferencerPool, StaticAudioWorkflowService, ActiveAudioWorkflow]:
+    config = physical_config or PhysicalVadConfig(
         min_segment_seconds=0,
         max_segment_seconds=60,
         audio_buffer_seconds=61,
         speech_pre_roll_seconds=0,
     )
     nodes = [
-        {"id": "audio_input", "type": "audio_input"},
-        {
-            "id": "physical_vad",
-            "type": "physical_vad",
-            "engine_id": "vad-engine",
-            "config": config.model_dump(),
-        },
-        {
-            "id": "asr",
-            "type": "asr",
-            "engine_id": "asr-engine",
-        },
-        {"id": "session_output", "type": "session_output"},
+        PhysicalVadNode(
+            id="physical-vad",
+            engine_id="vad-engine",
+            config=config,
+        ),
+        AsrNode(id="asr", engine_id="asr-engine"),
     ]
-    segment_source = "physical_vad"
+    edges = [
+        AudioEdge(
+            id="audio-vad",
+            source=GraphInputRef(),
+            target=NodeInputRef(node_id="physical-vad", port="audio"),
+        )
+    ]
+    segment_source = "physical-vad"
+    stop_source = "physical-vad"
     engines: dict[tuple[str, int], object] = {
         ("vad-engine", 1): vad,
         ("asr-engine", 1): asr,
@@ -120,84 +142,74 @@ def static_graph(
     }
     if semantic_vad is not None:
         nodes.insert(
-            2,
-            {
-                "id": "semantic_vad",
-                "type": "semantic_vad",
-                "engine_id": "semantic-engine",
-                "failure_policy": "fail_open",
-            },
+            1,
+            SemanticVadNode(
+                id="semantic-vad",
+                engine_id="semantic-engine",
+            ),
         )
+        edges.append(
+            AudioEdge(
+                id="vad-semantic",
+                source=NodeOutputRef(node_id="physical-vad", port="segments"),
+                target=NodeInputRef(node_id="semantic-vad", port="segments"),
+            )
+        )
+        segment_source = "semantic-vad"
+        stop_source = "semantic-vad"
+        engines[("semantic-engine", 1)] = semantic_vad
         assets["semantic-engine"] = _asset(
             "semantic-engine",
             kind=EngineKind.VAD,
             api=EngineApi.UX_VAD,
         )
-        engines[("semantic-engine", 1)] = semantic_vad
-        segment_source = "semantic_vad"
-
-    edges = [
-        {
-            "id": "audio-vad",
-            "source_node": "audio_input",
-            "source_port": "audio",
-            "target_node": "physical_vad",
-            "target_port": "audio",
-        },
-        {
-            "id": "segments-asr",
-            "source_node": segment_source,
-            "source_port": "segments",
-            "target_node": "asr",
-            "target_port": "segments",
-        },
-        {
-            "id": "vad-output",
-            "source_node": "physical_vad",
-            "source_port": "events",
-            "target_node": "session_output",
-            "target_port": "events",
-        },
-        {
-            "id": "asr-output",
-            "source_node": "asr",
-            "source_port": "events",
-            "target_node": "session_output",
-            "target_port": "events",
-        },
-    ]
-    if semantic_vad is not None:
-        edges.extend(
-            [
-                {
-                    "id": "vad-semantic",
-                    "source_node": "physical_vad",
-                    "source_port": "segments",
-                    "target_node": "semantic_vad",
-                    "target_port": "segments",
-                },
-                {
-                    "id": "semantic-output",
-                    "source_node": "semantic_vad",
-                    "source_port": "events",
-                    "target_node": "session_output",
-                    "target_port": "events",
-                },
-            ]
+    edges.append(
+        AudioEdge(
+            id="segments-asr",
+            source=NodeOutputRef(node_id=segment_source, port="segments"),
+            target=NodeInputRef(node_id="asr", port="segments"),
         )
-    definition = PipelineDefinition.model_validate(
-        {"nodes": nodes, "edges": edges}
     )
-    plan = compile_pipeline(
-        definition,
-        registry=default_node_registry(),
-        assets=assets,
+    document = AudioWorkflowDocument(
+        nodes=nodes,
+        edges=edges,
+        outputs=[
+            NamedOutputBinding(
+                name="primary_transcript",
+                source=NodeOutputRef(node_id="asr", port="transcripts"),
+            ),
+            NamedOutputBinding(
+                name="speech_started",
+                source=NodeOutputRef(node_id="physical-vad", port="speech_started"),
+            ),
+            NamedOutputBinding(
+                name="speech_stopped",
+                source=NodeOutputRef(node_id=stop_source, port="speech_stopped"),
+            ),
+            *(
+                [
+                    NamedOutputBinding(
+                        name="turn_progress",
+                        source=NodeOutputRef(
+                            node_id="semantic-vad",
+                            port="turn_progress",
+                        ),
+                    )
+                ]
+                if semantic_vad is not None
+                else []
+            ),
+        ],
     )
-    now = datetime.now(timezone.utc)
-    snapshot = ActivePipelineSnapshot(
-        definition=definition,
-        plan=plan,
+    workflow = ActiveAudioWorkflow(
+        id="default-audio",
+        database_revision_id=1,
         revision=1,
-        activated_at=now,
+        document=document,
+        plan=compile_audio_graph(document, assets=assets),
     )
-    return StaticEngineRouter(engines), StaticPipelineStore(snapshot)
+    return (
+        StaticInferencerPool(engines),
+        StaticAudioWorkflowService(workflow),
+        workflow,
+    )
