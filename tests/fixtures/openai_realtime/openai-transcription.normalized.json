@@ -1,0 +1,287 @@
+{
+  "schema_version": 1,
+  "source": {
+    "service": "OpenAI Realtime API",
+    "endpoint": "wss://api.openai.com/v1/realtime",
+    "transport": "websocket",
+    "sdk": {
+      "package": "openai",
+      "version": "2.50.0"
+    },
+    "server_events_validated": true
+  },
+  "capture": {
+    "kind": "transcription",
+    "model": "gpt-live-transcribe",
+    "query": {
+      "intent": "transcription"
+    },
+    "synthetic_audio": true,
+    "sample_rate": 24000
+  },
+  "normalization": {
+    "ids": "first-seen placeholders preserve equality and references",
+    "audio": "base64 payloads replaced in first-seen order",
+    "text": "natural-language payloads replaced in first-seen order",
+    "secrets": "credential-shaped fields always redacted"
+  },
+  "timeline": [
+    {
+      "sequence": 1,
+      "direction": "server",
+      "payload": {
+        "type": "session.created",
+        "event_id": "<event_id_1>",
+        "session": {
+          "type": "transcription",
+          "object": "realtime.transcription_session",
+          "id": "<session_id_1>",
+          "expires_at": 0,
+          "audio": {
+            "input": {
+              "format": {
+                "type": "audio/pcm",
+                "rate": 24000
+              },
+              "transcription": null,
+              "noise_reduction": null,
+              "turn_detection": {
+                "type": "server_vad",
+                "threshold": 0.5,
+                "prefix_padding_ms": 300,
+                "silence_duration_ms": 200
+              }
+            }
+          },
+          "include": null
+        }
+      }
+    },
+    {
+      "sequence": 2,
+      "direction": "client",
+      "payload": {
+        "type": "session.update",
+        "event_id": "<event_id_2>",
+        "session": {
+          "type": "transcription",
+          "audio": {
+            "input": {
+              "format": {
+                "type": "audio/pcm",
+                "rate": 24000
+              },
+              "transcription": {
+                "model": "gpt-live-transcribe"
+              },
+              "turn_detection": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 3,
+      "direction": "server",
+      "payload": {
+        "type": "session.updated",
+        "event_id": "<event_id_3>",
+        "session": {
+          "type": "transcription",
+          "object": "realtime.transcription_session",
+          "id": "<session_id_1>",
+          "expires_at": 0,
+          "audio": {
+            "input": {
+              "format": {
+                "type": "audio/pcm",
+                "rate": 24000
+              },
+              "transcription": {
+                "model": "gpt-live-transcribe",
+                "language": null,
+                "languages": null,
+                "prompt": null
+              },
+              "noise_reduction": null,
+              "turn_detection": null
+            }
+          },
+          "include": null
+        }
+      }
+    },
+    {
+      "sequence": 4,
+      "direction": "client",
+      "payload": {
+        "type": "input_audio_buffer.clear",
+        "event_id": "<event_id_4>"
+      }
+    },
+    {
+      "sequence": 5,
+      "direction": "server",
+      "payload": {
+        "type": "input_audio_buffer.cleared",
+        "event_id": "<event_id_5>"
+      }
+    },
+    {
+      "sequence": 6,
+      "direction": "client",
+      "payload": {
+        "type": "input_audio_buffer.append",
+        "event_id": "<event_id_6>",
+        "audio": "<audio_1>"
+      }
+    },
+    {
+      "sequence": 7,
+      "direction": "client",
+      "payload": {
+        "type": "input_audio_buffer.commit",
+        "event_id": "<event_id_7>"
+      }
+    },
+    {
+      "sequence": 8,
+      "direction": "server",
+      "payload": {
+        "type": "input_audio_buffer.committed",
+        "event_id": "<event_id_8>",
+        "previous_item_id": null,
+        "item_id": "<item_id_1>"
+      }
+    },
+    {
+      "sequence": 9,
+      "direction": "server",
+      "payload": {
+        "type": "conversation.item.added",
+        "event_id": "<event_id_9>",
+        "previous_item_id": null,
+        "item": {
+          "id": "<item_id_1>",
+          "type": "message",
+          "status": "completed",
+          "role": "user",
+          "content": [
+            {
+              "type": "input_audio",
+              "transcript": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "sequence": 10,
+      "direction": "server",
+      "payload": {
+        "type": "conversation.item.done",
+        "event_id": "<event_id_10>",
+        "previous_item_id": null,
+        "item": {
+          "id": "<item_id_1>",
+          "type": "message",
+          "status": "completed",
+          "role": "user",
+          "content": [
+            {
+              "type": "input_audio",
+              "transcript": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "sequence": 11,
+      "direction": "server",
+      "payload": {
+        "type": "conversation.item.input_audio_transcription.delta",
+        "event_id": "<event_id_11>",
+        "item_id": "<item_id_1>",
+        "content_index": 0,
+        "delta": "<text_1>",
+        "obfuscation": "<opaque_1>"
+      }
+    },
+    {
+      "sequence": 12,
+      "direction": "server",
+      "payload": {
+        "type": "conversation.item.input_audio_transcription.delta",
+        "event_id": "<event_id_12>",
+        "item_id": "<item_id_1>",
+        "content_index": 0,
+        "delta": "<text_2>",
+        "obfuscation": "<opaque_2>"
+      }
+    },
+    {
+      "sequence": 13,
+      "direction": "server",
+      "payload": {
+        "type": "conversation.item.input_audio_transcription.delta",
+        "event_id": "<event_id_13>",
+        "item_id": "<item_id_1>",
+        "content_index": 0,
+        "delta": "<text_3>",
+        "obfuscation": "<opaque_3>"
+      }
+    },
+    {
+      "sequence": 14,
+      "direction": "server",
+      "payload": {
+        "type": "conversation.item.input_audio_transcription.delta",
+        "event_id": "<event_id_14>",
+        "item_id": "<item_id_1>",
+        "content_index": 0,
+        "delta": "<text_4>",
+        "obfuscation": "<opaque_4>"
+      }
+    },
+    {
+      "sequence": 15,
+      "direction": "server",
+      "payload": {
+        "type": "conversation.item.input_audio_transcription.delta",
+        "event_id": "<event_id_15>",
+        "item_id": "<item_id_1>",
+        "content_index": 0,
+        "delta": "<text_5>",
+        "obfuscation": "<opaque_5>"
+      }
+    },
+    {
+      "sequence": 16,
+      "direction": "server",
+      "payload": {
+        "type": "conversation.item.input_audio_transcription.delta",
+        "event_id": "<event_id_16>",
+        "item_id": "<item_id_1>",
+        "content_index": 0,
+        "delta": "<text_6>",
+        "obfuscation": "<opaque_6>"
+      }
+    },
+    {
+      "sequence": 17,
+      "direction": "server",
+      "payload": {
+        "type": "conversation.item.input_audio_transcription.completed",
+        "event_id": "<event_id_17>",
+        "item_id": "<item_id_1>",
+        "content_index": 0,
+        "transcript": "<text_7>",
+        "usage": {
+          "type": "duration",
+          "seconds": 2
+        }
+      }
+    }
+  ]
+}

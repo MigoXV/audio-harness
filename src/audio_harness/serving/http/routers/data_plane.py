@@ -11,7 +11,10 @@ from openai.types.realtime import (
 from pydantic import ValidationError
 
 from audio_harness.domain import CapacityExceededError
-from audio_harness.serving.realtime import RealtimeTranscriptionService
+from audio_harness.serving.realtime import (
+    RealtimeConnectionMode,
+    RealtimeTranscriptionService,
+)
 from audio_harness.serving.webrtc import WebRtcCallService
 
 
@@ -35,17 +38,21 @@ def create_data_plane_router(
     @router.websocket("/v1/realtime")
     async def realtime_socket(
         websocket: WebSocket,
-        intent: str = Query(min_length=1),
+        intent: str | None = Query(default=None, min_length=1),
+        model: str | None = Query(default=None, min_length=1),
         diagnostics: bool = Query(default=False),
         x_aha: str | None = Query(default=None),
     ) -> None:
-        if intent != "transcription":
-            await websocket.close(code=4400, reason="Unsupported realtime intent")
-            return
-        if "model" in websocket.query_params:
+        if (intent is None) == (model is None):
             await websocket.close(
                 code=4400,
-                reason="model query parameter is not supported",
+                reason="Specify exactly one of intent or model",
+            )
+            return
+        if intent is not None and intent != "transcription":
+            await websocket.close(
+                code=4400,
+                reason="Unsupported realtime intent",
             )
             return
         if x_aha not in (None, "v1"):
@@ -53,6 +60,12 @@ def create_data_plane_router(
             return
         await realtime.handle(
             websocket,
+            mode=(
+                RealtimeConnectionMode.TRANSCRIPTION
+                if intent is not None
+                else RealtimeConnectionMode.REALTIME
+            ),
+            model=model,
             diagnostics_enabled=diagnostics,
             aha_version=x_aha,
         )

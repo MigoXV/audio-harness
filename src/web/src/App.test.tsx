@@ -179,14 +179,15 @@ describe("typed audio workflow control plane", () => {
     expect(await screen.findByRole("heading", { name: "发布当前草稿" })).toBeVisible();
     expect(screen.getByRole("button", { name: "编译并发布" })).toBeVisible();
     expect(screen.getByLabelText("语音智能体侧栏")).toBeVisible();
+    expect(screen.getByText("/v1/realtime?model=voice-helper")).toBeVisible();
+    expect(screen.getByText("/v1/realtime/calls?model=voice-helper")).toBeVisible();
 
     fireEvent.click(screen.getByRole("link", { name: /测试/ }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "编译并发布" })).not.toBeInTheDocument());
-    const ahaToggle = await screen.findByRole("checkbox", { name: "启用 AHA 扩展协议" });
     expect(screen.queryByLabelText("测试 model")).not.toBeInTheDocument();
-    expect(ahaToggle).toBeChecked();
-    fireEvent.click(ahaToggle);
-    expect(ahaToggle).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "WSS" })).toHaveClass("active");
+    expect(screen.getByRole("button", { name: "WSS" })).toBeEnabled();
+    expect(screen.getByRole("checkbox", { name: "启用 AHA 扩展协议" })).not.toBeChecked();
   });
 
   it("redirects the legacy voice agent publish route to access", async () => {

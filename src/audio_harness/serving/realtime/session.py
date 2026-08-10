@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 from collections import deque
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 from typing import cast
 from uuid import uuid4
 
 from openai.types.realtime import (
     ConversationItemCreateEvent,
-    ConversationItemCreatedEvent,
+    ConversationItemDeleteEvent,
+    ConversationItemRetrieveEvent,
+    ConversationItemTruncateEvent,
     ConversationItemInputAudioTranscriptionCompletedEvent,
     ConversationItemInputAudioTranscriptionDeltaEvent,
     ConversationItemInputAudioTranscriptionFailedEvent,
@@ -23,6 +26,7 @@ from openai.types.realtime import (
     InputAudioBufferCommitEvent,
     InputAudioBufferSpeechStartedEvent,
     InputAudioBufferSpeechStoppedEvent,
+    OutputAudioBufferClearEvent,
     RealtimeClientEvent,
     RealtimeConversationItemUserMessage,
     RealtimeError,
@@ -49,6 +53,9 @@ from audio_harness.domain import (
 )
 from audio_harness.capacity import ResizableConcurrencyLimiter
 from audio_harness.engines.pool import InferencerPool
+from audio_harness.serving.realtime.conversation import (
+    ConversationMutationError,
+)
 from audio_harness.serving.realtime.agent import (
     AudioClearer,
     AudioFinisher,
@@ -74,6 +81,7 @@ ENGINE_SAMPLE_RATE = 16_000
 
 EventSender = Callable[[Any], Awaitable[None]]
 AudioEventHandler = Callable[[InputAudioBufferAppendEvent], Awaitable[None]]
+_DEFAULT_TURN_DETECTION = object()
 
 
 def event_id() -> str:
@@ -84,34 +92,52 @@ def item_id() -> str:
     return f"item_{uuid4().hex}"
 
 
+def session_id() -> str:
+    return f"sess_{uuid4().hex}"
+
+
 def default_transcription_session(
     *,
     model: str,
     language: str,
     prefix_padding_ms: int,
+    session_identifier: str | None = None,
+    audio_format: dict[str, Any] | None = None,
+    turn_detection: dict[str, Any] | None | object = _DEFAULT_TURN_DETECTION,
 ) -> RealtimeTranscriptionSessionCreateRequest:
-    return RealtimeTranscriptionSessionCreateRequest.model_validate(
-        {
-            "type": "transcription",
-            "audio": {
-                "input": {
-                    "format": {
-                        "type": "audio/pcm",
-                        "rate": INPUT_SAMPLE_RATE,
-                    },
-                    "transcription": {
-                        "model": model,
-                        "language": language,
-                    },
-                    "turn_detection": {
-                        "type": "server_vad",
-                        "prefix_padding_ms": prefix_padding_ms,
-                        "create_response": False,
-                    },
-                }
-            },
+    if turn_detection is _DEFAULT_TURN_DETECTION:
+        effective_turn_detection: dict[str, Any] | None = {
+            "type": "server_vad",
+            "prefix_padding_ms": prefix_padding_ms,
+            "create_response": False,
         }
-    )
+    elif turn_detection is None:
+        effective_turn_detection = None
+    else:
+        effective_turn_detection = dict(cast(dict[str, Any], turn_detection))
+        if effective_turn_detection.get("type") == "server_vad":
+            effective_turn_detection.setdefault(
+                "prefix_padding_ms",
+                prefix_padding_ms,
+            )
+            effective_turn_detection["create_response"] = False
+    payload = {
+        "type": "transcription",
+        "id": session_identifier,
+        "object": "realtime.transcription_session",
+        "audio": {
+            "input": {
+                "format": audio_format
+                or {"type": "audio/pcm", "rate": INPUT_SAMPLE_RATE},
+                "transcription": {
+                    "model": model,
+                    "language": language,
+                },
+                "turn_detection": effective_turn_detection,
+            }
+        },
+    }
+    return RealtimeTranscriptionSessionCreateRequest.model_validate(payload)
 
 
 def session_values(
@@ -128,18 +154,7 @@ def session_values(
     if payload.get("type") != "transcription":
         raise ValueError("第一版只支持 transcription session")
     audio_input = (payload.get("audio") or {}).get("input") or {}
-    audio_format = audio_input.get("format")
-    if audio_format is not None and (
-        audio_format.get("type") != "audio/pcm"
-        or audio_format.get("rate", INPUT_SAMPLE_RATE) != INPUT_SAMPLE_RATE
-    ):
-        raise ValueError("第一版只支持 24 kHz audio/pcm")
-    turn_detection = audio_input.get("turn_detection", "__missing__")
-    if turn_detection != "__missing__" and (
-        not isinstance(turn_detection, dict)
-        or turn_detection.get("type") != "server_vad"
-    ):
-        raise ValueError("第一版只支持 server_vad 自动分段")
+    _transcription_audio_settings(session)
     transcription = audio_input.get("transcription") or {}
     requested_model = transcription.get("model")
     model = (
@@ -158,6 +173,39 @@ def session_values(
             else default_language
         )
     return model, language.strip()
+
+
+def _transcription_audio_settings(
+    session: RealtimeTranscriptionSessionCreateRequest,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    payload = session.model_dump(
+        mode="json",
+        exclude_none=False,
+        exclude_unset=True,
+    )
+    audio_input = (payload.get("audio") or {}).get("input") or {}
+    audio_format = audio_input.get("format") or {
+        "type": "audio/pcm",
+        "rate": INPUT_SAMPLE_RATE,
+    }
+    format_type = audio_format.get("type")
+    if format_type == "audio/pcm":
+        if audio_format.get("rate", INPUT_SAMPLE_RATE) != INPUT_SAMPLE_RATE:
+            raise ValueError("audio/pcm 只支持 24 kHz")
+        audio_format = {"type": "audio/pcm", "rate": INPUT_SAMPLE_RATE}
+    elif format_type in {"audio/pcmu", "audio/pcma"}:
+        audio_format = {"type": format_type}
+    else:
+        raise ValueError(f"不支持的输入音频格式: {format_type}")
+    turn_detection = audio_input.get("turn_detection", {"type": "server_vad"})
+    if turn_detection is not None and (
+        not isinstance(turn_detection, dict)
+        or turn_detection.get("type") not in {"server_vad", "semantic_vad"}
+    ):
+        raise ValueError(
+            "turn_detection 只支持 server_vad、semantic_vad 或 null"
+        )
+    return audio_format, turn_detection
 
 
 @dataclass
@@ -192,6 +240,8 @@ class RealtimeTranscriptionSession:
         clear_audio: AudioClearer | None = None,
         voice_resolver: VoiceResolver | None = None,
         finish_audio: AudioFinisher | None = None,
+        transport: Literal["websocket", "webrtc"] = "websocket",
+        session_identifier: str | None = None,
     ) -> None:
         self._send_event = send_event
         self._session_service = session_service
@@ -221,8 +271,15 @@ class RealtimeTranscriptionSession:
         self._reservation = reservation
         self._audio_event_handler = audio_event_handler
         self._aha_version = aha_version
+        self._transport = transport
+        self.session_id = session_identifier or session_id()
         self.model = model
         self.language = self._workflow_config.default_language_code
+        self._input_audio_format: dict[str, Any] = {
+            "type": "audio/pcm",
+            "rate": INPUT_SAMPLE_RATE,
+        }
+        self._turn_detection: dict[str, Any] | None = {"type": "server_vad"}
         if (
             initial_session is not None
             and isinstance(target, ActiveAudioWorkflow)
@@ -232,6 +289,10 @@ class RealtimeTranscriptionSession:
                 default_model=self.model,
                 default_language=self.language,
             )
+            (
+                self._input_audio_format,
+                self._turn_detection,
+            ) = _transcription_audio_settings(initial_session)
         self._agent: RealtimeAgentRuntime | None = None
         if isinstance(target, ActiveVoiceAgent):
             if inferencer_pool is None:
@@ -252,7 +313,7 @@ class RealtimeTranscriptionSession:
                 self._agent.update_options(
                     initial_session.model_dump(
                         mode="json",
-                        exclude_none=True,
+                        exclude_none=False,
                         exclude_unset=True,
                     )
                 )
@@ -261,9 +322,12 @@ class RealtimeTranscriptionSession:
             self.session = default_transcription_session(
                 model=self.model,
                 language=self.language,
+                session_identifier=self.session_id,
                 prefix_padding_ms=round(
                     self._physical_vad_config.speech_pre_roll_seconds * 1000
                 ),
+                audio_format=self._input_audio_format,
+                turn_detection=self._turn_detection,
             )
         self._transcription: AudioWorkflowSession | None = None
         self._session_context: Any | None = None
@@ -271,12 +335,28 @@ class RealtimeTranscriptionSession:
         self._active_item_id: str | None = None
         self._pending_items: deque[_TranscriptItem] = deque()
         self._previous_item_id: str | None = None
+        self._manual_audio_buffer = bytearray()
         self._audio_started = False
         self._closed = False
 
     @property
     def audio_started(self) -> bool:
         return self._audio_started
+
+    @property
+    def input_audio_format(self) -> dict[str, Any]:
+        if self._agent is not None:
+            return copy.deepcopy(self._agent.options.input_audio_format)
+        return copy.deepcopy(self._input_audio_format)
+
+    @property
+    def _manual_commit_enabled(self) -> bool:
+        turn_detection = (
+            self._agent.options.turn_detection
+            if self._agent is not None
+            else self._turn_detection
+        )
+        return turn_detection is None
 
     async def start(self) -> None:
         if self._agent is not None:
@@ -328,7 +408,18 @@ class RealtimeTranscriptionSession:
                     client_event_id=event.event_id,
                 )
             else:
-                await self._agent.interrupt(reason="client_cancelled")
+                try:
+                    await self._agent.interrupt(
+                        reason="client_cancelled",
+                        response_id=event.response_id,
+                    )
+                except ValueError as exc:
+                    await self.send_error(
+                        message=str(exc),
+                        code="response_cancel_not_active",
+                        client_event_id=event.event_id,
+                        param="response_id",
+                    )
             return
         if isinstance(event, ResponseCreateEvent):
             if self._agent is None:
@@ -337,6 +428,16 @@ class RealtimeTranscriptionSession:
                     code="unsupported_event",
                     client_event_id=event.event_id,
                 )
+            else:
+                try:
+                    await self._agent.create_response(event.response)
+                except ValueError as exc:
+                    await self.send_error(
+                        message=str(exc),
+                        code="invalid_response",
+                        client_event_id=event.event_id,
+                        param="response",
+                    )
             return
         if isinstance(event, ConversationItemCreateEvent):
             if self._agent is None:
@@ -348,34 +449,175 @@ class RealtimeTranscriptionSession:
                 return
             item = event.item
             try:
+                add_to_conversation = True
                 if item.type == "function_call_output":
-                    await self._agent.submit_function_output(
+                    add_to_conversation = await self._agent.submit_function_output(
                         item.call_id,
                         item.output,
                     )
                 elif item.type == "mcp_approval_response":
-                    await self._agent.submit_mcp_approval(
+                    add_to_conversation = await self._agent.submit_mcp_approval(
                         item.approval_request_id,
                         item.approve,
                     )
-                else:
-                    raise ValueError(
-                        "语音智能体仅接受 function_call_output 或 MCP 审批"
-                    )
+                if not add_to_conversation:
+                    return
+                created, previous = self._agent.create_conversation_item(
+                    item,
+                    previous_item_id=event.previous_item_id,
+                )
+                await self._send_event(
+                    {
+                        "type": "conversation.item.added",
+                        "event_id": event_id(),
+                        "previous_item_id": previous,
+                        "item": created,
+                    }
+                )
+                await self._send_event(
+                    {
+                        "type": "conversation.item.done",
+                        "event_id": event_id(),
+                        "previous_item_id": None,
+                        "item": created,
+                    }
+                )
+            except (ConversationMutationError, ValueError) as exc:
+                await self.send_error(
+                    message=str(exc),
+                    code=getattr(
+                        exc,
+                        "code",
+                        "invalid_conversation_item",
+                    ),
+                    client_event_id=event.event_id,
+                    param=getattr(exc, "param", "item"),
+                )
+            return
+        if isinstance(event, ConversationItemRetrieveEvent):
+            if self._agent is None:
+                await self.send_error(
+                    message="转写工作流不支持 conversation item 操作",
+                    code="unsupported_event",
+                    client_event_id=event.event_id,
+                )
+                return
+            try:
+                item = self._agent.retrieve_conversation_item(event.item_id)
+                await self._send_event(
+                    {
+                        "type": "conversation.item.retrieved",
+                        "event_id": event_id(),
+                        "item": item,
+                    }
+                )
+            except ConversationMutationError as exc:
+                await self.send_error(
+                    message=str(exc),
+                    code=exc.code,
+                    client_event_id=event.event_id,
+                    param=exc.param,
+                )
+            return
+        if isinstance(event, ConversationItemDeleteEvent):
+            if self._agent is None:
+                await self.send_error(
+                    message="转写工作流不支持 conversation item 操作",
+                    code="unsupported_event",
+                    client_event_id=event.event_id,
+                )
+                return
+            try:
+                self._agent.delete_conversation_item(event.item_id)
+                await self._send_event(
+                    {
+                        "type": "conversation.item.deleted",
+                        "event_id": event_id(),
+                        "item_id": event.item_id,
+                    }
+                )
+            except ConversationMutationError as exc:
+                await self.send_error(
+                    message=str(exc),
+                    code=exc.code,
+                    client_event_id=event.event_id,
+                    param=exc.param,
+                )
+            return
+        if isinstance(event, ConversationItemTruncateEvent):
+            if self._agent is None:
+                await self.send_error(
+                    message="转写工作流不支持 conversation item 操作",
+                    code="unsupported_event",
+                    client_event_id=event.event_id,
+                )
+                return
+            try:
+                self._agent.truncate_conversation_item(
+                    event.item_id,
+                    content_index=event.content_index,
+                    audio_end_ms=event.audio_end_ms,
+                )
+                await self._send_event(
+                    {
+                        "type": "conversation.item.truncated",
+                        "event_id": event_id(),
+                        "item_id": event.item_id,
+                        "content_index": event.content_index,
+                        "audio_end_ms": event.audio_end_ms,
+                    }
+                )
+            except ConversationMutationError as exc:
+                await self.send_error(
+                    message=str(exc),
+                    code=exc.code,
+                    client_event_id=event.event_id,
+                    param=exc.param,
+                )
+            return
+        if isinstance(event, OutputAudioBufferClearEvent):
+            if self._transport != "webrtc" or self._agent is None:
+                await self.send_error(
+                    message=(
+                        "output_audio_buffer.clear 仅支持 WebRTC 或 SIP 连接"
+                    ),
+                    code="invalid_value",
+                    client_event_id=event.event_id,
+                    param="type",
+                )
+                return
+            try:
+                response_id = await self._agent.clear_output_audio()
             except ValueError as exc:
                 await self.send_error(
                     message=str(exc),
-                    code="invalid_conversation_item",
+                    code="invalid_value",
                     client_event_id=event.event_id,
+                    param="type",
                 )
+                return
+            await self._send_event(
+                {
+                    "type": "output_audio_buffer.cleared",
+                    "event_id": event_id(),
+                    "response_id": response_id,
+                }
+            )
             return
         if isinstance(event, InputAudioBufferCommitEvent):
-            await self.send_error(
-                message="第一版仅支持 server_vad 自动提交",
-                code="unsupported_manual_commit",
-                client_event_id=event.event_id,
-                param="type",
-            )
+            if not self._audio_started:
+                await self.send_error(
+                    message="输入音频缓冲区为空",
+                    code="input_audio_buffer_commit_empty",
+                    client_event_id=event.event_id,
+                    param="type",
+                )
+                return
+            if self._manual_commit_enabled:
+                await self._commit_manual_audio()
+            else:
+                await self._finish_workflow(send_results=True)
+            self._audio_started = False
             return
         await self.send_error(
             message=f"第一版不支持客户端事件: {event.type}",
@@ -391,17 +633,17 @@ class RealtimeTranscriptionSession:
             raise ValueError("PCM S16LE 音频字节数必须为偶数")
         if not audio:
             return
+        self._audio_started = True
+        if self._manual_commit_enabled:
+            self._manual_audio_buffer.extend(audio)
+            return
         if self._workflow_task is None:
             await self._start_workflow()
         assert self._transcription is not None
-        self._audio_started = True
         await self._transcription.append(audio)
 
     async def finish_audio(self) -> None:
-        if self._transcription is not None:
-            await self._transcription.finish()
-        if self._workflow_task is not None:
-            await self._workflow_task
+        await self._finish_workflow(send_results=True)
 
     async def send_error(
         self,
@@ -426,37 +668,58 @@ class RealtimeTranscriptionSession:
         )
 
     async def reset(self) -> None:
-        if self._agent is not None:
-            await self._agent.interrupt(reason="input_audio_buffer.clear")
-        await self._finish_workflow(send_results=False)
-        self._active_item_id = None
-        self._pending_items.clear()
-        self._audio_started = False
+        try:
+            await self._finish_workflow(send_results=False)
+        finally:
+            self._active_item_id = None
+            self._pending_items.clear()
+            self._manual_audio_buffer.clear()
+            self._audio_started = False
 
     async def close(self) -> None:
         if self._closed:
             return
         self._closed = True
-        if self._agent is not None:
-            await self._agent.close()
-        await self._finish_workflow(send_results=False)
+        try:
+            if self._agent is not None:
+                await self._agent.close()
+        finally:
+            self._manual_audio_buffer.clear()
+            await self._finish_workflow(send_results=False)
+
+    async def _commit_manual_audio(self) -> None:
+        audio = bytes(self._manual_audio_buffer)
+        self._manual_audio_buffer.clear()
+        committed_item = _TranscriptItem(
+            item_id=item_id(),
+            start_sample=0,
+            end_sample=len(audio) // 2,
+        )
+        await self._emit_committed_item(committed_item)
+        await self._start_workflow()
+        assert self._transcription is not None
+        await self._transcription.append(audio)
+        await self._finish_workflow(send_results=True)
+        self._active_item_id = None
+
+        if self._pending_items and self._pending_items[0] is committed_item:
+            await self._emit_completed_transcription(committed_item, "")
+            self._pending_items.popleft()
 
     async def _handle_session_update(self, event: SessionUpdateEvent) -> None:
-        if self._audio_started and self._agent is None:
-            await self.send_error(
-                message="音频开始后不能修改转写会话",
-                code="session_update_after_audio",
-                client_event_id=event.event_id,
-                param="session",
-            )
-            return
         if self._agent is not None:
             try:
                 payload = event.session.model_dump(
                     mode="json",
-                    exclude_none=True,
+                    exclude_none=False,
                     exclude_unset=True,
                 )
+                requested_model = payload.get("model")
+                if (
+                    requested_model is not None
+                    and requested_model != self.model
+                ):
+                    raise ValueError("session model 在建连后不可修改")
                 self._agent.update_options(payload)
                 self.session = self._agent.session_document(model=self.model)
             except ValueError as exc:
@@ -483,10 +746,13 @@ class RealtimeTranscriptionSession:
                     exclude_unset=True,
                 )
             )
-            self.model, self.language = session_values(
+            model, language = session_values(
                 requested,
                 default_model=self.model,
                 default_language=self.language,
+            )
+            input_audio_format, turn_detection = _transcription_audio_settings(
+                requested
             )
         except ValueError as exc:
             await self.send_error(
@@ -496,12 +762,32 @@ class RealtimeTranscriptionSession:
                 param="session",
             )
             return
+        if self._audio_started and (
+            model != self.model or input_audio_format != self._input_audio_format
+        ):
+            await self.send_error(
+                message=(
+                    "收到音频后必须先清空或显式提交输入缓冲区，"
+                    "才能修改音频格式或转写模型"
+                ),
+                code="session_update_after_audio",
+                client_event_id=event.event_id,
+                param="session",
+            )
+            return
+        self.model = model
+        self.language = language
+        self._input_audio_format = input_audio_format
+        self._turn_detection = turn_detection
         self.session = default_transcription_session(
             model=self.model,
             language=self.language,
+            session_identifier=self.session_id,
             prefix_padding_ms=round(
                 self._physical_vad_config.speech_pre_roll_seconds * 1000
             ),
+            audio_format=self._input_audio_format,
+            turn_detection=self._turn_detection,
         )
         await self._send_event(
             SessionUpdatedEvent(
@@ -576,6 +862,7 @@ class RealtimeTranscriptionSession:
         if output_name == "turn_progress":
             if (
                 self._aha_version == "v1"
+                and not self._manual_commit_enabled
                 and isinstance(event, TranscriptionResult)
                 and not event.turn_completed
             ):
@@ -600,9 +887,18 @@ class RealtimeTranscriptionSession:
         if isinstance(event, SpeechStarted):
             if self._active_item_id is not None:
                 return
-            if self._agent is not None:
-                await self._agent.interrupt(reason="speech_started")
+            interrupt_response = (
+                self._agent is not None
+                and self._agent.active_response_id is not None
+                and self._agent.options.turn_detection is not None
+                and self._agent.options.turn_detection.get(
+                    "interrupt_response",
+                    True,
+                )
+            )
             self._active_item_id = item_id()
+            if self._manual_commit_enabled:
+                return
             await self._send_event(
                 InputAudioBufferSpeechStartedEvent(
                     audio_start_ms=round(
@@ -613,10 +909,15 @@ class RealtimeTranscriptionSession:
                     type="input_audio_buffer.speech_started",
                 )
             )
+            if interrupt_response:
+                assert self._agent is not None
+                await self._agent.interrupt(reason="turn_detected")
             return
         if isinstance(event, SpeechStopped):
             current_item_id = self._active_item_id or item_id()
             self._active_item_id = None
+            if self._manual_commit_enabled:
+                return
             item = _TranscriptItem(
                 item_id=current_item_id,
                 start_sample=event.start_sample,
@@ -633,40 +934,17 @@ class RealtimeTranscriptionSession:
                     type="input_audio_buffer.speech_stopped",
                 )
             )
-            await self._send_event(
-                InputAudioBufferCommittedEvent(
-                    event_id=event_id(),
-                    item_id=current_item_id,
-                    previous_item_id=self._previous_item_id,
-                    type="input_audio_buffer.committed",
-                )
-            )
-            await self._send_event(
-                ConversationItemCreatedEvent(
-                    event_id=event_id(),
-                    item=RealtimeConversationItemUserMessage(
-                        content=[{"type": "input_audio"}],
-                        id=current_item_id,
-                        object="realtime.item",
-                        role="user",
-                        status="in_progress",
-                        type="message",
-                    ),
-                    previous_item_id=self._previous_item_id,
-                    type="conversation.item.created",
-                )
-            )
-            self._previous_item_id = current_item_id
+            await self._emit_committed_item(item, append_pending=False)
             return
         if not isinstance(event, TranscriptionResult):
             return
         if not self._pending_items:
-            self._pending_items.append(
+            await self._emit_committed_item(
                 _TranscriptItem(
                     item_id=item_id(),
                     start_sample=event.start_sample,
                     end_sample=event.end_sample,
-                )
+                ),
             )
         item = self._pending_items[0]
         delta = (
@@ -690,49 +968,127 @@ class RealtimeTranscriptionSession:
                 )
             )
         if event.is_final:
-            await self._send_event(
-                ConversationItemInputAudioTranscriptionCompletedEvent(
-                    content_index=0,
-                    event_id=event_id(),
-                    item_id=item.item_id,
-                    transcript=event.transcript,
-                    type=(
-                        "conversation.item."
-                        "input_audio_transcription.completed"
-                    ),
-                    usage=UsageTranscriptTextUsageDuration(
-                        seconds=(
-                            event.end_sample - event.start_sample
-                        )
-                        / event.sample_rate,
-                        type="duration",
-                    ),
-                    languages=None,
-                    logprobs=None,
-                )
+            await self._emit_completed_transcription(
+                item,
+                event.transcript,
+                sample_rate=event.sample_rate,
             )
             self._pending_items.popleft()
             if self._agent is not None and event.transcript.strip():
-                await self._agent.respond(
+                self._agent.add_transcribed_audio(
+                    item.item_id,
                     event.transcript,
-                    input_item_id=item.item_id,
                 )
+                turn_detection = self._agent.options.turn_detection
+                if turn_detection is not None and turn_detection.get(
+                    "create_response",
+                    True,
+                ):
+                    await self._agent.respond(
+                        event.transcript,
+                        input_item_id=item.item_id,
+                    )
+
+    async def _emit_committed_item(
+        self,
+        item: _TranscriptItem,
+        *,
+        append_pending: bool = True,
+    ) -> None:
+        if append_pending:
+            self._pending_items.append(item)
+        previous_item_id = self._previous_item_id
+        await self._send_event(
+            InputAudioBufferCommittedEvent(
+                event_id=event_id(),
+                item_id=item.item_id,
+                previous_item_id=previous_item_id,
+                type="input_audio_buffer.committed",
+            )
+        )
+        realtime_item = RealtimeConversationItemUserMessage(
+            content=[{"type": "input_audio"}],
+            id=item.item_id,
+            object="realtime.item",
+            role="user",
+            status="completed",
+            type="message",
+        ).model_dump(mode="json", exclude_none=True)
+        await self._send_event(
+            {
+                "event_id": event_id(),
+                "item": realtime_item,
+                "previous_item_id": previous_item_id,
+                "type": "conversation.item.added",
+            }
+        )
+        await self._send_event(
+            {
+                "event_id": event_id(),
+                "item": realtime_item,
+                "previous_item_id": None,
+                "type": "conversation.item.done",
+            }
+        )
+        self._previous_item_id = item.item_id
+
+    async def _emit_completed_transcription(
+        self,
+        item: _TranscriptItem,
+        transcript: str,
+        *,
+        sample_rate: int = ENGINE_SAMPLE_RATE,
+    ) -> None:
+        await self._send_event(
+            ConversationItemInputAudioTranscriptionCompletedEvent(
+                content_index=0,
+                event_id=event_id(),
+                item_id=item.item_id,
+                transcript=transcript,
+                type=(
+                    "conversation.item.input_audio_transcription.completed"
+                ),
+                usage=UsageTranscriptTextUsageDuration(
+                    seconds=(item.end_sample - item.start_sample) / sample_rate,
+                    type="duration",
+                ),
+                languages=None,
+                logprobs=None,
+            )
+        )
 
     async def _finish_workflow(self, *, send_results: bool) -> None:
         task = self._workflow_task
         if task is None:
             return
-        if self._transcription is not None:
-            await self._transcription.finish()
-        if send_results:
-            await task
-        else:
-            task.cancel()
+        failure: BaseException | None = None
+        try:
+            if self._transcription is not None:
+                await self._transcription.finish()
+            if send_results:
+                await task
+        except BaseException as exc:
+            failure = exc
+        finally:
+            if not task.done():
+                task.cancel()
             await asyncio.gather(task, return_exceptions=True)
-        if self._session_context is not None:
-            await self._session_context.__aexit__(None, None, None)
-        elif self._reservation is not None:
-            await self._reservation.close_session()
-        self._workflow_task = None
-        self._session_context = None
-        self._transcription = None
+            try:
+                if self._session_context is not None:
+                    await self._session_context.__aexit__(None, None, None)
+                elif self._reservation is not None:
+                    await self._reservation.close_session()
+            except BaseException as exc:
+                if failure is None:
+                    failure = exc
+                else:
+                    logger.error(
+                        "Realtime 工作流失败后的资源释放也发生异常",
+                        exc_info=(type(exc), exc, exc.__traceback__),
+                    )
+            finally:
+                self._workflow_task = None
+                self._session_context = None
+                self._transcription = None
+        if failure is not None:
+            raise failure

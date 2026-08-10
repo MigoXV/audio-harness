@@ -22,10 +22,12 @@ from audio_harness.domain import (
     VadUpdate,
 )
 from audio_harness.serving.realtime.connection import (
+    RealtimeConnectionMode,
     RealtimeTranscriptionService,
     _OnlinePcmResampler,
 )
 from audio_harness.serving.http.routers.data_plane import create_data_plane_router
+from audio_harness.serving.realtime.conversation import encode_wire_audio
 from audio_harness.sessions import AudioWorkflowSessionService
 from audio_harness.workflow_settings import WorkflowSettingsSnapshot
 from tests.graph_fakes import StaticRouteService, static_audio_workflow
@@ -188,6 +190,7 @@ def configure_transcription(websocket, *, event_id: str = "client-session"):
     )
     updated = receive_official_event(websocket)
     assert updated.type == "session.updated"
+    assert updated.session.id is not None
     return updated
 
 
@@ -202,6 +205,16 @@ class _UnexpectedDataPlaneService:
         raise AssertionError("不应调用 hangup")
 
 
+class _RecordingRealtimeService:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    async def handle(self, websocket: WebSocket, **kwargs) -> None:
+        self.calls.append(kwargs)
+        await websocket.accept()
+        await websocket.close()
+
+
 def test_realtime_does_not_require_bearer_token() -> None:
     with TestClient(build_app()) as client:
         with client.websocket_connect(
@@ -210,6 +223,62 @@ def test_realtime_does_not_require_bearer_token() -> None:
             created = receive_official_event(websocket)
             assert created.type == "session.created"
             assert created.session.type == "transcription"
+
+
+def test_realtime_model_handshake_selects_ordinary_realtime_mode() -> None:
+    app = FastAPI()
+    realtime = _RecordingRealtimeService()
+    app.include_router(
+        create_data_plane_router(
+            realtime=realtime,  # type: ignore[arg-type]
+            webrtc=_UnexpectedDataPlaneService(),  # type: ignore[arg-type]
+            max_message_bytes=1024,
+        )
+    )
+
+    with TestClient(app) as client:
+        with client.websocket_connect(
+            "/v1/realtime?model=public-voice-agent"
+        ) as websocket:
+            with pytest.raises(WebSocketDisconnect):
+                websocket.receive_json()
+
+    assert realtime.calls == [
+        {
+            "mode": RealtimeConnectionMode.REALTIME,
+            "model": "public-voice-agent",
+            "diagnostics_enabled": False,
+            "aha_version": None,
+        }
+    ]
+
+
+def test_realtime_model_handshake_forwards_explicit_x_aha() -> None:
+    app = FastAPI()
+    realtime = _RecordingRealtimeService()
+    app.include_router(
+        create_data_plane_router(
+            realtime=realtime,  # type: ignore[arg-type]
+            webrtc=_UnexpectedDataPlaneService(),  # type: ignore[arg-type]
+            max_message_bytes=1024,
+        )
+    )
+
+    with TestClient(app) as client:
+        with client.websocket_connect(
+            "/v1/realtime?model=public-voice-agent&x_aha=v1"
+        ) as websocket:
+            with pytest.raises(WebSocketDisconnect):
+                websocket.receive_json()
+
+    assert realtime.calls == [
+        {
+            "mode": RealtimeConnectionMode.REALTIME,
+            "model": "public-voice-agent",
+            "diagnostics_enabled": False,
+            "aha_version": "v1",
+        }
+    ]
 
 
 def test_realtime_requires_model_in_first_session_update() -> None:
@@ -248,10 +317,108 @@ def test_realtime_requires_model_in_first_session_update() -> None:
             configure_transcription(websocket, event_id="retry-with-model")
 
 
+def test_realtime_malformed_json_returns_error_and_keeps_connection_open() -> None:
+    with TestClient(build_app()) as client:
+        with client.websocket_connect(
+            "/v1/realtime?intent=transcription"
+        ) as websocket:
+            assert receive_official_event(websocket).type == "session.created"
+            websocket.send_text("{")
+
+            error = receive_official_event(websocket)
+            assert error.type == "error"
+            assert error.error.code == "invalid_event"
+            configure_transcription(websocket)
+
+
+def test_realtime_rejects_session_update_with_resampler_audio_pending() -> None:
+    with TestClient(build_app()) as client:
+        with client.websocket_connect(
+            "/v1/realtime?intent=transcription"
+        ) as websocket:
+            assert receive_official_event(websocket).type == "session.created"
+            configure_transcription(websocket)
+            websocket.send_json(
+                {
+                    "type": "input_audio_buffer.append",
+                    "audio": base64.b64encode(b"\0\0").decode("ascii"),
+                }
+            )
+            websocket.send_json(
+                {
+                    "type": "session.update",
+                    "event_id": "update-with-pending-audio",
+                    "session": {
+                        "type": "transcription",
+                        "audio": {
+                            "input": {
+                                "transcription": {
+                                    "model": "gpt-4o-transcribe"
+                                },
+                                "format": {"type": "audio/pcmu"},
+                            }
+                        },
+                    },
+                }
+            )
+
+            error = receive_official_event(websocket)
+            assert error.type == "error"
+            assert error.error.code == "session_update_after_audio"
+            websocket.send_json({"type": "input_audio_buffer.clear"})
+            assert receive_official_event(websocket).type == (
+                "input_audio_buffer.cleared"
+            )
+
+
+def test_realtime_allows_safe_session_update_with_resampler_audio_pending() -> None:
+    with TestClient(build_app()) as client:
+        with client.websocket_connect(
+            "/v1/realtime?intent=transcription"
+        ) as websocket:
+            assert receive_official_event(websocket).type == "session.created"
+            configure_transcription(websocket)
+            websocket.send_json(
+                {
+                    "type": "input_audio_buffer.append",
+                    "audio": base64.b64encode(b"\0\0").decode("ascii"),
+                }
+            )
+            websocket.send_json(
+                {
+                    "type": "session.update",
+                    "event_id": "safe-update-with-pending-audio",
+                    "session": {
+                        "type": "transcription",
+                        "audio": {
+                            "input": {
+                                "transcription": {
+                                    "model": "gpt-4o-transcribe",
+                                    "language": "en-US",
+                                },
+                                "format": {
+                                    "type": "audio/pcm",
+                                    "rate": 24_000,
+                                },
+                            }
+                        },
+                    },
+                }
+            )
+
+            updated = receive_official_event(websocket)
+            assert updated.type == "session.updated"
+            assert updated.session.audio.input.transcription.language == "en-US"
+            websocket.send_json({"type": "input_audio_buffer.clear"})
+            assert receive_official_event(websocket).type == (
+                "input_audio_buffer.cleared"
+            )
+
+
 @pytest.mark.parametrize(
     "query",
     [
-        "model=gpt-4o-transcribe",
+        "",
         "intent=realtime",
         "intent=transcription&model=gpt-4o-transcribe",
     ],
@@ -314,13 +481,14 @@ def test_realtime_server_vad_event_sequence_uses_sdk_models() -> None:
                 _SERVER_EVENT_ADAPTER.validate_python(
                     websocket.receive_json()
                 )
-                for _ in range(6)
+                for _ in range(7)
             ]
             assert [event.type for event in events] == [
                 "input_audio_buffer.speech_started",
                 "input_audio_buffer.speech_stopped",
                 "input_audio_buffer.committed",
-                "conversation.item.created",
+                "conversation.item.added",
+                "conversation.item.done",
                 "conversation.item.input_audio_transcription.delta",
                 "conversation.item.input_audio_transcription.completed",
             ]
@@ -331,6 +499,30 @@ def test_realtime_server_vad_event_sequence_uses_sdk_models() -> None:
             }
             assert len(item_ids) == 1
             assert events[-1].transcript == "你好，世界"
+            websocket.send_json(
+                {
+                    "type": "session.update",
+                    "event_id": "safe-update-after-server-vad",
+                    "session": {
+                        "type": "transcription",
+                        "audio": {
+                            "input": {
+                                "format": {
+                                    "type": "audio/pcm",
+                                    "rate": 24_000,
+                                },
+                                "transcription": {
+                                    "model": "gpt-4o-transcribe",
+                                    "language": "en-US",
+                                },
+                            }
+                        },
+                    },
+                }
+            )
+            updated = receive_official_event(websocket)
+            assert updated.type == "session.updated"
+            assert updated.session.audio.input.transcription.language == "en-US"
 
 
 def test_realtime_x_aha_reports_pending_semantic_turn() -> None:
@@ -351,14 +543,15 @@ def test_realtime_x_aha_reports_pending_semantic_turn() -> None:
                     "audio": base64.b64encode(audio).decode("ascii"),
                 }
             )
-            events = [websocket.receive_json() for _ in range(7)]
+            events = [websocket.receive_json() for _ in range(8)]
 
     assert [event["type"] for event in events] == [
         "input_audio_buffer.speech_started",
         "x_aha.vad.physical_speech_stopped",
         "input_audio_buffer.speech_stopped",
         "input_audio_buffer.committed",
-        "conversation.item.created",
+        "conversation.item.added",
+        "conversation.item.done",
         "conversation.item.input_audio_transcription.delta",
         "conversation.item.input_audio_transcription.completed",
     ]
@@ -391,14 +584,14 @@ def test_realtime_native_client_does_not_receive_x_aha_events() -> None:
                     "audio": base64.b64encode(audio).decode("ascii"),
                 }
             )
-            events = [receive_official_event(websocket) for _ in range(6)]
+            events = [receive_official_event(websocket) for _ in range(7)]
 
     assert all(not event.type.startswith("x_aha.") for event in events)
     assert events[0].type == "input_audio_buffer.speech_started"
     assert events[1].type == "input_audio_buffer.speech_stopped"
 
 
-def test_realtime_rejects_manual_commit_without_closing_connection() -> None:
+def test_realtime_rejects_empty_manual_commit_without_closing_connection() -> None:
     with TestClient(build_app()) as client:
         with client.websocket_connect(
             "/v1/realtime?intent=transcription",
@@ -414,13 +607,69 @@ def test_realtime_rejects_manual_commit_without_closing_connection() -> None:
             )
             error = receive_official_event(websocket)
             assert error.type == "error"
-            assert error.error.code == "unsupported_manual_commit"
+            assert error.error.code == "input_audio_buffer_commit_empty"
 
             websocket.send_json({"type": "input_audio_buffer.clear"})
             assert (
                 receive_official_event(websocket).type
                 == "input_audio_buffer.cleared"
             )
+
+
+def test_realtime_manual_commit_finishes_buffer_when_vad_is_disabled() -> None:
+    with TestClient(build_app()) as client:
+        with client.websocket_connect(
+            "/v1/realtime?intent=transcription"
+        ) as websocket:
+            assert receive_official_event(websocket).type == "session.created"
+            websocket.send_json(
+                {
+                    "type": "session.update",
+                    "event_id": "manual-session",
+                    "session": {
+                        "type": "transcription",
+                        "audio": {
+                            "input": {
+                                "format": {
+                                    "type": "audio/pcm",
+                                    "rate": 24_000,
+                                },
+                                "transcription": {
+                                    "model": "gpt-4o-transcribe",
+                                    "language": "zh-CN",
+                                },
+                                "turn_detection": None,
+                            }
+                        },
+                    },
+                }
+            )
+            updated = receive_official_event(websocket)
+            assert updated.type == "session.updated"
+            assert updated.session.audio.input.turn_detection is None
+
+            audio = np.zeros(24_000, dtype="<i2").tobytes()
+            websocket.send_json(
+                {
+                    "type": "input_audio_buffer.append",
+                    "audio": base64.b64encode(audio).decode("ascii"),
+                }
+            )
+            websocket.send_json(
+                {
+                    "type": "input_audio_buffer.commit",
+                    "event_id": "manual-commit",
+                }
+            )
+            events = [receive_official_event(websocket) for _ in range(5)]
+
+    assert [event.type for event in events] == [
+        "input_audio_buffer.committed",
+        "conversation.item.added",
+        "conversation.item.done",
+        "conversation.item.input_audio_transcription.delta",
+        "conversation.item.input_audio_transcription.completed",
+    ]
 
 
 def test_soxr_online_resampler_preserves_one_second_duration() -> None:
@@ -433,3 +682,19 @@ def test_soxr_online_resampler_preserves_one_second_duration() -> None:
 
     assert sum(map(len, chunks)) // 2 == 16_000
     assert all(len(chunk) <= 6400 for chunk in chunks)
+
+
+@pytest.mark.parametrize("format_type", ["audio/pcmu", "audio/pcma"])
+def test_online_resampler_supports_g711_input(format_type: str) -> None:
+    resampler = _OnlinePcmResampler(
+        chunk_bytes=6400,
+        format_type=format_type,
+        input_sample_rate=8_000,
+    )
+    pcm = np.zeros(8_000, dtype="<i2").tobytes()
+    wire_audio = encode_wire_audio(pcm, format_type=format_type)
+
+    chunks = resampler.append(wire_audio)
+    chunks.extend(resampler.finish())
+
+    assert sum(map(len, chunks)) // 2 == 16_000

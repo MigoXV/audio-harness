@@ -140,15 +140,22 @@ poetry run audio-harness serve
 
 - gRPC `UxSpeech.StreamingRecognize`
 - 纯转写 WebSocket `/v1/realtime?intent=transcription`；转写模型在后续
-  `session.update.audio.input.transcription.model` 中指定
-- WebRTC `POST /v1/realtime/calls`
+  `session.update.audio.input.transcription.model` 中指定，可显式协商 `x_aha=v1`
+- 语音智能体 WebSocket `/v1/realtime?model=<public-active-route>`；`model`
+  必须是指向已激活语音智能体的公开 Realtime Route，也可显式协商
+  `x_aha=v1`
+- WebRTC `POST /v1/realtime/calls?model=...`
+
+WebSocket 建连时必须在 `intent=transcription` 和 `model=...` 中二选一；
+缺失、并用或传入未发布的路由都会在建连阶段被拒绝。
 
 ### x_aha Realtime 扩展
 
-默认情况下，WebSocket 与 WebRTC 只发送 OpenAI Realtime 原生事件。专用客户端可在
-建连查询参数中传入 `x_aha=v1`，启用版本化的 `x_aha.*` 扩展事件。WebSocket 不再接受
-`model` 查询参数，只接受 `intent=transcription`；不支持的 intent 或扩展版本会在建连
-阶段被拒绝。
+默认情况下，WebSocket 与 WebRTC 只发送 OpenAI Realtime 原生事件。
+纯转写和语音智能体会话都可以在建连时显式传入 `x_aha=v1`，启用版本化的
+`x_aha.*` 扩展事件。不支持的扩展版本会被拒绝。扩展只追加观测信息，
+不会替换、删减或改写 OpenAI Realtime 原生事件；未协商扩展时，服务端不会
+发送 `x_aha.*`、`audio_harness.*` 或其他私有事件。
 
 当物理 VAD 已结束、语义 VAD 仍认为用户轮次未完成时，服务端发送：
 
@@ -165,8 +172,11 @@ poetry run audio-harness serve
 
 该 `item_id` 与本轮标准 `input_audio_buffer.speech_started` 及最终的
 `input_audio_buffer.speech_stopped` 相同。Python SDK 客户端可使用
-`extra_query={"x_aha": "v1"}` 协商扩展；完整示例见
-`examples/openai_realtime_python_demo`。
+`extra_query={"intent": "transcription", "x_aha": "v1"}` 协商转写扩展，
+或使用 `extra_query={"model": "<route>", "x_aha": "v1"}` 协商语音智能体
+扩展。启用后应按原始 JSON 分派 `x_aha.*`，再使用 SDK 类型处理原生事件。
+完整转写示例见 `examples/openai_realtime_python_demo`；语音智能体 Demo 刻意不
+协商扩展，用于验证默认原生协议兼容性。
 
 ## OpenAPI 与前端类型
 
@@ -192,3 +202,13 @@ pnpm build
 ```
 
 Python 测试覆盖编译诊断、typed DAG 流式执行、取消传播、发布快照、乐观锁、语音智能体组合、数据库基线以及 gRPC、Realtime、WebRTC 协议行为。前端测试覆盖 API 客户端、主要页面和端口型 DAG 编辑器入口。
+
+需要重新校准 OpenAI Realtime 实网行为时，可运行：
+
+```bash
+poetry run python scripts/capture_openai_realtime.py --mode all
+```
+
+脚本只静态读取进程环境或项目 `.env` 中的 `OPENAI_API_KEY`，不会执行配置文件；
+测试音频由 ffmpeg/flite 现场合成。原始 JSONL 仅写入 `/tmp` 或 Git 已忽略目录，
+归一化 fixture 会去除标识、文本和音频内容，并用当前 OpenAI SDK 校验每个服务端事件。
