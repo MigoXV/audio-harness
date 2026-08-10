@@ -145,9 +145,9 @@ def serve(
         None,
         "--grpc-port",
         envvar="GRPC_PORT",
-        min=1,
+        min=0,
         max=65535,
-        help="覆盖 gRPC 监听端口。",
+        help="覆盖 gRPC 监听端口；设为 0 时自动选择空闲端口。",
     ),
     max_message_bytes: int = typer.Option(
         4 * 1024 * 1024,
@@ -166,9 +166,9 @@ def serve(
         None,
         "--http-port",
         envvar="HTTP_PORT",
-        min=1,
+        min=0,
         max=65535,
-        help="覆盖 HTTP/WS/WebRTC 信令监听端口。",
+        help="覆盖 HTTP/WS/WebRTC 信令监听端口；设为 0 时自动选择空闲端口。",
     ),
     tls_cert_file: Path = typer.Option(
         Path("model-bin/realtime-tls/cert.pem"),

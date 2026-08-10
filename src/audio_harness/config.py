@@ -76,12 +76,12 @@ class WorkflowRuntimeConfig(StrictModel):
 
 class GrpcConfig(StrictModel):
     host: str = "0.0.0.0"
-    port: int = Field(default=50051, ge=1, le=65535)
+    port: int = Field(default=50051, ge=0, le=65535)
 
 
 class HttpConfig(StrictModel):
     host: str = "0.0.0.0"
-    port: int = Field(default=8000, ge=1, le=65535)
+    port: int = Field(default=8000, ge=0, le=65535)
     tls_cert_file: Path | None = None
     tls_key_file: Path | None = None
 

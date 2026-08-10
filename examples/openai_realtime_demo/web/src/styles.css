@@ -232,60 +232,6 @@ button:focus-visible {
   padding-right: 10px;
 }
 
-.vad-progress {
-  min-height: 74px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 13px 0;
-  border-bottom: 1px solid #d3cec4;
-}
-
-.vad-progress > div {
-  display: grid;
-  gap: 5px;
-}
-
-.vad-progress strong {
-  font-family: Georgia, "Noto Serif SC", serif;
-  font-size: 16px;
-  font-weight: 500;
-}
-
-.vad-progress > span {
-  color: #8b867c;
-  font-size: 12px;
-}
-
-.vad-progress dl {
-  margin: 0;
-  display: flex;
-  justify-content: flex-end;
-  gap: 14px;
-}
-
-.vad-progress dl div {
-  display: grid;
-  gap: 2px;
-  text-align: right;
-}
-
-.vad-progress dt,
-.vad-progress dd {
-  margin: 0;
-}
-
-.vad-progress dt {
-  color: #8b867c;
-  font: 500 9px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-.vad-progress dd {
-  color: #3f3d38;
-  font: 600 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
 .empty-state {
   min-height: 250px;
   display: grid;
@@ -667,18 +613,6 @@ button:focus-visible {
   .event-list {
     height: auto;
     max-height: 55vh;
-  }
-
-  .vad-progress {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .vad-progress dl {
-    width: 100%;
-    justify-content: space-between;
-    gap: 8px;
   }
 
   .transcript-line {

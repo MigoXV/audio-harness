@@ -11,13 +11,6 @@ TypeScript SDK 的 `RealtimeClientEvent` 与 `RealtimeServerEvent` 类型约束
 `input_audio_buffer.append`。停止输入时会继续发送 3 秒静音，让
 `server_vad` 完成最后一个语音片段；第一版不会发送手动 `commit`。
 
-页面会显示“VAD 处理进度滞后”：浏览器按实际发送的 PCM 时长累计输入音频时间线，
-收到本地 Audio Harness 的诊断事件 `audio_harness.vad_progress` 后，以该时间线减去
-FireRedVAD 已处理的音频时长。它显示最近值、本次流的 P50、P95 和最大值，用于观察
-引擎是否积压；静音与有效音频均计入，不依赖浏览器 RMS 端点估算。该事件仅用于本地
-Audio Harness 诊断，不会修改 OpenAI 官方 `input_audio_buffer.speech_stopped` 的字段
-或语义。
-
 每条转写仍会拆分显示“端到端首字”、“VAD 端点确认时间”、ASR 和 TPS。浏览器以
 10 ms 音频帧的能量估算本地话音终点；“VAD 端点确认时间”是从这个近似终点到收到
 服务端 `input_audio_buffer.speech_stopped` 的耗时。若本地未检测到有效话音，会回退到

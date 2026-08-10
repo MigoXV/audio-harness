@@ -3143,6 +3143,7 @@ export interface operations {
             query?: {
                 diagnostics?: boolean;
                 model?: string | null;
+                x_aha?: string | null;
             };
             header?: never;
             path?: never;

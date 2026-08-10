@@ -183,6 +183,7 @@ class RealtimeTranscriptionSession:
         reservation: AudioWorkflowSessionReservation | None = None,
         audio_event_handler: AudioEventHandler | None = None,
         diagnostics_enabled: bool = False,
+        aha_version: str | None = None,
         inferencer_pool: InferencerPool | None = None,
         responses_limiter: ResizableConcurrencyLimiter | None = None,
         tts_limiter: ResizableConcurrencyLimiter | None = None,
@@ -219,6 +220,7 @@ class RealtimeTranscriptionSession:
         ).config
         self._reservation = reservation
         self._audio_event_handler = audio_event_handler
+        self._aha_version = aha_version
         self.model = model
         self.language = self._workflow_config.default_language_code
         if (
@@ -519,14 +521,14 @@ class RealtimeTranscriptionSession:
             self._transcription = self._reservation.create(
                 options=options,
                 include_vad_events=True,
-                include_vad_progress=False,
+                include_vad_progress=self._aha_version == "v1",
                 workflow=self._workflow,
             )
         else:
             self._session_context = self._session_service.open(
                 options,
                 include_vad_events=True,
-                include_vad_progress=False,
+                include_vad_progress=self._aha_version == "v1",
                 workflow=self._workflow,
             )
             self._transcription = await self._session_context.__aenter__()
@@ -539,8 +541,7 @@ class RealtimeTranscriptionSession:
         try:
             assert self._transcription is not None
             async for output in self._transcription.outputs():
-                event = output.payload
-                await self._handle_workflow_event(event)
+                await self._handle_workflow_event(output.name, output.payload)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -571,7 +572,31 @@ class RealtimeTranscriptionSession:
                     code="workflow_failed",
                 )
 
-    async def _handle_workflow_event(self, event: Any) -> None:
+    async def _handle_workflow_event(self, output_name: str, event: Any) -> None:
+        if output_name == "turn_progress":
+            if (
+                self._aha_version == "v1"
+                and isinstance(event, TranscriptionResult)
+                and not event.turn_completed
+            ):
+                if self._active_item_id is None:
+                    logger.warning("语义 VAD 进度缺少活动 Realtime item")
+                    return
+                await self._send_event(
+                    {
+                        "type": "x_aha.vad.physical_speech_stopped",
+                        "event_id": event_id(),
+                        "item_id": self._active_item_id,
+                        "audio_start_ms": round(
+                            event.start_sample * 1000 / event.sample_rate
+                        ),
+                        "audio_end_ms": round(
+                            event.end_sample * 1000 / event.sample_rate
+                        ),
+                        "turn_completed": False,
+                    }
+                )
+            return
         if isinstance(event, SpeechStarted):
             if self._active_item_id is not None:
                 return

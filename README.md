@@ -142,6 +142,30 @@ poetry run audio-harness serve
 - WebSocket `/v1/realtime?model=...`
 - WebRTC `POST /v1/realtime/calls`
 
+### x_aha Realtime 扩展
+
+默认情况下，WebSocket 与 WebRTC 只发送 OpenAI Realtime 原生事件。专用客户端可在
+建连查询参数中传入 `x_aha=v1`，启用版本化的 `x_aha.*` 扩展事件；不支持的版本会在
+建连阶段被拒绝。
+
+当物理 VAD 已结束、语义 VAD 仍认为用户轮次未完成时，服务端发送：
+
+```json
+{
+  "type": "x_aha.vad.physical_speech_stopped",
+  "event_id": "event_xxx",
+  "item_id": "item_xxx",
+  "audio_start_ms": 1200,
+  "audio_end_ms": 2380,
+  "turn_completed": false
+}
+```
+
+该 `item_id` 与本轮标准 `input_audio_buffer.speech_started` 及最终的
+`input_audio_buffer.speech_stopped` 相同。Python SDK 客户端可使用
+`extra_query={"x_aha": "v1"}` 协商扩展；完整示例见
+`examples/openai_realtime_python_demo`。
+
 ## OpenAPI 与前端类型
 
 前端不手写后端 DTO。修改接口后执行：

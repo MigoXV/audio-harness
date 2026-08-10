@@ -95,6 +95,7 @@ class _RealtimeConnection:
         workflow_settings: WorkflowSettingsStore,
         max_message_bytes: int,
         diagnostics_enabled: bool,
+        aha_version: str | None,
         target: RealtimeTarget,
         inferencer_pool: InferencerPool | None,
         responses_limiter: ResizableConcurrencyLimiter | None,
@@ -115,6 +116,7 @@ class _RealtimeConnection:
             target=target,
             audio_event_handler=self._handle_audio_append,
             diagnostics_enabled=diagnostics_enabled,
+            aha_version=aha_version,
             inferencer_pool=inferencer_pool,
             responses_limiter=responses_limiter,
             tts_limiter=tts_limiter,
@@ -229,6 +231,7 @@ class RealtimeTranscriptionService:
         *,
         model: str,
         diagnostics_enabled: bool = False,
+        aha_version: str | None = None,
     ) -> None:
         if not model.strip():
             await websocket.close(code=4400, reason="model is required")
@@ -250,6 +253,7 @@ class RealtimeTranscriptionService:
                 workflow_settings=self.workflow_settings,
                 max_message_bytes=self.max_message_bytes,
                 diagnostics_enabled=diagnostics_enabled,
+                aha_version=aha_version,
                 target=target,
                 inferencer_pool=self.inferencer_pool,
                 responses_limiter=self.responses_limiter,

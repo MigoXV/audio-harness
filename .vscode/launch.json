@@ -8,6 +8,10 @@
       "module": "audio_harness.commands.app",
       "args": [
         "serve",
+        "--grpc-port",
+        "0",
+        "--http-port",
+        "0"
       ],
       "envFile": "${workspaceFolder}/.env",
       "console": "integratedTerminal",

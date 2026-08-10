@@ -57,6 +57,34 @@ class _ImmediateVad:
         return True
 
 
+class _TwoSegmentVad(_ImmediateVad):
+    async def stream_detect(
+        self,
+        audio_chunks: AsyncIterator[bytes],
+        sample_rate: int,
+    ) -> AsyncIterator[VadUpdate]:
+        async for chunk in audio_chunks:
+            samples = len(chunk) // 2
+            middle = samples // 2
+            yield VadUpdate(
+                boundaries=(
+                    VadBoundary(0, middle),
+                    VadBoundary(middle, samples),
+                ),
+                processed_samples=samples,
+            )
+            return
+
+
+class _PendingThenCompleteVad(_ImmediateVad):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def detect_turn(self, audio: bytes, sample_rate: int) -> bool:
+        self.calls += 1
+        return self.calls > 1
+
+
 class _FinalAsr:
     async def transcribe(
         self,
@@ -110,14 +138,18 @@ class _FiniteAudioTrack(AudioStreamTrack):
         return frame
 
 
-def _build_service() -> tuple[WebRtcCallService, ServingCapacity]:
+def _build_service(
+    *,
+    vad: _ImmediateVad | None = None,
+    semantic_vad: _ImmediateVad | None = None,
+) -> tuple[WebRtcCallService, ServingCapacity]:
     settings = _StaticSettings()
     capacity = ServingCapacity(CapacityConfig())
-    vad = _ImmediateVad()
+    selected_vad = vad or _ImmediateVad()
     inferencer_pool, workflows, workflow = static_audio_workflow(
         asr=_FinalAsr(),
-        vad=vad,
-        semantic_vad=vad,
+        vad=selected_vad,
+        semantic_vad=semantic_vad or selected_vad,
     )
     sessions = AudioWorkflowSessionService(
         inferencer_pool=inferencer_pool,
@@ -187,5 +219,63 @@ async def test_webrtc_call_transcribes_rtp_audio_and_releases_capacity() -> None
         assert service.active_calls == 0
         assert capacity.webrtc_sessions.active == 0
     finally:
+        await client.close()
+        await service.close()
+
+
+@pytest.mark.asyncio
+async def test_webrtc_x_aha_reports_pending_semantic_turn() -> None:
+    service, _capacity = _build_service(
+        vad=_TwoSegmentVad(),
+        semantic_vad=_PendingThenCompleteVad(),
+    )
+    client = RTCPeerConnection()
+    events: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+    data_channel = client.createDataChannel("oai-events")
+    client.addTrack(_FiniteAudioTrack())
+
+    @data_channel.on("message")
+    def on_message(message) -> None:
+        if isinstance(message, str):
+            events.put_nowait(json.loads(message))
+
+    offer = await client.createOffer()
+    await client.setLocalDescription(offer)
+    assert client.localDescription is not None
+
+    answer = await service.create_call(
+        offer_sdp=client.localDescription.sdp,
+        session=None,
+        aha_version="v1",
+    )
+    try:
+        await client.setRemoteDescription(
+            RTCSessionDescription(sdp=answer.sdp, type="answer")
+        )
+        received: list[dict[str, object]] = []
+        while not any(
+            event.get("type")
+            == "conversation.item.input_audio_transcription.completed"
+            for event in received
+        ):
+            received.append(
+                await asyncio.wait_for(events.get(), timeout=15)
+            )
+
+        extension = next(
+            event
+            for event in received
+            if event.get("type")
+            == "x_aha.vad.physical_speech_stopped"
+        )
+        assert extension["turn_completed"] is False
+        item_ids = {
+            event["item_id"]
+            for event in received
+            if "item_id" in event
+        }
+        assert item_ids == {extension["item_id"]}
+    finally:
+        await service.hangup(answer.call_id)
         await client.close()
         await service.close()

@@ -315,6 +315,25 @@ async def test_typed_draft_validates_publishes_and_pins_engine_revisions(
 
 
 @pytest.mark.asyncio
+async def test_referenced_engine_cannot_be_disabled(
+    control_plane: ControlPlane,
+) -> None:
+    await bind_and_publish_audio_workflow(control_plane.client)
+    engines = (await control_plane.client.get("/api/v1/engines")).json()["items"]
+    vad = next(item for item in engines if item["slug"] == "vad")
+
+    response = await control_plane.client.patch(
+        f"/api/v1/engines/{vad['id']}",
+        json={"enabled": False},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "revision_conflict"
+    assert "草稿" in response.json()["error"]["message"]
+    assert "激活修订" in response.json()["error"]["message"]
+
+
+@pytest.mark.asyncio
 async def test_draft_updates_use_optimistic_revision(
     control_plane: ControlPlane,
 ) -> None:

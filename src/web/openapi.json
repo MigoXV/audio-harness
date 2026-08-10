@@ -2037,6 +2037,22 @@
               ],
               "title": "Model"
             }
+          },
+          {
+            "name": "x_aha",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X Aha"
+            }
           }
         ],
         "responses": {

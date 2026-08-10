@@ -25,3 +25,36 @@ poetry run python examples/openai_realtime_python_demo/main.py \
 删除 `--seconds 30` 就会发送整个 WAV。连接官方服务时，将
 `OPENAI_BASE_URL` 改为 `https://api.openai.com/v1`，并清空
 `OPENAI_CA_CERT_FILE`。
+
+## 启用 x_aha 扩展
+
+连接 Audio Harness 本地 Realtime 接口时，可以增加 `--x-aha`：
+
+```bash
+poetry run python examples/openai_realtime_python_demo/main.py \
+  data-bin/audio.wav --seconds 30 --x-aha
+```
+
+该参数会在 OpenAI Python SDK 建连时传入：
+
+```python
+extra_query={"x_aha": "v1"}
+```
+
+当物理 VAD 已检测到一段语音结束、但语义 VAD 判断用户还没有说完时，
+服务端会发送以下扩展事件：
+
+```json
+{
+  "type": "x_aha.vad.physical_speech_stopped",
+  "event_id": "event_xxx",
+  "item_id": "item_xxx",
+  "audio_start_ms": 1200,
+  "audio_end_ms": 2380,
+  "turn_completed": false
+}
+```
+
+后续语义轮次真正完成时仍发送标准
+`input_audio_buffer.speech_stopped`。不使用 `--x-aha` 时，服务端只发送
+OpenAI Realtime 原生事件，因此原有客户端不需要修改。

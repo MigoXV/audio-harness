@@ -78,43 +78,6 @@ describe("Realtime demo", () => {
     ).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("calculates and displays VAD processing progress lag from progress events", async () => {
-    render(<App />);
-    await screen.findByText("https://api.openai.com/v1");
-    const startButton = screen.getByRole("button", { name: "打开麦克风" });
-    fireEvent.click(startButton);
-    fireEvent.click(startButton);
-
-    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
-    const socket = MockWebSocket.instances[0];
-    act(() => {
-      socket.receive({ type: "session.created", event_id: "created" });
-      socket.receive({ type: "session.updated", event_id: "updated" });
-    });
-    await waitFor(() => expect(startMicrophone).toHaveBeenCalledOnce());
-
-    const chunk = pcm16ToBase64(new Int16Array(2_400));
-    act(() => {
-      microphone.onChunk?.(chunk);
-      microphone.onChunk?.(chunk);
-      socket.receive({
-        type: "audio_harness.vad_progress",
-        event_id: "vad-1",
-        processed_audio_ms: 100,
-      });
-    });
-
-    expect(screen.getByLabelText("VAD 处理进度滞后")).toHaveTextContent(
-      "最近100 ms",
-    );
-    expect(screen.getByLabelText("VAD 处理进度滞后")).toHaveTextContent(
-      "P50100 ms",
-    );
-    expect(screen.getByLabelText("VAD 处理进度滞后")).toHaveTextContent(
-      "已处理100 ms",
-    );
-  });
-
   it("uses the server audio endpoint for end-to-completion latency", async () => {
     const now = vi.spyOn(performance, "now").mockReturnValue(1_000);
     render(<App />);

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import {
   addEdge,
   applyEdgeChanges,
@@ -33,6 +34,7 @@ import type {
   NodePosition,
 } from "../api/types";
 import { layoutAudioGraph, needsAutoLayout } from "./audioGraphLayout";
+import { applyAudioGraphTemplate, type AudioGraphTemplateId } from "./audioGraphTemplates";
 import { WorkbenchSidebar } from "./WorkbenchSidebar";
 
 interface Props {
@@ -292,6 +294,9 @@ function AudioGraphEditorInner({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [connectingKind, setConnectingKind] = useState<string | null>(null);
+  const [pendingTemplate, setPendingTemplate] = useState<AudioGraphTemplateId | null>(null);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [nodeCatalogOpen, setNodeCatalogOpen] = useState(false);
   const nodesInitialized = useNodesInitialized();
   const { fitView } = useReactFlow<GraphNode, Edge>();
   const checkedInitialLayout = useRef(false);
@@ -433,6 +438,16 @@ function AudioGraphEditorInner({
     setSelectedId(null);
   };
 
+  const confirmTemplate = () => {
+    if (!pendingTemplate) return;
+    const next = applyAudioGraphTemplate(document, pendingTemplate);
+    setSelectedId(null);
+    setConnectionError(null);
+    setPendingTemplate(null);
+    onChange(next);
+    window.requestAnimationFrame(() => void fitView({ padding: 0.18, duration: 260, minZoom: 0.55, maxZoom: 1 }));
+  };
+
   const onNodesChange = (changes: NodeChange<GraphNode>[]) =>
     setFlowNodes((current) => applyNodeChanges(changes, current));
   const onEdgesChange = (changes: EdgeChange<Edge>[]) =>
@@ -450,16 +465,26 @@ function AudioGraphEditorInner({
         footer={sidebarFooter}
         onOpenChange={onSidebarOpenChange}
       >
-        <section className="audio-node-catalog">
-          <div><h2>节点目录</h2><span>{nodeTypes.length} 种</span></div>
-          <p>添加类型化语音节点；选中节点后在右侧配置。</p>
-          {nodeTypes.map((type) => (
-            <button key={type.kind} onClick={() => addNode(type.kind)}>
-              <strong>{type.display_name}</strong>
-              <small>{type.inputs.map((port) => portMeta(port.kind).label).join(" + ") || "无输入"} → {type.outputs.map((port) => portMeta(port.kind).label).join(" + ") || "无输出"}</small>
-            </button>
-          ))}
-        </section>
+        <details className="audio-template-catalog" open={templatesOpen} onToggle={(event) => setTemplatesOpen(event.currentTarget.open)}>
+          <summary><h2>快速模板</h2><span>自动连线</span><i aria-hidden="true">⌄</i></summary>
+          <div className="audio-catalog-content">
+            <p>生成完整处理链与命名出口，只需选择执行引擎。</p>
+            <button onClick={() => setPendingTemplate("physical_asr")}><strong>物理 VAD + ASR</strong><small>PCM → 物理 VAD → ASR</small></button>
+            <button onClick={() => setPendingTemplate("physical_semantic_asr")}><strong>物理 + 语义 VAD + ASR</strong><small>PCM → 物理 VAD → 语义 VAD → ASR</small></button>
+          </div>
+        </details>
+        <details className="audio-node-catalog" open={nodeCatalogOpen} onToggle={(event) => setNodeCatalogOpen(event.currentTarget.open)}>
+          <summary><h2>节点目录</h2><span>{nodeTypes.length} 种</span><i aria-hidden="true">⌄</i></summary>
+          <div className="audio-catalog-content">
+            <p>添加类型化语音节点；选中节点后在右侧配置。</p>
+            {nodeTypes.map((type) => (
+              <button key={type.kind} onClick={() => addNode(type.kind)}>
+                <strong>{type.display_name}</strong>
+                <small>{type.inputs.map((port) => portMeta(port.kind).label).join(" + ") || "无输入"} → {type.outputs.map((port) => portMeta(port.kind).label).join(" + ") || "无输出"}</small>
+              </button>
+            ))}
+          </div>
+        </details>
       </WorkbenchSidebar>
 
       <section className="audio-canvas panel" aria-label="语音工作流画布">
@@ -513,6 +538,19 @@ function AudioGraphEditorInner({
           <button className="danger-text inspector-delete" onClick={deleteSelected}>删除节点</button>
         </div>
       </aside>}
+      <AlertDialog.Root open={pendingTemplate !== null} onOpenChange={(open) => { if (!open) setPendingTemplate(null); }}>
+        <AlertDialog.Portal>
+          <AlertDialog.Overlay className="drawer-backdrop" />
+          <AlertDialog.Content className="confirm-dialog">
+            <AlertDialog.Title>应用快速模板？</AlertDialog.Title>
+            <AlertDialog.Description>当前草稿的节点、连线、出口和布局会替换为标准模板。同类型节点已选择的引擎和配置会保留。</AlertDialog.Description>
+            <div className="panel-actions">
+              <AlertDialog.Cancel className="secondary-button">取消</AlertDialog.Cancel>
+              <AlertDialog.Action className="primary-button" onClick={confirmTemplate}>确认应用</AlertDialog.Action>
+            </div>
+          </AlertDialog.Content>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
     </div>
   );
 }

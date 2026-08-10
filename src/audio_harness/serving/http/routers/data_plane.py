@@ -37,11 +37,16 @@ def create_data_plane_router(
         websocket: WebSocket,
         model: str = Query(min_length=1),
         diagnostics: bool = Query(default=False),
+        x_aha: str | None = Query(default=None),
     ) -> None:
+        if x_aha not in (None, "v1"):
+            await websocket.close(code=4400, reason="Unsupported x_aha version")
+            return
         await realtime.handle(
             websocket,
             model=model,
             diagnostics_enabled=diagnostics,
+            aha_version=x_aha,
         )
 
     @router.post("/v1/realtime/calls")
@@ -49,7 +54,14 @@ def create_data_plane_router(
         request: Request,
         diagnostics: bool = Query(default=False),
         model: str | None = Query(default=None, min_length=1),
+        x_aha: str | None = Query(default=None),
     ) -> Response:
+        if x_aha not in (None, "v1"):
+            return _error(
+                400,
+                "unsupported_x_aha_version",
+                "只支持 x_aha=v1",
+            )
         try:
             form = await request.form()
             sdp_part = form.get("sdp")
@@ -93,6 +105,7 @@ def create_data_plane_router(
                 session=session_config,
                 model=selected_model or "gpt-4o-transcribe",
                 diagnostics_enabled=diagnostics,
+                aha_version=x_aha,
             )
         except UnicodeDecodeError:
             return _error(400, "invalid_encoding", "sdp 和 session 必须是 UTF-8 文本")

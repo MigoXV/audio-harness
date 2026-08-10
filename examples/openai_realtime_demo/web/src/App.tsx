@@ -64,21 +64,7 @@ interface AudioTimeline {
   accumulatedAudioMs: number;
 }
 
-interface VadProgressEvent {
-  type: "audio_harness.vad_progress";
-  event_id: string;
-  processed_audio_ms: number;
-}
-
-interface VadProgressStats {
-  processedAudioMs: number;
-  latestLagMs: number;
-  p50LagMs: number;
-  p95LagMs: number;
-  maxLagMs: number;
-}
-
-type ServerEvent = RealtimeServerEvent | VadProgressEvent;
+type ServerEvent = RealtimeServerEvent;
 
 const PCM_SAMPLE_RATE = 24_000;
 
@@ -102,19 +88,7 @@ function formatLatency(milliseconds: number): string {
     : `${(milliseconds / 1_000).toFixed(2)} s`;
 }
 
-function isVadProgressEvent(event: ServerEvent): event is VadProgressEvent {
-  return event.type === "audio_harness.vad_progress";
-}
-
-function percentile(values: readonly number[], quantile: number): number {
-  const sorted = [...values].sort((left, right) => left - right);
-  return sorted[Math.max(0, Math.ceil(sorted.length * quantile) - 1)];
-}
-
 function eventDetail(event: ServerEvent): string {
-  if (isVadProgressEvent(event)) {
-    return `已处理音频 ${formatLatency(event.processed_audio_ms)}`;
-  }
   switch (event.type) {
     case "input_audio_buffer.speech_started":
       return `语音起点 ${event.audio_start_ms} ms`;
@@ -152,10 +126,6 @@ function App() {
     lastVoicedAt: null,
     accumulatedAudioMs: 0,
   });
-  const vadLagSamplesRef = useRef<number[]>([]);
-  const [vadProgress, setVadProgress] = useState<VadProgressStats | null>(
-    null,
-  );
   const [eventsExpanded, setEventsExpanded] = useState(false);
 
   useEffect(() => {
@@ -336,22 +306,6 @@ function App() {
 
   const handleServerEvent = (event: ServerEvent) => {
     appendEvent(event);
-    if (isVadProgressEvent(event)) {
-      const lag = Math.max(
-        0,
-        audioTimelineRef.current.accumulatedAudioMs -
-          event.processed_audio_ms,
-      );
-      vadLagSamplesRef.current.push(lag);
-      setVadProgress({
-        processedAudioMs: event.processed_audio_ms,
-        latestLagMs: lag,
-        p50LagMs: percentile(vadLagSamplesRef.current, 0.5),
-        p95LagMs: percentile(vadLagSamplesRef.current, 0.95),
-        maxLagMs: Math.max(...vadLagSamplesRef.current),
-      });
-      return;
-    }
     switch (event.type) {
       case "conversation.item.input_audio_transcription.delta":
         updateTranscript(
@@ -445,8 +399,6 @@ function App() {
       lastVoicedAt: null,
       accumulatedAudioMs: 0,
     };
-    vadLagSamplesRef.current = [];
-    setVadProgress(null);
 
     const pending = new Promise<WebSocket>((resolve, reject) => {
       let settled = false;
@@ -619,8 +571,6 @@ function App() {
       lastVoicedAt: null,
       accumulatedAudioMs: 0,
     };
-    vadLagSamplesRef.current = [];
-    setVadProgress(null);
     const socket = socketRef.current;
     if (socket?.readyState === WebSocket.OPEN) {
       sendClientEvent(socket, {
@@ -672,38 +622,6 @@ function App() {
               清空
             </button>
           </div>
-          <section className="vad-progress" aria-label="VAD 处理进度滞后">
-            <div>
-              <span className="eyebrow">VAD PROGRESS</span>
-              <strong>VAD 处理进度滞后</strong>
-            </div>
-            {vadProgress === null ? (
-              <span>等待 VAD 进度</span>
-            ) : (
-              <dl>
-                <div>
-                  <dt>最近</dt>
-                  <dd>{formatLatency(vadProgress.latestLagMs)}</dd>
-                </div>
-                <div>
-                  <dt>P50</dt>
-                  <dd>{formatLatency(vadProgress.p50LagMs)}</dd>
-                </div>
-                <div>
-                  <dt>P95</dt>
-                  <dd>{formatLatency(vadProgress.p95LagMs)}</dd>
-                </div>
-                <div>
-                  <dt>最大</dt>
-                  <dd>{formatLatency(vadProgress.maxLagMs)}</dd>
-                </div>
-                <div>
-                  <dt>已处理</dt>
-                  <dd>{formatLatency(vadProgress.processedAudioMs)}</dd>
-                </div>
-              </dl>
-            )}
-          </section>
           <div className="transcript-list" aria-live="polite">
             {transcripts.length === 0 ? (
               <div className="empty-state">

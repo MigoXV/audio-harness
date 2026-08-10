@@ -96,3 +96,18 @@ async def test_built_web_is_served_without_shadowing_api(tmp_path: Path) -> None
             assert "Audio Harness Web" not in missing_health.text
     finally:
         await host.stop()
+
+
+@pytest.mark.asyncio
+async def test_webrtc_rejects_unsupported_x_aha_version(tmp_path: Path) -> None:
+    app, host = await build_app(tmp_path, tmp_path / "missing")
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.post("/v1/realtime/calls?x_aha=v2")
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "unsupported_x_aha_version"
+    finally:
+        await host.stop()

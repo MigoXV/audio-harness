@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import json
 import os
 import ssl
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import soundfile as sf
@@ -55,7 +57,7 @@ async def receive_results(
     while True:
         try:
             event = await asyncio.wait_for(
-                connection.recv(),
+                receive_event(connection),
                 timeout=0.5,
             )
         except asyncio.TimeoutError:
@@ -64,15 +66,33 @@ async def receive_results(
             continue
 
         last_event_at = loop.time()
-        if event.type == (
+        if event["type"] == (
             "conversation.item.input_audio_transcription.completed"
         ):
-            print(event.transcript)
-        elif event.type == "error":
-            raise RuntimeError(event.error.message)
+            print(event["transcript"])
+        elif event["type"] == "x_aha.vad.physical_speech_stopped":
+            print(
+                "[x_aha] 物理语音已停止，语义轮次仍在等待："
+                f"item={event['item_id']} "
+                f"{event['audio_start_ms']}–{event['audio_end_ms']} ms",
+                flush=True,
+            )
+        elif event["type"] == "error":
+            error = event.get("error") or {}
+            raise RuntimeError(str(error.get("message") or "Realtime 请求失败"))
 
 
-async def run(path: Path, seconds: float | None) -> None:
+async def receive_event(
+    connection: AsyncRealtimeConnection,
+) -> dict[str, Any]:
+    raw = await connection.recv_bytes()
+    event = json.loads(raw)
+    if not isinstance(event, dict) or not isinstance(event.get("type"), str):
+        raise RuntimeError("Realtime 服务端事件缺少字符串 type")
+    return event
+
+
+async def run(path: Path, seconds: float | None, *, x_aha: bool) -> None:
     api_key = os.environ["OPENAI_API_KEY"]
     base_url = os.getenv(
         "OPENAI_BASE_URL",
@@ -90,6 +110,7 @@ async def run(path: Path, seconds: float | None) -> None:
     client = AsyncOpenAI(api_key=api_key, base_url=base_url)
     async with client.realtime.connect(
         model=model,
+        extra_query={"x_aha": "v1"} if x_aha else {},
         websocket_connection_options=websocket_options,  # type: ignore[arg-type]
     ) as connection:
         await connection.session.update(
@@ -115,11 +136,14 @@ async def run(path: Path, seconds: float | None) -> None:
         )
 
         while True:
-            event = await connection.recv()
-            if event.type == "session.updated":
+            event = await receive_event(connection)
+            if event["type"] == "session.updated":
                 break
-            if event.type == "error":
-                raise RuntimeError(event.error.message)
+            if event["type"] == "error":
+                error = event.get("error") or {}
+                raise RuntimeError(
+                    str(error.get("message") or "Realtime 请求失败")
+                )
 
         sender = asyncio.create_task(send_audio(connection, pcm))
         try:
@@ -140,8 +164,13 @@ def main() -> None:
         type=float,
         help="只发送 WAV 的前 N 秒",
     )
+    parser.add_argument(
+        "--x-aha",
+        action="store_true",
+        help="通过 x_aha=v1 启用 Audio Harness 私有 Realtime 事件",
+    )
     args = parser.parse_args()
-    asyncio.run(run(args.wav, args.seconds))
+    asyncio.run(run(args.wav, args.seconds, x_aha=args.x_aha))
 
 
 if __name__ == "__main__":

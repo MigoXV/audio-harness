@@ -88,6 +88,7 @@ class WebRtcCall:
         tool_registry: ToolRegistry,
         voice_resolver: VoiceResolver | None,
         diagnostics_enabled: bool,
+        aha_version: str | None,
         on_closed: Callable[[str], Awaitable[None]],
     ) -> None:
         self.call_id = call_id
@@ -113,6 +114,7 @@ class WebRtcCall:
             initial_session=initial_session,
             reservation=reservation,
             diagnostics_enabled=diagnostics_enabled,
+            aha_version=aha_version,
             inferencer_pool=inferencer_pool,
             responses_limiter=responses_limiter,
             tts_limiter=tts_limiter,
@@ -397,6 +399,7 @@ class WebRtcCallService:
         ),
         model: str = "gpt-4o-transcribe",
         diagnostics_enabled: bool = False,
+        aha_version: str | None = None,
     ) -> WebRtcCallAnswer:
         if self._closed:
             raise RuntimeError("WebRTC 服务正在关闭")
@@ -449,6 +452,7 @@ class WebRtcCallService:
             tool_registry=self._tool_registry,
             voice_resolver=self._voice_resolver,
             diagnostics_enabled=diagnostics_enabled,
+            aha_version=aha_version,
             on_closed=self._discard,
         )
         try:
