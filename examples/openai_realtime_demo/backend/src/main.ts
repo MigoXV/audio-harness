@@ -10,7 +10,7 @@ server.listen(config.port, config.host, () => {
     `Realtime Demo 已启动：https://${config.host}:${config.port}`,
   );
   console.log(
-    `上游：${config.baseURL} / ${config.model} / ${config.connectionMode}`,
+    `上游：${config.baseURL} / intent=transcription / ${config.model}`,
   );
 });
 

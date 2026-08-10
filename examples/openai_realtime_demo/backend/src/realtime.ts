@@ -21,11 +21,7 @@ function realtimeURL(config: DemoConfig): URL {
   url.pathname = `${url.pathname.replace(/\/+$/, "")}/realtime`;
   url.search = "";
   url.hash = "";
-  if (config.connectionMode === "intent") {
-    url.searchParams.set("intent", "transcription");
-  } else {
-    url.searchParams.set("model", config.model);
-  }
+  url.searchParams.set("intent", "transcription");
   return url;
 }
 

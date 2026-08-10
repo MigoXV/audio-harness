@@ -4,13 +4,10 @@ import { resolve } from "node:path";
 
 import { config as loadDotenv } from "dotenv";
 
-export type ConnectionMode = "intent" | "model";
-
 export interface DemoConfig {
   apiKey: string;
   baseURL: string;
   model: string;
-  connectionMode: ConnectionMode;
   caCertFile?: string;
   tlsCertFile: string;
   tlsKeyFile: string;
@@ -23,7 +20,6 @@ export interface DemoConfig {
 export interface PublicConfig {
   base_url: string;
   model: string;
-  connection_mode: ConnectionMode;
 }
 
 export const demoRoot = fileURLToPath(new URL("../../", import.meta.url));
@@ -52,15 +48,6 @@ function parsePort(value: string): number {
   return port;
 }
 
-function parseConnectionMode(value: string): ConnectionMode {
-  if (value !== "intent" && value !== "model") {
-    throw new Error(
-      "OPENAI_REALTIME_CONNECTION_MODE 只能是 intent 或 model",
-    );
-  }
-  return value;
-}
-
 export function loadDemoEnv(envFile = resolve(demoRoot, ".env")): void {
   if (existsSync(envFile)) {
     loadDotenv({ path: envFile, override: false, quiet: true });
@@ -77,16 +64,12 @@ export function configFromEnv(
   if (!["http:", "https:"].includes(parsedBaseURL.protocol)) {
     throw new Error("OPENAI_BASE_URL 必须使用 http 或 https");
   }
-  const connectionMode = parseConnectionMode(
-    env.OPENAI_REALTIME_CONNECTION_MODE?.trim() || "intent",
-  );
   const caCertFile = env.OPENAI_CA_CERT_FILE?.trim();
 
   return {
     apiKey,
     baseURL: rawBaseURL.replace(/\/+$/, ""),
     model: env.OPENAI_MODEL?.trim() || "gpt-4o-transcribe",
-    connectionMode,
     ...(caCertFile
       ? { caCertFile: resolveProjectPath(caCertFile) }
       : {}),
@@ -115,6 +98,5 @@ export function publicConfig(config: DemoConfig): PublicConfig {
   return {
     base_url: config.baseURL,
     model: config.model,
-    connection_mode: config.connectionMode,
   };
 }

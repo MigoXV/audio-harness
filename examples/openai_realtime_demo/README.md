@@ -60,15 +60,14 @@ bash scripts/generate_realtime_tls.sh
 OPENAI_API_KEY=你的官方密钥
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4o-transcribe
-OPENAI_REALTIME_CONNECTION_MODE=intent
 OPENAI_CA_CERT_FILE=
 REALTIME_DEMO_TLS_CERT_FILE=model-bin/realtime-tls/cert.pem
 REALTIME_DEMO_TLS_KEY_FILE=model-bin/realtime-tls/key.pem
 ```
 
-官方专用转写 WebSocket 使用 `intent=transcription` 建立连接，ASR 模型只放在
-后续 `session.update` 中，因此 `OPENAI_REALTIME_CONNECTION_MODE` 必须保持
-`intent`。
+专用转写 WebSocket 使用 `intent=transcription` 建立连接，ASR 模型只放在后续
+`session.update` 中。Demo 对官方服务和 Audio Harness 使用完全相同的握手，不再提供
+`model` 查询参数兼容模式。
 
 ## 连接本地 Audio Harness
 
@@ -89,12 +88,11 @@ poetry run audio-harness serve
 OPENAI_API_KEY=与REALTIME_API_KEY相同的值
 OPENAI_BASE_URL=https://127.0.0.1:8000/v1
 OPENAI_MODEL=gpt-4o-transcribe
-OPENAI_REALTIME_CONNECTION_MODE=model
 OPENAI_CA_CERT_FILE=model-bin/realtime-tls/cert.pem
 REALTIME_DEMO_TLS_CERT_FILE=model-bin/realtime-tls/cert.pem
 REALTIME_DEMO_TLS_KEY_FILE=model-bin/realtime-tls/key.pem
 ```
 
 重启 Demo 后生效。连接目标在 Demo 进程启动时固定，界面不会动态切换目标。
-自签名证书通过 `OPENAI_CA_CERT_FILE` 加入信任链，Demo 不会关闭 TLS 校验。
-本地兼容入口要求 URL 携带 `model` 查询参数，因此这里使用 `model` 连接模式。
+自签名证书通过 `OPENAI_CA_CERT_FILE` 加入信任链，Demo 不会关闭 TLS 校验。本地服务
+同样通过 `intent=transcription` 建连，再从 `session.update` 读取并解析模型路由。

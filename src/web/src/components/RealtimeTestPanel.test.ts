@@ -11,14 +11,21 @@ import {
 
 describe("realtimeSessionUpdate", () => {
   it("uses a transcription session for transcription workflows", () => {
-    expect(realtimeSessionUpdate("transcription")).toEqual({
+    expect(realtimeSessionUpdate("transcription", "gpt-4o-transcribe")).toEqual({
       type: "session.update",
-      session: { type: "transcription" },
+      session: {
+        type: "transcription",
+        audio: {
+          input: {
+            transcription: { model: "gpt-4o-transcribe" },
+          },
+        },
+      },
     });
   });
 
   it("uses a realtime session for voice-agent workflows", () => {
-    expect(realtimeSessionUpdate("voice_agent")).toEqual({
+    expect(realtimeSessionUpdate("voice_agent", "assistant")).toEqual({
       type: "session.update",
       session: { type: "realtime" },
     });
@@ -40,7 +47,7 @@ describe("realtimeSessionUpdate", () => {
 describe("realtimeEndpoint", () => {
   it("enables x_aha events for the WSS test connection", () => {
     expect(realtimeEndpoint("wss", "semantic vad", true)).toBe(
-      "/v1/realtime?model=semantic%20vad&x_aha=v1",
+      "/v1/realtime?intent=transcription&x_aha=v1",
     );
   });
 
@@ -52,7 +59,7 @@ describe("realtimeEndpoint", () => {
 
   it("keeps the native protocol when the extension is disabled", () => {
     expect(realtimeEndpoint("wss", "native-client", false)).toBe(
-      "/v1/realtime?model=native-client",
+      "/v1/realtime?intent=transcription",
     );
   });
 });

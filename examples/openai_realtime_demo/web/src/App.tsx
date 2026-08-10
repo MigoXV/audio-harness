@@ -17,7 +17,6 @@ import {
 interface PublicConfig {
   base_url: string;
   model: string;
-  connection_mode: "intent" | "model";
 }
 
 interface TranscriptLine {

@@ -59,7 +59,7 @@ export function configFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): VoiceDemoConfig {
   const rawBaseURL =
-    env.REALTIME_BASE_URL?.trim() || "https://127.0.0.1:8000/v1";
+    env.REALTIME_BASE_URL?.trim() || "https://api.openai.com/v1";
   const baseURL = new URL(rawBaseURL);
   if (!["http:", "https:"].includes(baseURL.protocol)) {
     throw new Error("REALTIME_BASE_URL 必须使用 HTTP(S)");

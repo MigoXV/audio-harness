@@ -52,7 +52,6 @@ describe("Realtime demo", () => {
         json: async () => ({
           base_url: "https://api.openai.com/v1",
           model: "gpt-4o-transcribe",
-          connection_mode: "intent",
         }),
       }),
     );

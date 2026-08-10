@@ -139,14 +139,16 @@ poetry run audio-harness serve
 数据面路径保持为：
 
 - gRPC `UxSpeech.StreamingRecognize`
-- WebSocket `/v1/realtime?model=...`
+- 纯转写 WebSocket `/v1/realtime?intent=transcription`；转写模型在后续
+  `session.update.audio.input.transcription.model` 中指定
 - WebRTC `POST /v1/realtime/calls`
 
 ### x_aha Realtime 扩展
 
 默认情况下，WebSocket 与 WebRTC 只发送 OpenAI Realtime 原生事件。专用客户端可在
-建连查询参数中传入 `x_aha=v1`，启用版本化的 `x_aha.*` 扩展事件；不支持的版本会在
-建连阶段被拒绝。
+建连查询参数中传入 `x_aha=v1`，启用版本化的 `x_aha.*` 扩展事件。WebSocket 不再接受
+`model` 查询参数，只接受 `intent=transcription`；不支持的 intent 或扩展版本会在建连
+阶段被拒绝。
 
 当物理 VAD 已结束、语义 VAD 仍认为用户轮次未完成时，服务端发送：
 

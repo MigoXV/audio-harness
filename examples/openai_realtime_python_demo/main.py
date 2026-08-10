@@ -108,9 +108,11 @@ async def run(path: Path, seconds: float | None, *, x_aha: bool) -> None:
 
     pcm = await asyncio.to_thread(load_wav, path, seconds)
     client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+    extra_query = {"intent": "transcription"}
+    if x_aha:
+        extra_query["x_aha"] = "v1"
     async with client.realtime.connect(
-        model=model,
-        extra_query={"x_aha": "v1"} if x_aha else {},
+        extra_query=extra_query,
         websocket_connection_options=websocket_options,  # type: ignore[arg-type]
     ) as connection:
         await connection.session.update(

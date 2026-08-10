@@ -35,16 +35,24 @@ def create_data_plane_router(
     @router.websocket("/v1/realtime")
     async def realtime_socket(
         websocket: WebSocket,
-        model: str = Query(min_length=1),
+        intent: str = Query(min_length=1),
         diagnostics: bool = Query(default=False),
         x_aha: str | None = Query(default=None),
     ) -> None:
+        if intent != "transcription":
+            await websocket.close(code=4400, reason="Unsupported realtime intent")
+            return
+        if "model" in websocket.query_params:
+            await websocket.close(
+                code=4400,
+                reason="model query parameter is not supported",
+            )
+            return
         if x_aha not in (None, "v1"):
             await websocket.close(code=4400, reason="Unsupported x_aha version")
             return
         await realtime.handle(
             websocket,
-            model=model,
             diagnostics_enabled=diagnostics,
             aha_version=x_aha,
         )

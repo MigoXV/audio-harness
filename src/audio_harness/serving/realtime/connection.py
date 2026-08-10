@@ -12,6 +12,11 @@ from openai.types.realtime import (
     InputAudioBufferAppendEvent,
     InputAudioBufferClearEvent,
     RealtimeClientEvent,
+    RealtimeError,
+    RealtimeErrorEvent,
+    RealtimeTranscriptionSessionCreateRequest,
+    SessionCreatedEvent,
+    SessionUpdateEvent,
 )
 from pydantic import TypeAdapter, ValidationError
 
@@ -22,12 +27,15 @@ from audio_harness.serving.realtime.session import (
     ENGINE_SAMPLE_RATE,
     INPUT_SAMPLE_RATE,
     RealtimeTranscriptionSession,
+    event_id,
+    session_values,
 )
 from audio_harness.serving.realtime.agent import VoiceResolver
 from audio_harness.sessions import AudioWorkflowSessionService
 from audio_harness.serving.realtime.tools import ToolRegistry
 from audio_harness.workflow_settings import WorkflowSettingsStore
 from audio_harness.voice_agents.service import (
+    ActiveVoiceAgent,
     RealtimeRouteNotFoundError,
     RealtimeRouteService,
     RealtimeTarget,
@@ -90,13 +98,12 @@ class _RealtimeConnection:
         self,
         *,
         websocket: WebSocket,
-        model: str,
         session_service: AudioWorkflowSessionService,
         workflow_settings: WorkflowSettingsStore,
         max_message_bytes: int,
         diagnostics_enabled: bool,
         aha_version: str | None,
-        target: RealtimeTarget,
+        routes: RealtimeRouteService,
         inferencer_pool: InferencerPool | None,
         responses_limiter: ResizableConcurrencyLimiter | None,
         tts_limiter: ResizableConcurrencyLimiter | None,
@@ -108,21 +115,17 @@ class _RealtimeConnection:
         self._send_lock = asyncio.Lock()
         self._chunk_bytes = workflow_settings.current().config.min_chunk_bytes
         self._resampler = _OnlinePcmResampler(self._chunk_bytes)
-        self._session = RealtimeTranscriptionSession(
-            send_event=self._send,
-            session_service=session_service,
-            workflow_settings=workflow_settings,
-            model=model,
-            target=target,
-            audio_event_handler=self._handle_audio_append,
-            diagnostics_enabled=diagnostics_enabled,
-            aha_version=aha_version,
-            inferencer_pool=inferencer_pool,
-            responses_limiter=responses_limiter,
-            tts_limiter=tts_limiter,
-            tool_registry=tool_registry,
-            voice_resolver=voice_resolver,
-        )
+        self._session_service = session_service
+        self._workflow_settings = workflow_settings
+        self._diagnostics_enabled = diagnostics_enabled
+        self._aha_version = aha_version
+        self._routes = routes
+        self._inferencer_pool = inferencer_pool
+        self._responses_limiter = responses_limiter
+        self._tts_limiter = tts_limiter
+        self._tool_registry = tool_registry
+        self._voice_resolver = voice_resolver
+        self._session: RealtimeTranscriptionSession | None = None
 
     async def _send(self, event) -> None:
         payload = (
@@ -134,14 +137,33 @@ class _RealtimeConnection:
             await self.websocket.send_json(payload)
 
     async def run(self) -> None:
-        await self._session.start()
+        await self._send(
+            SessionCreatedEvent(
+                event_id=event_id(),
+                session=RealtimeTranscriptionSessionCreateRequest.model_validate(
+                    {
+                        "type": "transcription",
+                        "audio": {
+                            "input": {
+                                "format": {
+                                    "type": "audio/pcm",
+                                    "rate": INPUT_SAMPLE_RATE,
+                                },
+                                "turn_detection": {"type": "server_vad"},
+                            }
+                        },
+                    }
+                ),
+                type="session.created",
+            )
+        )
         try:
             while True:
                 raw = await self.websocket.receive_json()
                 try:
                     event = _CLIENT_EVENT_ADAPTER.validate_python(raw)
                 except ValidationError as exc:
-                    await self._session.send_error(
+                    await self._send_error(
                         message=(
                             "Realtime 事件格式不合法: "
                             f"{exc.errors()[0]['msg']}"
@@ -151,16 +173,141 @@ class _RealtimeConnection:
                     continue
                 if isinstance(event, InputAudioBufferClearEvent):
                     self._resampler = _OnlinePcmResampler(self._chunk_bytes)
-                await self._session.handle_client_event(event)
+                if isinstance(event, SessionUpdateEvent):
+                    await self._handle_session_update(event)
+                elif self._session is None:
+                    await self._send_error(
+                        message=(
+                            "发送音频前必须先通过 session.update 配置转写模型"
+                        ),
+                        code="session_not_configured",
+                        client_event_id=getattr(event, "event_id", None),
+                        param="type",
+                    )
+                else:
+                    await self._session.handle_client_event(event)
         except WebSocketDisconnect:
             pass
         finally:
-            await self._session.close()
+            if self._session is not None:
+                await self._session.close()
+
+    async def _handle_session_update(self, event: SessionUpdateEvent) -> None:
+        current_model = self._session.model if self._session is not None else ""
+        try:
+            requested = RealtimeTranscriptionSessionCreateRequest.model_validate(
+                event.session.model_dump(
+                    mode="json",
+                    exclude_none=False,
+                    exclude_unset=True,
+                )
+            )
+            model, _ = session_values(
+                requested,
+                default_model=current_model,
+                default_language=(
+                    self._session.language
+                    if self._session is not None
+                    else self._workflow_settings.current().config.default_language_code
+                ),
+            )
+            if not model:
+                raise ValueError(
+                    "首次 session.update 必须设置 "
+                    "audio.input.transcription.model"
+                )
+        except ValueError as exc:
+            await self._send_error(
+                message=str(exc),
+                code="invalid_session",
+                client_event_id=event.event_id,
+                param="session",
+            )
+            return
+
+        if self._session is not None and model == self._session.model:
+            await self._session.handle_client_event(event)
+            return
+        if self._session is not None and self._session.audio_started:
+            await self._session.handle_client_event(event)
+            return
+
+        try:
+            target: RealtimeTarget = self._routes.resolve(model)
+            if isinstance(target, ActiveVoiceAgent):
+                raise ValueError("transcription intent 只能绑定语音转写工作流")
+        except RealtimeRouteNotFoundError as exc:
+            await self._send_error(
+                message=str(exc),
+                code="model_not_found",
+                client_event_id=event.event_id,
+                param="session.audio.input.transcription.model",
+            )
+            return
+        except RuntimeError as exc:
+            await self._send_error(
+                message=str(exc),
+                code="model_workflow_not_active",
+                client_event_id=event.event_id,
+                param="session.audio.input.transcription.model",
+            )
+            return
+        except ValueError as exc:
+            await self._send_error(
+                message=str(exc),
+                code="invalid_session",
+                client_event_id=event.event_id,
+                param="session.audio.input.transcription.model",
+            )
+            return
+
+        previous = self._session
+        self._session = RealtimeTranscriptionSession(
+            send_event=self._send,
+            session_service=self._session_service,
+            workflow_settings=self._workflow_settings,
+            model=model,
+            target=target,
+            audio_event_handler=self._handle_audio_append,
+            diagnostics_enabled=self._diagnostics_enabled,
+            aha_version=self._aha_version,
+            inferencer_pool=self._inferencer_pool,
+            responses_limiter=self._responses_limiter,
+            tts_limiter=self._tts_limiter,
+            tool_registry=self._tool_registry,
+            voice_resolver=self._voice_resolver,
+        )
+        if previous is not None:
+            await previous.close()
+        await self._session.handle_client_event(event)
+
+    async def _send_error(
+        self,
+        *,
+        message: str,
+        code: str,
+        client_event_id: str | None = None,
+        param: str | None = None,
+    ) -> None:
+        await self._send(
+            RealtimeErrorEvent(
+                error=RealtimeError(
+                    message=message,
+                    type="invalid_request_error",
+                    code=code,
+                    event_id=client_event_id,
+                    param=param,
+                ),
+                event_id=event_id(),
+                type="error",
+            )
+        )
 
     async def _handle_audio_append(
         self,
         event: InputAudioBufferAppendEvent,
     ) -> None:
+        assert self._session is not None
         try:
             audio = base64.b64decode(event.audio, validate=True)
         except (binascii.Error, ValueError):
@@ -229,32 +376,19 @@ class RealtimeTranscriptionService:
         self,
         websocket: WebSocket,
         *,
-        model: str,
         diagnostics_enabled: bool = False,
         aha_version: str | None = None,
     ) -> None:
-        if not model.strip():
-            await websocket.close(code=4400, reason="model is required")
-            return
-        try:
-            target = self.routes.resolve(model.strip())
-        except RealtimeRouteNotFoundError:
-            await websocket.close(code=4404, reason="Model not found")
-            return
-        except RuntimeError:
-            await websocket.close(code=4409, reason="Model workflow not active")
-            return
         try:
             await websocket.accept()
             connection = _RealtimeConnection(
                 websocket=websocket,
-                model=model.strip(),
                 session_service=self.session_service,
                 workflow_settings=self.workflow_settings,
                 max_message_bytes=self.max_message_bytes,
                 diagnostics_enabled=diagnostics_enabled,
                 aha_version=aha_version,
-                target=target,
+                routes=self.routes,
                 inferencer_pool=self.inferencer_pool,
                 responses_limiter=self.responses_limiter,
                 tts_limiter=self.tts_limiter,
