@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import type { VoiceDemoConfig } from "./config.js";
+import { configFromEnv, type VoiceDemoConfig } from "./config.js";
 import {
   parseBrowserControl,
   realtimeURL,
@@ -21,6 +21,14 @@ const config: VoiceDemoConfig = {
 };
 
 describe("server-managed Realtime protocol", () => {
+  test("defaults to the local Audio Harness data plane", () => {
+    const local = configFromEnv({
+      REALTIME_API_KEY: "local-demo-key",
+      REALTIME_MODEL: "voice-agent",
+    });
+    expect(local.baseURL).toBe("https://127.0.0.1:8000/v1");
+  });
+
   test("builds a model-routed Realtime URL", () => {
     expect(realtimeURL(config).toString()).toBe(
       "wss://127.0.0.1:8000/v1/realtime?model=voice-agent",
@@ -35,6 +43,7 @@ describe("server-managed Realtime protocol", () => {
       output_modalities: ["audio"],
       audio: { output: { voice: "wise" } },
     });
+    expect(JSON.stringify(event)).not.toMatch(/audio_harness\.|x_aha\./);
   });
 
   test("does not accept raw Realtime events from the browser", () => {

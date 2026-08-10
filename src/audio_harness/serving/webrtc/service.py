@@ -18,6 +18,7 @@ from aiortc import (
 )
 from openai.types.realtime import (
     RealtimeClientEvent,
+    RealtimeServerEvent,
     RealtimeSessionCreateRequest,
     RealtimeTranscriptionSessionCreateRequest,
 )
@@ -52,6 +53,7 @@ from audio_harness.workflows.models import PhysicalVadNode
 logger = logging.getLogger(__name__)
 
 _CLIENT_EVENT_ADAPTER = TypeAdapter(RealtimeClientEvent)
+_SERVER_EVENT_ADAPTER = TypeAdapter(RealtimeServerEvent)
 
 
 @dataclass(frozen=True)
@@ -71,6 +73,7 @@ class WebRtcCall:
         call_id: str,
         configuration: RTCConfiguration,
         webrtc_config: WebRtcConfig,
+        max_message_bytes: int,
         session_service: AudioWorkflowSessionService,
         workflow_settings: WorkflowSettingsStore,
         reservation: AudioWorkflowSessionReservation,
@@ -93,12 +96,15 @@ class WebRtcCall:
     ) -> None:
         self.call_id = call_id
         self._config = webrtc_config
+        self._max_message_bytes = max_message_bytes
+        self._aha_version = aha_version
         self._pc = RTCPeerConnection(configuration)
         self._reservation_context = reservation_context
         self._on_closed = on_closed
         self._data_channel: RTCDataChannel | None = None
         self._data_ready = asyncio.Event()
         self._data_session_started = False
+        self._data_message_lock = asyncio.Lock()
         self._audio_track_count = 0
         self._tasks: set[asyncio.Task[Any]] = set()
         self._disconnect_task: asyncio.Task[None] | None = None
@@ -123,6 +129,7 @@ class WebRtcCall:
             clear_audio=self._output_track.clear,
             voice_resolver=voice_resolver,
             finish_audio=self._output_track.finish,
+            transport="webrtc",
         )
         self._chunk_bytes = workflow_settings.current().config.min_chunk_bytes
         self._install_handlers()
@@ -171,32 +178,69 @@ class WebRtcCall:
                 self.call_id,
                 reason,
             )
+            first_error: BaseException | None = None
+
+            async def cleanup(
+                step: str,
+                operation: Awaitable[Any],
+            ) -> None:
+                nonlocal first_error
+                try:
+                    await operation
+                except BaseException as exc:
+                    if first_error is None:
+                        first_error = exc
+                    logger.exception(
+                        "WebRTC call 清理失败: call_id=%s step=%s",
+                        self.call_id,
+                        step,
+                    )
+
             current = asyncio.current_task()
             for task in list(self._tasks):
                 if task is not current and not task.done():
                     task.cancel()
-            await asyncio.gather(
-                *(
-                    task
-                    for task in self._tasks
-                    if task is not current
+            await cleanup(
+                "tasks",
+                asyncio.gather(
+                    *(
+                        task
+                        for task in self._tasks
+                        if task is not current
+                    ),
+                    return_exceptions=True,
                 ),
-                return_exceptions=True,
             )
             if (
                 self._disconnect_task is not None
                 and self._disconnect_task is not current
             ):
                 self._disconnect_task.cancel()
-                await asyncio.gather(
-                    self._disconnect_task,
-                    return_exceptions=True,
+                await cleanup(
+                    "disconnect_task",
+                    asyncio.gather(
+                        self._disconnect_task,
+                        return_exceptions=True,
+                    ),
                 )
-            await self._realtime.close()
-            self._output_track.stop()
-            await self._pc.close()
-            await self._reservation_context.__aexit__(None, None, None)
-            await self._on_closed(self.call_id)
+            await cleanup("realtime", self._realtime.close())
+            try:
+                self._output_track.stop()
+            except BaseException as exc:
+                if first_error is None:
+                    first_error = exc
+                logger.exception(
+                    "WebRTC call 清理失败: call_id=%s step=output_track",
+                    self.call_id,
+                )
+            await cleanup("peer_connection", self._pc.close())
+            await cleanup(
+                "reservation",
+                self._reservation_context.__aexit__(None, None, None),
+            )
+            await cleanup("on_closed", self._on_closed(self.call_id))
+            if first_error is not None:
+                raise first_error
 
     def _install_handlers(self) -> None:
         @self._pc.on("track")
@@ -272,10 +316,43 @@ class WebRtcCall:
         await self._realtime.start()
 
     async def _handle_data_message(self, message: Any) -> None:
+        async with self._data_message_lock:
+            await self._process_data_message(message)
+
+    async def _process_data_message(self, message: Any) -> None:
+        if isinstance(message, bytes):
+            if len(message) > self._max_message_bytes:
+                await self._realtime.send_error(
+                    message="Realtime 事件超过 max_message_bytes",
+                    code="message_too_large",
+                )
+                return
+            try:
+                message = message.decode("utf-8")
+            except UnicodeDecodeError:
+                await self._realtime.send_error(
+                    message="Realtime 事件必须是 UTF-8 JSON 文本",
+                    code="invalid_event",
+                )
+                return
         if not isinstance(message, str):
             await self._realtime.send_error(
                 message="oai-events 只接受 JSON 文本消息",
                 code="invalid_event",
+            )
+            return
+        try:
+            message_size = len(message.encode("utf-8"))
+        except UnicodeEncodeError:
+            await self._realtime.send_error(
+                message="Realtime 事件必须是 UTF-8 JSON 文本",
+                code="invalid_event",
+            )
+            return
+        if message_size > self._max_message_bytes:
+            await self._realtime.send_error(
+                message="Realtime 事件超过 max_message_bytes",
+                code="message_too_large",
             )
             return
         try:
@@ -317,6 +394,12 @@ class WebRtcCall:
             if hasattr(event, "model_dump")
             else event
         )
+        event_type = str(payload.get("type", ""))
+        if event_type.startswith("x_aha."):
+            if self._aha_version != "v1":
+                raise RuntimeError("AHA extension event was not negotiated")
+        else:
+            _SERVER_EVENT_ADAPTER.validate_python(payload)
         channel.send(
             json.dumps(
                 payload,
@@ -439,6 +522,7 @@ class WebRtcCallService:
             call_id=call_id,
             configuration=self._rtc_configuration,
             webrtc_config=self._config,
+            max_message_bytes=self._max_message_bytes,
             session_service=self._session_service,
             workflow_settings=self._workflow_settings,
             reservation=reservation,
