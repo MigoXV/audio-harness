@@ -38,8 +38,11 @@ poetry run python examples/openai_realtime_python_demo/main.py \
 该参数会在 OpenAI Python SDK 建连时传入：
 
 ```python
-extra_query={"x_aha": "v1"}
+extra_query={"intent": "transcription", "x_aha": "v1"}
 ```
+
+不启用扩展时仍会传入 `intent=transcription`。模型不放在 WebSocket URL 中，而由随后
+发送的 `session.update.audio.input.transcription.model` 指定。
 
 当物理 VAD 已检测到一段语音结束、但语义 VAD 判断用户还没有说完时，
 服务端会发送以下扩展事件：

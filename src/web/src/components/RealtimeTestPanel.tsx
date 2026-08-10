@@ -59,18 +59,32 @@ function displayMs(value: number | undefined, waiting: string): string {
   return value < 1000 ? `${Math.round(value)} ms` : `${(value / 1000).toFixed(2)} s`;
 }
 
-export function realtimeSessionUpdate(workflowKind: RealtimeSessionKind) {
+export function realtimeSessionUpdate(
+  workflowKind: RealtimeSessionKind,
+  model: string,
+) {
   return {
     type: "session.update",
     session: {
       type: workflowKind === "voice_agent" ? "realtime" : "transcription",
+      ...(workflowKind === "transcription"
+        ? {
+            audio: {
+              input: {
+                transcription: { model },
+              },
+            },
+          }
+        : {}),
     },
   };
 }
 
 export function realtimeEndpoint(protocol: "wss" | "webrtc", model: string, ahaEnabled: boolean): string {
-  const query = `model=${encodeURIComponent(model)}${ahaEnabled ? "&x_aha=v1" : ""}`;
-  return protocol === "wss" ? `/v1/realtime?${query}` : `/v1/realtime/calls?${query}`;
+  const extension = ahaEnabled ? "&x_aha=v1" : "";
+  return protocol === "wss"
+    ? `/v1/realtime?intent=transcription${extension}`
+    : `/v1/realtime/calls?model=${encodeURIComponent(model)}${extension}`;
 }
 
 export function isResponseTextDelta(type: string): boolean {
@@ -200,7 +214,7 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
       const socket = new WebSocket(url);
       socketRef.current = socket;
       socket.onopen = () => {
-        socket.send(JSON.stringify(realtimeSessionUpdate(workflowKind)));
+        socket.send(JSON.stringify(realtimeSessionUpdate(workflowKind, model)));
         resolve();
       };
       socket.onerror = () => reject(new Error("WSS 握手失败，请检查 TLS 和工作流状态"));
@@ -289,7 +303,7 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
     <div className="test-console">
       <section className="panel test-control-panel">
         <div className="panel-heading"><div><h2>{workflowKind === "voice_agent" ? "端到端对话测试" : "实时转写测试"}</h2><p>{workflowKind === "voice_agent" ? "音频、转写和回复仅保留在当前浏览器内存。" : "验证 VAD、切段与 ASR 转写；不会调用 Responses 或 TTS。"}</p></div><span className={`connection-indicator connection-${connection}`}>{connection === "connected" ? "已连接" : connection === "connecting" ? "连接中" : connection === "error" ? "连接失败" : "未连接"}</span></div>
-        <div className="test-connection-options"><div className="protocol-tabs"><button className={protocol === "webrtc" ? "active" : ""} disabled={connection === "connected"} onClick={() => setProtocol("webrtc")}>WebRTC</button><button className={protocol === "wss" ? "active" : ""} disabled={connection === "connected"} onClick={() => setProtocol("wss")}>WSS</button></div><label className="switch-control aha-extension-toggle"><input type="checkbox" checked={ahaEnabled} disabled={connection !== "idle" && connection !== "error"} onChange={(event) => setAhaEnabled(event.target.checked)} /><span>启用 AHA 扩展协议</span></label></div>
+        <div className="test-connection-options"><div className="protocol-tabs"><button className={protocol === "webrtc" ? "active" : ""} disabled={connection === "connected"} onClick={() => setProtocol("webrtc")}>WebRTC</button><button className={protocol === "wss" ? "active" : ""} disabled={connection === "connected" || workflowKind === "voice_agent"} onClick={() => setProtocol("wss")}>WSS</button></div><label className="switch-control aha-extension-toggle"><input type="checkbox" checked={ahaEnabled} disabled={connection !== "idle" && connection !== "error"} onChange={(event) => setAhaEnabled(event.target.checked)} /><span>启用 AHA 扩展协议</span></label></div>
         <div className="test-status"><span className="pulse-dot" /><strong>{notice}</strong></div>
         {!canTest && <div className="alert alert-warning">{blockedReason ?? "请先完成配置并发布工作流。"}</div>}
         <div className="panel-actions"><button className="primary-button" disabled={!canTest || connection === "connecting" || connection === "connected"} title={!canTest ? blockedReason : undefined} onClick={() => void start()}>开始麦克风测试</button><button className="secondary-button" disabled={connection === "idle"} onClick={() => void stop()}>停止并清除</button></div>

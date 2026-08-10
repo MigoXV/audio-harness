@@ -1,6 +1,6 @@
 # Realtime 服务端语音对话 Demo
 
-这个 Demo 完整使用 Audio Harness 的 OpenAI Realtime 兼容入口进行语音对话，
+这个 Demo 使用带 `model` 查询参数的通用 OpenAI Realtime 兼容入口进行语音对话，
 但浏览器不会直接调用 Realtime API，也不会持有 API Key 或组装任何
 `session.update`、`input_audio_buffer.append`、`response.create` 事件。
 
@@ -15,21 +15,15 @@
 因此，这个示例适合验证上一层业务服务如何托管完整语音智能体会话，而不是把
 Realtime 协议和密钥下放给浏览器。
 
+> Audio Harness 的 WebSocket `/v1/realtime` 目前只提供官方纯转写入口
+> `intent=transcription`，不再接受本 Demo 使用的 `model` 查询参数。验证 Audio
+> Harness 语音智能体时请使用控制台中的 WebRTC 测试；本 Demo 仅适用于仍提供通用
+> Realtime WebSocket 模型入口的上游服务。
+
 ## 前置条件
 
-先在 Audio Harness 控制面创建并激活语音智能体，为它绑定公开模型名。
-该工作流需要包含 VAD、ASR、Responses 和双向流式 TTS 节点；TTS 可使用
-`192.168.0.222:50005` 和预置音色 `wise`。
-
-在仓库根目录准备证书并启动服务：
-
-```bash
-bash scripts/generate_realtime_tls.sh
-set -a
-. ./.env
-set +a
-poetry run audio-harness serve
-```
+准备一个仍支持 `/v1/realtime?model=...` 及 `type: realtime` 会话的上游服务、
+对应模型和 API Key。这个 Demo 不再作为 Audio Harness 本地数据面的验证入口。
 
 ## 安装与启动
 
@@ -42,10 +36,10 @@ cp .env.example .env
 编辑 `.env`：
 
 ```dotenv
-REALTIME_API_KEY=与主服务 REALTIME_API_KEY 相同的值
-REALTIME_BASE_URL=https://127.0.0.1:8000/v1
-REALTIME_MODEL=my-voice-agent
-REALTIME_CA_CERT_FILE=model-bin/realtime-tls/cert.pem
+REALTIME_API_KEY=上游服务密钥
+REALTIME_BASE_URL=https://api.openai.com/v1
+REALTIME_MODEL=上游支持的Realtime模型
+REALTIME_CA_CERT_FILE=
 REALTIME_VOICE=wise
 REALTIME_INSTRUCTIONS=你是一个自然、简洁、有帮助的中文语音助手。
 VOICE_DEMO_TLS_CERT_FILE=model-bin/realtime-tls/cert.pem
@@ -54,8 +48,7 @@ VOICE_DEMO_HOST=0.0.0.0
 VOICE_DEMO_PORT=8091
 ```
 
-`REALTIME_MODEL` 必须是控制面中绑定到已激活语音智能体的公开模型名，
-不能使用内部保留的 `grpc-default`。
+`REALTIME_MODEL` 必须是上游通用 Realtime WebSocket 支持的模型名。
 
 启动：
 
@@ -64,7 +57,7 @@ pnpm dev
 ```
 
 打开 `https://127.0.0.1:8091`。点击“开始对话”并允许麦克风权限即可持续交谈；
-用户重新开口时，Audio Harness 会取消旧 Responses/TTS 流，Demo 同时清空浏览器
+用户重新开口时，上游服务会取消旧 Responses/TTS 流，Demo 同时清空浏览器
 里尚未播放的音频。
 
 ## 验证

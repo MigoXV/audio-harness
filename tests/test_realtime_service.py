@@ -143,13 +143,15 @@ def build_app(
     @app.websocket("/v1/realtime")
     async def realtime(
         websocket: WebSocket,
-        model: str,
+        intent: str,
         diagnostics: bool = Query(default=False),
         x_aha: str | None = Query(default=None),
     ) -> None:
+        if intent != "transcription" or "model" in websocket.query_params:
+            await websocket.close(code=4400)
+            return
         await service.handle(
             websocket,
-            model=model,
             diagnostics_enabled=diagnostics,
             aha_version=x_aha,
         )
@@ -159,6 +161,34 @@ def build_app(
 
 def receive_official_event(websocket):
     return _SERVER_EVENT_ADAPTER.validate_python(websocket.receive_json())
+
+
+def configure_transcription(websocket, *, event_id: str = "client-session"):
+    websocket.send_json(
+        {
+            "type": "session.update",
+            "event_id": event_id,
+            "session": {
+                "type": "transcription",
+                "audio": {
+                    "input": {
+                        "format": {
+                            "type": "audio/pcm",
+                            "rate": 24000,
+                        },
+                        "transcription": {
+                            "model": "gpt-4o-transcribe",
+                            "language": "zh-CN",
+                        },
+                        "turn_detection": {"type": "server_vad"},
+                    }
+                },
+            },
+        }
+    )
+    updated = receive_official_event(websocket)
+    assert updated.type == "session.updated"
+    return updated
 
 
 class _UnexpectedDataPlaneService:
@@ -174,8 +204,72 @@ class _UnexpectedDataPlaneService:
 
 def test_realtime_does_not_require_bearer_token() -> None:
     with TestClient(build_app()) as client:
-        with client.websocket_connect("/v1/realtime?model=gpt-4o-transcribe"):
-            pass
+        with client.websocket_connect(
+            "/v1/realtime?intent=transcription"
+        ) as websocket:
+            created = receive_official_event(websocket)
+            assert created.type == "session.created"
+            assert created.session.type == "transcription"
+
+
+def test_realtime_requires_model_in_first_session_update() -> None:
+    with TestClient(build_app()) as client:
+        with client.websocket_connect(
+            "/v1/realtime?intent=transcription"
+        ) as websocket:
+            assert receive_official_event(websocket).type == "session.created"
+            websocket.send_json({"audio": ""})
+            invalid_event = receive_official_event(websocket)
+            assert invalid_event.type == "error"
+            assert invalid_event.error.code == "invalid_event"
+
+            websocket.send_json(
+                {
+                    "type": "input_audio_buffer.append",
+                    "event_id": "early-audio",
+                    "audio": "",
+                }
+            )
+            early_error = receive_official_event(websocket)
+            assert early_error.type == "error"
+            assert early_error.error.code == "session_not_configured"
+
+            websocket.send_json(
+                {
+                    "type": "session.update",
+                    "event_id": "missing-model",
+                    "session": {"type": "transcription"},
+                }
+            )
+            model_error = receive_official_event(websocket)
+            assert model_error.type == "error"
+            assert model_error.error.code == "invalid_session"
+
+            configure_transcription(websocket, event_id="retry-with-model")
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "model=gpt-4o-transcribe",
+        "intent=realtime",
+        "intent=transcription&model=gpt-4o-transcribe",
+    ],
+)
+def test_realtime_rejects_non_transcription_handshakes(query: str) -> None:
+    app = FastAPI()
+    unexpected = _UnexpectedDataPlaneService()
+    app.include_router(
+        create_data_plane_router(
+            realtime=unexpected,  # type: ignore[arg-type]
+            webrtc=unexpected,  # type: ignore[arg-type]
+            max_message_bytes=1024,
+        )
+    )
+    with TestClient(app) as client:
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect(f"/v1/realtime?{query}"):
+                pass
 
 
 def test_realtime_rejects_unsupported_x_aha_version() -> None:
@@ -191,7 +285,7 @@ def test_realtime_rejects_unsupported_x_aha_version() -> None:
     with TestClient(app) as client:
         with pytest.raises(WebSocketDisconnect) as captured:
             with client.websocket_connect(
-                "/v1/realtime?model=gpt-4o-transcribe&x_aha=v2"
+                "/v1/realtime?intent=transcription&x_aha=v2"
             ):
                 pass
     assert captured.value.code == 4400
@@ -200,35 +294,13 @@ def test_realtime_rejects_unsupported_x_aha_version() -> None:
 def test_realtime_server_vad_event_sequence_uses_sdk_models() -> None:
     with TestClient(build_app()) as client:
         with client.websocket_connect(
-            "/v1/realtime?model=gpt-4o-transcribe&diagnostics=true",
+            "/v1/realtime?intent=transcription&diagnostics=true",
             headers={"Authorization": "Bearer local-test-key"},
         ) as websocket:
             created = receive_official_event(websocket)
             assert created.type == "session.created"
 
-            websocket.send_json(
-                {
-                    "type": "session.update",
-                    "event_id": "client-session",
-                    "session": {
-                        "type": "transcription",
-                        "audio": {
-                            "input": {
-                                "format": {
-                                    "type": "audio/pcm",
-                                    "rate": 24000,
-                                },
-                                "transcription": {
-                                    "model": "gpt-4o-transcribe",
-                                    "language": "zh-CN",
-                                },
-                                "turn_detection": {"type": "server_vad"},
-                            }
-                        },
-                    },
-                }
-            )
-            assert receive_official_event(websocket).type == "session.updated"
+            configure_transcription(websocket)
 
             audio = np.zeros(24_000, dtype="<i2").tobytes()
             websocket.send_json(
@@ -268,9 +340,10 @@ def test_realtime_x_aha_reports_pending_semantic_turn() -> None:
     )
     with TestClient(app) as client:
         with client.websocket_connect(
-            "/v1/realtime?model=gpt-4o-transcribe&x_aha=v1"
+            "/v1/realtime?intent=transcription&x_aha=v1"
         ) as websocket:
             assert receive_official_event(websocket).type == "session.created"
+            configure_transcription(websocket)
             audio = np.zeros(24_000, dtype="<i2").tobytes()
             websocket.send_json(
                 {
@@ -307,9 +380,10 @@ def test_realtime_native_client_does_not_receive_x_aha_events() -> None:
     )
     with TestClient(app) as client:
         with client.websocket_connect(
-            "/v1/realtime?model=gpt-4o-transcribe"
+            "/v1/realtime?intent=transcription"
         ) as websocket:
             assert receive_official_event(websocket).type == "session.created"
+            configure_transcription(websocket)
             audio = np.zeros(24_000, dtype="<i2").tobytes()
             websocket.send_json(
                 {
@@ -327,10 +401,11 @@ def test_realtime_native_client_does_not_receive_x_aha_events() -> None:
 def test_realtime_rejects_manual_commit_without_closing_connection() -> None:
     with TestClient(build_app()) as client:
         with client.websocket_connect(
-            "/v1/realtime?model=gpt-4o-transcribe",
+            "/v1/realtime?intent=transcription",
             headers={"Authorization": "Bearer local-test-key"},
         ) as websocket:
             assert receive_official_event(websocket).type == "session.created"
+            configure_transcription(websocket)
             websocket.send_json(
                 {
                     "type": "input_audio_buffer.commit",

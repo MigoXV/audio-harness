@@ -107,7 +107,6 @@ describe("Demo HTTP server", () => {
       apiKey: "test-secret",
       baseURL: "https://api.openai.com/v1",
       model: "gpt-4o-transcribe",
-      connectionMode: "intent",
       tlsCertFile: tls.cert,
       tlsKeyFile: tls.key,
       host: "127.0.0.1",
@@ -129,7 +128,6 @@ describe("Demo HTTP server", () => {
       expect(JSON.parse(publicBody)).toEqual({
         base_url: "https://api.openai.com/v1",
         model: "gpt-4o-transcribe",
-        connection_mode: "intent",
       });
       expect(publicBody).not.toContain("test-secret");
 
@@ -154,7 +152,6 @@ describe("Demo HTTP server", () => {
       apiKey: "test-secret",
       baseURL: "https://127.0.0.1:8000/v1",
       model: "gpt-4o-transcribe",
-      connectionMode: "model",
       caCertFile: join(root, "missing.pem"),
       tlsCertFile: tls.cert,
       tlsKeyFile: tls.key,
