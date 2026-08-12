@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 
 import pytest
+from pydantic import ValidationError
 
 from audio_harness.assets import (
     EngineApi,
@@ -19,6 +20,7 @@ from audio_harness.domain import (
     RecognitionOptions,
     TranscriptionResult,
     VadBoundary,
+    VadPostprocessingOptions,
     VadUpdate,
 )
 from audio_harness.workflows import (
@@ -143,6 +145,30 @@ def _definition(*, semantic: bool = True) -> AudioWorkflowDocument:
     )
 
 
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        {"min_speech_frame": 0},
+        {"min_silence_frame": 1.5},
+        {"smooth_window_size": True},
+        {"speech_threshold": -0.1},
+        {"speech_threshold": float("inf")},
+        {"unknown": 1},
+    ],
+)
+def test_physical_vad_rejects_invalid_postprocessing(parameters: dict) -> None:
+    with pytest.raises(ValidationError):
+        PhysicalVadConfig.model_validate(
+            {
+                "postprocessing": {
+                    "processor": "firered.stream_vad",
+                    "version": 1,
+                    "parameters": parameters,
+                }
+            }
+        )
+
+
 def test_compiler_builds_typed_plan(assets: dict[str, EngineAssetData]) -> None:
     plan = compile_audio_graph(_definition(), assets=assets)
 
@@ -191,12 +217,16 @@ class _Vad:
     def __init__(self, updates: list[VadUpdate], turns: list[bool] | None = None) -> None:
         self.updates = updates
         self.turns = list(turns or [])
+        self.postprocessing: VadPostprocessingOptions | None = None
 
     async def stream_detect(
         self,
         audio_chunks: AsyncIterator[bytes],
         sample_rate: int,
+        *,
+        postprocessing: VadPostprocessingOptions | None = None,
     ) -> AsyncIterator[VadUpdate]:
+        self.postprocessing = postprocessing
         async for _ in audio_chunks:
             pass
         for update in self.updates:
@@ -304,3 +334,46 @@ async def test_inferencer_cancels_all_node_tasks_on_consumer_cancel(
         task.get_name().startswith("audio-graph-") and not task.done()
         for task in asyncio.all_tasks()
     )
+
+
+@pytest.mark.asyncio
+async def test_physical_vad_passes_node_postprocessing_to_engine(
+    assets: dict[str, EngineAssetData],
+) -> None:
+    definition = _definition(semantic=False)
+    physical = definition.nodes[0]
+    assert isinstance(physical, PhysicalVadNode)
+    physical.config = PhysicalVadConfig.model_validate(
+        {
+            **physical.config.model_dump(),
+            "postprocessing": {
+                "processor": "firered.stream_vad",
+                "version": 1,
+                "parameters": {"speech_threshold": 0.7},
+            },
+        }
+    )
+    vad = _Vad([])
+    inferencer = AudioWorkflowInferencer(
+        plan=compile_audio_graph(definition, assets=assets),
+        engines={"physical": vad, "asr": _Asr()},
+        runtime_config=AudioRuntimeConfig(1, 1),
+        asr_semaphore=asyncio.Semaphore(1),
+    )
+
+    assert [
+        output
+        async for output in inferencer.stream(
+            _chunks(),
+            AudioInferenceRequest(
+                recognition=RecognitionOptions(
+                    sample_rate=4,
+                    language_code="zh-CN",
+                )
+            ),
+        )
+    ] == []
+    assert vad.postprocessing is not None
+    assert vad.postprocessing.processor == "firered.stream_vad"
+    assert vad.postprocessing.parameters["speech_threshold"] == 0.7
+    assert vad.postprocessing.parameters["min_silence_frame"] == 20

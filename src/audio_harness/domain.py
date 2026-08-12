@@ -40,6 +40,13 @@ class VadUpdate:
 
 
 @dataclass(frozen=True)
+class VadPostprocessingOptions:
+    processor: str
+    version: int
+    parameters: Mapping[str, int | float]
+
+
+@dataclass(frozen=True)
 class SpeechStarted:
     start_sample: int
     sample_rate: int
@@ -77,6 +84,8 @@ class AsyncVadEngine(Protocol):
         self,
         audio_chunks: AsyncIterator[bytes],
         sample_rate: int,
+        *,
+        postprocessing: VadPostprocessingOptions | None = None,
     ) -> AsyncIterator[VadUpdate]: ...
 
     async def detect_turn(

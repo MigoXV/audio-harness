@@ -26,6 +26,7 @@ function physicalVad(document: AudioWorkflowDocument) {
         max_segment_seconds: 60,
         audio_buffer_seconds: 120,
         speech_pre_roll_seconds: 0.3,
+        postprocessing: null,
       },
     };
 }

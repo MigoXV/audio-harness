@@ -3584,6 +3584,72 @@
         ],
         "title": "FailurePolicy"
       },
+      "FireRedPostprocessingOptions": {
+        "properties": {
+          "processor": {
+            "type": "string",
+            "const": "firered.stream_vad",
+            "title": "Processor",
+            "default": "firered.stream_vad"
+          },
+          "version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Version",
+            "default": 1
+          },
+          "parameters": {
+            "$ref": "#/components/schemas/FireRedPostprocessingParameters"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "FireRedPostprocessingOptions"
+      },
+      "FireRedPostprocessingParameters": {
+        "properties": {
+          "smooth_window_size": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Smooth Window Size",
+            "default": 5
+          },
+          "speech_threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Speech Threshold",
+            "default": 0.5
+          },
+          "pad_start_frame": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Pad Start Frame",
+            "default": 5
+          },
+          "min_speech_frame": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Min Speech Frame",
+            "default": 8
+          },
+          "max_speech_frame": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Speech Frame",
+            "default": 2000
+          },
+          "min_silence_frame": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Min Silence Frame",
+            "default": 20
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "FireRedPostprocessingParameters"
+      },
       "GraphDiagnosticRead": {
         "properties": {
           "code": {
@@ -3993,6 +4059,16 @@
             "minimum": 0.0,
             "title": "Speech Pre Roll Seconds",
             "default": 0.3
+          },
+          "postprocessing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FireRedPostprocessingOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,

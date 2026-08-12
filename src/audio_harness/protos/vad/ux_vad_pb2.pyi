@@ -7,6 +7,7 @@ from collections import abc as _abc
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import duration_pb2 as _duration_pb2
 from google.protobuf import message as _message
+from google.protobuf import struct_pb2 as _struct_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 import builtins as _builtins
@@ -62,21 +63,51 @@ class DetectionConfig(_message.Message):
 
     ENCODING_FIELD_NUMBER: _builtins.int
     SAMPLE_RATE_HERTZ_FIELD_NUMBER: _builtins.int
+    POSTPROCESSING_FIELD_NUMBER: _builtins.int
     encoding: Global___DetectionConfig.AudioEncoding.ValueType
     sample_rate_hertz: _builtins.int
+    @_builtins.property
+    def postprocessing(self) -> Global___PostprocessingOptions: ...
     def __init__(
         self,
         *,
         encoding: Global___DetectionConfig.AudioEncoding.ValueType = ...,
         sample_rate_hertz: _builtins.int = ...,
+        postprocessing: Global___PostprocessingOptions | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["postprocessing", b"postprocessing"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["encoding", b"encoding", "sample_rate_hertz", b"sample_rate_hertz"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["encoding", b"encoding", "postprocessing", b"postprocessing", "sample_rate_hertz", b"sample_rate_hertz"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___DetectionConfig: _TypeAlias = DetectionConfig  # noqa: Y015
+
+@_typing.final
+class PostprocessingOptions(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    PROCESSOR_FIELD_NUMBER: _builtins.int
+    VERSION_FIELD_NUMBER: _builtins.int
+    PARAMETERS_FIELD_NUMBER: _builtins.int
+    processor: _builtins.str
+    version: _builtins.int
+    @_builtins.property
+    def parameters(self) -> _struct_pb2.Struct: ...
+    def __init__(
+        self,
+        *,
+        processor: _builtins.str = ...,
+        version: _builtins.int = ...,
+        parameters: _struct_pb2.Struct | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["parameters", b"parameters"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["parameters", b"parameters", "processor", b"processor", "version", b"version"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___PostprocessingOptions: _TypeAlias = PostprocessingOptions  # noqa: Y015
 
 @_typing.final
 class DetectResponse(_message.Message):

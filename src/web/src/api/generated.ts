@@ -1088,6 +1088,55 @@ export interface components {
          * @enum {string}
          */
         FailurePolicy: "fail_pipeline" | "fail_open";
+        /** FireRedPostprocessingOptions */
+        FireRedPostprocessingOptions: {
+            /**
+             * Processor
+             * @default firered.stream_vad
+             * @constant
+             */
+            processor: "firered.stream_vad";
+            /**
+             * Version
+             * @default 1
+             * @constant
+             */
+            version: 1;
+            parameters?: components["schemas"]["FireRedPostprocessingParameters"];
+        };
+        /** FireRedPostprocessingParameters */
+        FireRedPostprocessingParameters: {
+            /**
+             * Smooth Window Size
+             * @default 5
+             */
+            smooth_window_size: number;
+            /**
+             * Speech Threshold
+             * @default 0.5
+             */
+            speech_threshold: number;
+            /**
+             * Pad Start Frame
+             * @default 5
+             */
+            pad_start_frame: number;
+            /**
+             * Min Speech Frame
+             * @default 8
+             */
+            min_speech_frame: number;
+            /**
+             * Max Speech Frame
+             * @default 2000
+             */
+            max_speech_frame: number;
+            /**
+             * Min Silence Frame
+             * @default 20
+             */
+            min_silence_frame: number;
+        };
         /** GraphDiagnosticRead */
         GraphDiagnosticRead: {
             /** Code */
@@ -1246,6 +1295,7 @@ export interface components {
              * @default 0.3
              */
             speech_pre_roll_seconds: number;
+            postprocessing?: components["schemas"]["FireRedPostprocessingOptions"] | null;
         };
         /** PhysicalVadNode */
         PhysicalVadNode: {

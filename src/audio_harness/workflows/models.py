@@ -24,11 +24,35 @@ class NodePosition(StrictModel):
     y: float = 0
 
 
+class FireRedPostprocessingParameters(StrictModel):
+    smooth_window_size: int = Field(default=5, gt=0, strict=True)
+    speech_threshold: float = Field(
+        default=0.5,
+        ge=0,
+        le=1,
+        allow_inf_nan=False,
+        strict=True,
+    )
+    pad_start_frame: int = Field(default=5, gt=0, strict=True)
+    min_speech_frame: int = Field(default=8, gt=0, strict=True)
+    max_speech_frame: int = Field(default=2000, gt=0, strict=True)
+    min_silence_frame: int = Field(default=20, gt=0, strict=True)
+
+
+class FireRedPostprocessingOptions(StrictModel):
+    processor: Literal["firered.stream_vad"] = "firered.stream_vad"
+    version: Literal[1] = 1
+    parameters: FireRedPostprocessingParameters = Field(
+        default_factory=FireRedPostprocessingParameters
+    )
+
+
 class PhysicalVadConfig(StrictModel):
     min_segment_seconds: float = Field(default=0.5, ge=0)
     max_segment_seconds: float = Field(default=60.0, gt=0)
     audio_buffer_seconds: float = Field(default=120.0, gt=0)
     speech_pre_roll_seconds: float = Field(default=0.3, ge=0)
+    postprocessing: FireRedPostprocessingOptions | None = None
 
     @model_validator(mode="after")
     def validate_buffer(self) -> "PhysicalVadConfig":

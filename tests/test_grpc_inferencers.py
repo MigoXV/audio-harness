@@ -12,6 +12,7 @@ from audio_harness.domain import (
     AudioSegment,
     PresetVoice,
     RecognitionOptions,
+    VadPostprocessingOptions,
 )
 from audio_harness.inferencers.grpc import (
     GrpcAsrInferencer,
@@ -150,7 +151,50 @@ async def test_grpc_vad_inferencer_uses_async_stream_and_unary_turn_detection() 
     assert completed is True
     assert fake.streaming_config is not None
     assert fake.streaming_config.sample_rate_hertz == 4
+    assert not fake.streaming_config.HasField("postprocessing")
     assert bytes(fake.streaming_audio) == b"\x00\x00\x01\x00"
+
+
+@pytest.mark.asyncio
+async def test_grpc_vad_inferencer_sends_postprocessing_only_in_stream_config() -> None:
+    fake = FakeVadServicer()
+    server = grpc.aio.server()
+    vad_pb2_grpc.add_UxVoiceActivityDetectorServicer_to_server(fake, server)
+    port = server.add_insecure_port("127.0.0.1:0")
+    await server.start()
+    inferencer = GrpcVadInferencer(
+        EngineEndpoint(target=f"127.0.0.1:{port}"),
+        max_message_bytes=1024,
+    )
+    try:
+        updates = [
+            update
+            async for update in inferencer.stream_detect(
+                audio_chunks(b"\x00\x00"),
+                sample_rate=16_000,
+                postprocessing=VadPostprocessingOptions(
+                    processor="firered.stream_vad",
+                    version=1,
+                    parameters={
+                        "speech_threshold": 0.7,
+                        "min_silence_frame": 12,
+                    },
+                ),
+            )
+        ]
+    finally:
+        await inferencer.close()
+        await server.stop(0)
+
+    assert len(updates) == 1
+    assert fake.streaming_config is not None
+    assert fake.streaming_config.HasField("postprocessing")
+    assert fake.streaming_config.postprocessing.processor == "firered.stream_vad"
+    assert fake.streaming_config.postprocessing.version == 1
+    assert dict(fake.streaming_config.postprocessing.parameters) == {
+        "speech_threshold": 0.7,
+        "min_silence_frame": 12.0,
+    }
 
 
 @pytest.mark.asyncio

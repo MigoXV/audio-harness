@@ -16,6 +16,7 @@ from audio_harness.domain import (
     SpeechStopped,
     TranscriptionResult,
     VadUpdate,
+    VadPostprocessingOptions,
 )
 from audio_harness.inferencers.contracts import ManagedInferencer
 from audio_harness.workflows.compiler import (
@@ -602,7 +603,29 @@ class AudioWorkflowInferencer:
                     continue
                 await router.emit(node_id, port, payload)
 
-        async for update in engine.stream_detect(recorded(), request.recognition.sample_rate):
+        postprocessing = definition.config.postprocessing
+        request_postprocessing = (
+            VadPostprocessingOptions(
+                processor=postprocessing.processor,
+                version=postprocessing.version,
+                parameters=postprocessing.parameters.model_dump(),
+            )
+            if postprocessing is not None
+            else None
+        )
+        updates = (
+            engine.stream_detect(
+                recorded(),
+                request.recognition.sample_rate,
+                postprocessing=request_postprocessing,
+            )
+            if request_postprocessing is not None
+            else engine.stream_detect(
+                recorded(),
+                request.recognition.sample_rate,
+            )
+        )
+        async for update in updates:
             if not isinstance(update, VadUpdate):
                 raise TypeError(f"非法 VAD 更新类型: {type(update)!r}")
             await publish(state.update(update))

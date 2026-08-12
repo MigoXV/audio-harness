@@ -45,6 +45,11 @@ gRPC / Realtime / WebRTC 数据面 ─────┘
 - 引擎是否存在、启用且 API 能力匹配；
 - `primary_transcript`、`speech_started`、`speech_stopped` 三个稳定出口是否完整且类型正确。
 
+物理 VAD 节点可以按工作流配置 FireRed `firered.stream_vad` v1 后处理参数，
+包括概率平滑、判定阈值、起点前补以及语音/静音帧数限制。未启用自定义配置时，
+流式首包不会发送 `postprocessing` 字段，继续使用 VAD 服务端默认值；参数修改随
+工作流重新发布后生效，不会热更新已经运行的会话。旧 VAD 服务可以忽略新增字段。
+
 工作流的语义文档与画布 `layout` 分开保存。发布时重新编译草稿、准备全部引擎，然后原子写入不可变 revision；活动会话不会被后续草稿或引擎资产修改热改。
 
 ## 目录结构

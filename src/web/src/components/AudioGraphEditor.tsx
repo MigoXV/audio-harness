@@ -84,6 +84,28 @@ const ROLE_COLORS = {
 const GRAPH_NODE_WIDTH = 244;
 const BOUNDARY_GAP = 120;
 
+const FIRERED_POSTPROCESSING_DEFAULTS = {
+  processor: "firered.stream_vad" as const,
+  version: 1 as const,
+  parameters: {
+    smooth_window_size: 5,
+    speech_threshold: 0.5,
+    pad_start_frame: 5,
+    min_speech_frame: 8,
+    max_speech_frame: 2000,
+    min_silence_frame: 20,
+  },
+};
+
+const FIRERED_PARAMETER_META = [
+  ["smooth_window_size", "概率平滑窗口", "帧", 1],
+  ["speech_threshold", "语音判定阈值", "0–1", 0.01],
+  ["pad_start_frame", "语音起点前补", "帧", 1],
+  ["min_speech_frame", "最短连续语音", "帧", 1],
+  ["max_speech_frame", "单段最长语音", "帧", 1],
+  ["min_silence_frame", "结束所需静音", "帧", 1],
+] as const;
+
 function horizontalAnchor(
   positions: NodePosition[],
   side: "left" | "right",
@@ -150,6 +172,7 @@ function nodeConfig(kind: string): AudioNode {
         max_segment_seconds: 60,
         audio_buffer_seconds: 120,
         speech_pre_roll_seconds: 0.3,
+        postprocessing: null,
       },
     };
   }
@@ -312,6 +335,20 @@ function AudioGraphEditorInner({
 
   const selected = document.nodes.find((node) => node.id === selectedId) ?? null;
   const selectedSpec = selected ? specs.get(selected.kind) : undefined;
+  const selectedPhysicalConfig = selected?.kind === "physical_vad" ? {
+    min_segment_seconds: selected.config?.min_segment_seconds ?? 0.5,
+    max_segment_seconds: selected.config?.max_segment_seconds ?? 60,
+    audio_buffer_seconds: selected.config?.audio_buffer_seconds ?? 120,
+    speech_pre_roll_seconds: selected.config?.speech_pre_roll_seconds ?? 0.3,
+    postprocessing: selected.config?.postprocessing ?? null,
+  } : null;
+  const selectedPostprocessing = selectedPhysicalConfig?.postprocessing ? {
+    ...selectedPhysicalConfig.postprocessing,
+    parameters: {
+      ...FIRERED_POSTPROCESSING_DEFAULTS.parameters,
+      ...(selectedPhysicalConfig.postprocessing.parameters ?? {}),
+    },
+  } : null;
 
   const arrangeGraph = useCallback(() => {
     try {
@@ -532,7 +569,14 @@ function AudioGraphEditorInner({
           <div className={`inspector-state ${selected.engine_id ? "configured" : "unconfigured"}`}><strong>{selectedSpec.display_name}</strong><span>{selected.engine_id ? "已绑定执行引擎" : "待绑定执行引擎"}</span></div>
           <label><span>节点 ID</span><input value={selected.id} disabled /></label>
           <label><span>执行引擎</span><select value={selected.engine_id ?? ""} onChange={(event) => updateNode({ ...selected, engine_id: event.target.value || null } as AudioNode)}><option value="">未绑定</option>{engines.filter((engine) => engine.enabled && engine.api === selectedSpec.required_api).map((engine) => <option key={engine.id} value={engine.id}>{engine.name} · {engine.status}</option>)}</select><small>需要 {selectedSpec.required_api} 能力</small></label>
-          {Object.entries(selected.config ?? {}).map(([key, value]) => <label key={key}><span>{key}</span><input type="number" step="0.1" value={String(value)} onChange={(event) => updateNode({ ...selected, config: { ...(selected.config ?? {}), [key]: Number(event.target.value) } } as AudioNode)} /></label>)}
+          {Object.entries(selected.config ?? {}).filter(([key]) => key !== "postprocessing").map(([key, value]) => <label key={key}><span>{key}</span><input type="number" step="0.1" value={String(value)} onChange={(event) => updateNode({ ...selected, config: { ...(selected.config ?? {}), [key]: Number(event.target.value) } } as AudioNode)} /></label>)}
+          {selected.kind === "physical_vad" && selectedPhysicalConfig && <section className="vad-postprocessing-settings">
+            <label className="switch-control"><input type="checkbox" checked={selectedPostprocessing != null} onChange={(event) => updateNode({ ...selected, config: { ...selectedPhysicalConfig, postprocessing: event.target.checked ? structuredClone(FIRERED_POSTPROCESSING_DEFAULTS) : null } })} /><span>自定义 FireRed 后处理</span></label>
+            {selectedPostprocessing && <>
+              <div className="inspector-state configured"><strong>firered.stream_vad</strong><span>协议版本 v1 · 1 帧 = 10 ms</span></div>
+              {FIRERED_PARAMETER_META.map(([key, label, unit, step]) => <label key={key}><span>{label}</span><input type="number" min={key === "speech_threshold" ? 0 : 1} max={key === "speech_threshold" ? 1 : undefined} step={step} value={selectedPostprocessing.parameters[key]} onChange={(event) => updateNode({ ...selected, config: { ...selectedPhysicalConfig, postprocessing: { ...selectedPostprocessing, parameters: { ...selectedPostprocessing.parameters, [key]: Number(event.target.value) } } } })} /><small>{unit}</small></label>)}
+            </>}
+          </section>}
           {selected.kind === "semantic_vad" && <label><span>失败策略</span><select value={selected.failure_policy} onChange={(event) => updateNode({ ...selected, failure_policy: event.target.value as "fail_open" | "fail_pipeline" })}><option value="fail_open">fail_open</option><option value="fail_pipeline">fail_pipeline</option></select></label>}
           {diagnostics.filter((item) => item.node_id === selected.id).map((item, index) => <div className="inline-error" key={`${item.message}-${index}`}>{item.message}</div>)}
           <button className="danger-text inspector-delete" onClick={deleteSelected}>删除节点</button>

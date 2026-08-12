@@ -352,6 +352,9 @@ globalStyle(".audio-inspector > header span", { color: vars.color.textMuted, fon
 globalStyle(".audio-inspector > header h2", { maxWidth: 250, margin: 0, overflow: "hidden", fontFamily: vars.font.mono, fontSize: 14, textOverflow: "ellipsis", whiteSpace: "nowrap" });
 globalStyle(".audio-inspector-body", { maxHeight: "calc(max(620px, calc(100vh - 80px)) - 60px)", overflowY: "auto", padding: "14px" });
 globalStyle(".audio-inspector label", { marginTop: vars.space.x3 });
+globalStyle(".vad-postprocessing-settings", { marginTop: vars.space.x4, paddingTop: vars.space.x3, borderTop: `1px solid ${vars.color.line}` });
+globalStyle(".vad-postprocessing-settings .switch-control", { marginTop: 0 });
+globalStyle(".vad-postprocessing-settings .inspector-state", { marginTop: vars.space.x3 });
 globalStyle(".inspector-state", { display: "flex", alignItems: "center", justifyContent: "space-between", gap: vars.space.x3, padding: "9px 10px", borderLeft: `3px solid ${vars.color.warning}`, background: vars.color.warningSoft });
 globalStyle(".inspector-state.configured", { borderLeftColor: vars.color.success, background: vars.color.successSoft });
 globalStyle(".inspector-state span", { color: vars.color.textMuted, fontSize: 11 });
