@@ -137,6 +137,40 @@ describe("typed audio workflow control plane", () => {
     expect(screen.queryByLabelText("节点配置面板")).not.toBeInTheDocument();
   });
 
+  it("configures FireRed postprocessing on physical VAD nodes", async () => {
+    const { api, saveAudioWorkflowDraft } = fakeApi();
+    renderApp(api, "/audio-workflows/wf-1/build");
+    fireEvent.click(await screen.findByLabelText("节点 physical-vad"));
+
+    const toggle = screen.getByRole("checkbox", { name: "自定义 FireRed 后处理" });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+
+    expect(screen.getByText("协议版本 v1 · 1 帧 = 10 ms")).toBeVisible();
+    expect(screen.getByLabelText(/概率平滑窗口/)).toHaveValue(5);
+    expect(screen.getByLabelText(/语音判定阈值/)).toHaveValue(0.5);
+    expect(screen.getByLabelText(/语音起点前补/)).toHaveValue(5);
+    expect(screen.getByLabelText(/最短连续语音/)).toHaveValue(8);
+    expect(screen.getByLabelText(/单段最长语音/)).toHaveValue(2000);
+    expect(screen.getByLabelText(/结束所需静音/)).toHaveValue(20);
+
+    await waitFor(() => expect(saveAudioWorkflowDraft).toHaveBeenCalled());
+    const saved = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
+    const physical = saved.nodes.find((node) => node.kind === "physical_vad");
+    expect(physical?.config?.postprocessing).toEqual({
+      processor: "firered.stream_vad",
+      version: 1,
+      parameters: {
+        smooth_window_size: 5,
+        speech_threshold: 0.5,
+        pad_start_frame: 5,
+        min_speech_frame: 8,
+        max_speech_frame: 2000,
+        min_silence_frame: 20,
+      },
+    });
+  });
+
   it("keeps one left sidebar across workflow pages", async () => {
     const { api } = fakeApi(); renderApp(api, "/audio-workflows/wf-1/build");
     expect(await screen.findByLabelText("工作流侧栏")).toBeVisible();

@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 import grpc
 
 from audio_harness.config import EngineEndpoint
-from audio_harness.domain import VadBoundary, VadUpdate
+from audio_harness.domain import VadBoundary, VadPostprocessingOptions, VadUpdate
 from audio_harness.inferencers.grpc.base import (
     GrpcInferencerBase,
     raise_grpc_error,
@@ -39,13 +39,24 @@ class GrpcVadInferencer(GrpcInferencerBase):
         self,
         audio_chunks: AsyncIterator[bytes],
         sample_rate: int,
+        *,
+        postprocessing: VadPostprocessingOptions | None = None,
     ) -> AsyncIterator[VadUpdate]:
         async def requests() -> AsyncIterator[vad_pb2.StreamingDetectRequest]:
-            yield vad_pb2.StreamingDetectRequest(
-                config=vad_pb2.DetectionConfig(
-                    encoding=vad_pb2.DetectionConfig.LINEAR16,
-                    sample_rate_hertz=sample_rate,
+            config = vad_pb2.DetectionConfig(
+                encoding=vad_pb2.DetectionConfig.LINEAR16,
+                sample_rate_hertz=sample_rate,
+            )
+            if postprocessing is not None:
+                config.postprocessing.CopyFrom(
+                    vad_pb2.PostprocessingOptions(
+                        processor=postprocessing.processor,
+                        version=postprocessing.version,
+                        parameters=dict(postprocessing.parameters),
+                    )
                 )
+            yield vad_pb2.StreamingDetectRequest(
+                config=config
             )
             async for chunk in audio_chunks:
                 if chunk:

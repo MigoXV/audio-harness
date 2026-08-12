@@ -23,9 +23,10 @@ _sym_db = _symbol_database.Default()
 
 
 from google.protobuf import duration_pb2 as google_dot_protobuf_dot_duration__pb2
+from google.protobuf import struct_pb2 as google_dot_protobuf_dot_struct__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n%audio_harness/protos/vad/ux_vad.proto\x12\x06ux_vad\x1a\x1egoogle/protobuf/duration.proto\"G\n\rDetectRequest\x12\'\n\x06\x63onfig\x18\x01 \x01(\x0b\x32\x17.ux_vad.DetectionConfig\x12\r\n\x05\x61udio\x18\x02 \x01(\x0c\"\x9e\x01\n\x0f\x44\x65tectionConfig\x12\x37\n\x08\x65ncoding\x18\x01 \x01(\x0e\x32%.ux_vad.DetectionConfig.AudioEncoding\x12\x19\n\x11sample_rate_hertz\x18\x02 \x01(\r\"7\n\rAudioEncoding\x12\x18\n\x14\x45NCODING_UNSPECIFIED\x10\x00\x12\x0c\n\x08LINEAR16\x10\x01\":\n\x0e\x44\x65tectResponse\x12(\n\x07results\x18\x01 \x03(\x0b\x32\x17.ux_vad.DetectionResult\"m\n\x0f\x44\x65tectionResult\x12-\n\nstart_time\x18\x02 \x01(\x0b\x32\x19.google.protobuf.Duration\x12+\n\x08\x65nd_time\x18\x03 \x01(\x0b\x32\x19.google.protobuf.Duration\"q\n\x16StreamingDetectRequest\x12)\n\x06\x63onfig\x18\x01 \x01(\x0b\x32\x17.ux_vad.DetectionConfigH\x00\x12\x17\n\raudio_content\x18\x02 \x01(\x0cH\x00\x42\x13\n\x11streaming_request\"v\n\x17StreamingDetectResponse\x12(\n\x07results\x18\x01 \x03(\x0b\x32\x17.ux_vad.DetectionResult\x12\x31\n\x0eprocessed_time\x18\x02 \x01(\x0b\x32\x19.google.protobuf.Duration2\xae\x01\n\x17UxVoiceActivityDetector\x12\x39\n\x06\x44\x65tect\x12\x15.ux_vad.DetectRequest\x1a\x16.ux_vad.DetectResponse\"\x00\x12X\n\x0fStreamingDetect\x12\x1e.ux_vad.StreamingDetectRequest\x1a\x1f.ux_vad.StreamingDetectResponse\"\x00(\x01\x30\x01\x42-\n\ncom.ux.vadB\nUxVadProtoP\x01Z\x11ulang.com/vad;vadb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n%audio_harness/protos/vad/ux_vad.proto\x12\x06ux_vad\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\"G\n\rDetectRequest\x12\'\n\x06\x63onfig\x18\x01 \x01(\x0b\x32\x17.ux_vad.DetectionConfig\x12\r\n\x05\x61udio\x18\x02 \x01(\x0c\"\xd5\x01\n\x0f\x44\x65tectionConfig\x12\x37\n\x08\x65ncoding\x18\x01 \x01(\x0e\x32%.ux_vad.DetectionConfig.AudioEncoding\x12\x19\n\x11sample_rate_hertz\x18\x02 \x01(\r\x12\x35\n\x0epostprocessing\x18\x03 \x01(\x0b\x32\x1d.ux_vad.PostprocessingOptions\"7\n\rAudioEncoding\x12\x18\n\x14\x45NCODING_UNSPECIFIED\x10\x00\x12\x0c\n\x08LINEAR16\x10\x01\"h\n\x15PostprocessingOptions\x12\x11\n\tprocessor\x18\x01 \x01(\t\x12\x0f\n\x07version\x18\x02 \x01(\r\x12+\n\nparameters\x18\x03 \x01(\x0b\x32\x17.google.protobuf.Struct\":\n\x0e\x44\x65tectResponse\x12(\n\x07results\x18\x01 \x03(\x0b\x32\x17.ux_vad.DetectionResult\"m\n\x0f\x44\x65tectionResult\x12-\n\nstart_time\x18\x02 \x01(\x0b\x32\x19.google.protobuf.Duration\x12+\n\x08\x65nd_time\x18\x03 \x01(\x0b\x32\x19.google.protobuf.Duration\"q\n\x16StreamingDetectRequest\x12)\n\x06\x63onfig\x18\x01 \x01(\x0b\x32\x17.ux_vad.DetectionConfigH\x00\x12\x17\n\raudio_content\x18\x02 \x01(\x0cH\x00\x42\x13\n\x11streaming_request\"v\n\x17StreamingDetectResponse\x12(\n\x07results\x18\x01 \x03(\x0b\x32\x17.ux_vad.DetectionResult\x12\x31\n\x0eprocessed_time\x18\x02 \x01(\x0b\x32\x19.google.protobuf.Duration2\xae\x01\n\x17UxVoiceActivityDetector\x12\x39\n\x06\x44\x65tect\x12\x15.ux_vad.DetectRequest\x1a\x16.ux_vad.DetectResponse\"\x00\x12X\n\x0fStreamingDetect\x12\x1e.ux_vad.StreamingDetectRequest\x1a\x1f.ux_vad.StreamingDetectResponse\"\x00(\x01\x30\x01\x42-\n\ncom.ux.vadB\nUxVadProtoP\x01Z\x11ulang.com/vad;vadb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -33,20 +34,22 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'audio_harness.protos.vad.ux
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'\n\ncom.ux.vadB\nUxVadProtoP\001Z\021ulang.com/vad;vad'
-  _globals['_DETECTREQUEST']._serialized_start=81
-  _globals['_DETECTREQUEST']._serialized_end=152
-  _globals['_DETECTIONCONFIG']._serialized_start=155
-  _globals['_DETECTIONCONFIG']._serialized_end=313
-  _globals['_DETECTIONCONFIG_AUDIOENCODING']._serialized_start=258
-  _globals['_DETECTIONCONFIG_AUDIOENCODING']._serialized_end=313
-  _globals['_DETECTRESPONSE']._serialized_start=315
-  _globals['_DETECTRESPONSE']._serialized_end=373
-  _globals['_DETECTIONRESULT']._serialized_start=375
-  _globals['_DETECTIONRESULT']._serialized_end=484
-  _globals['_STREAMINGDETECTREQUEST']._serialized_start=486
-  _globals['_STREAMINGDETECTREQUEST']._serialized_end=599
-  _globals['_STREAMINGDETECTRESPONSE']._serialized_start=601
-  _globals['_STREAMINGDETECTRESPONSE']._serialized_end=719
-  _globals['_UXVOICEACTIVITYDETECTOR']._serialized_start=722
-  _globals['_UXVOICEACTIVITYDETECTOR']._serialized_end=896
+  _globals['_DETECTREQUEST']._serialized_start=111
+  _globals['_DETECTREQUEST']._serialized_end=182
+  _globals['_DETECTIONCONFIG']._serialized_start=185
+  _globals['_DETECTIONCONFIG']._serialized_end=398
+  _globals['_DETECTIONCONFIG_AUDIOENCODING']._serialized_start=343
+  _globals['_DETECTIONCONFIG_AUDIOENCODING']._serialized_end=398
+  _globals['_POSTPROCESSINGOPTIONS']._serialized_start=400
+  _globals['_POSTPROCESSINGOPTIONS']._serialized_end=504
+  _globals['_DETECTRESPONSE']._serialized_start=506
+  _globals['_DETECTRESPONSE']._serialized_end=564
+  _globals['_DETECTIONRESULT']._serialized_start=566
+  _globals['_DETECTIONRESULT']._serialized_end=675
+  _globals['_STREAMINGDETECTREQUEST']._serialized_start=677
+  _globals['_STREAMINGDETECTREQUEST']._serialized_end=790
+  _globals['_STREAMINGDETECTRESPONSE']._serialized_start=792
+  _globals['_STREAMINGDETECTRESPONSE']._serialized_end=910
+  _globals['_UXVOICEACTIVITYDETECTOR']._serialized_start=913
+  _globals['_UXVOICEACTIVITYDETECTOR']._serialized_end=1087
 # @@protoc_insertion_point(module_scope)

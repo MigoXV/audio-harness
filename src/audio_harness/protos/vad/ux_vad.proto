@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 import "google/protobuf/duration.proto";
+import "google/protobuf/struct.proto";
 
 option java_multiple_files = true;
 option java_package = "com.ux.vad";
@@ -27,6 +28,13 @@ message DetectionConfig {
   }
   AudioEncoding encoding = 1;
   uint32 sample_rate_hertz = 2;
+  PostprocessingOptions postprocessing = 3;
+}
+
+message PostprocessingOptions {
+  string processor = 1;
+  uint32 version = 2;
+  google.protobuf.Struct parameters = 3;
 }
 
 message DetectResponse {
