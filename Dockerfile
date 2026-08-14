@@ -20,13 +20,14 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
-# 拷贝必要的文件以安装依赖
-COPY pyproject.toml poetry.lock README.md ./
-RUN mkdir -p src/audio_harness && \
+# 拷贝依赖清单，并用稳定的占位 README 满足项目元数据校验
+COPY pyproject.toml poetry.lock ./
+RUN touch README.md && \
+    mkdir -p src/audio_harness && \
     touch src/audio_harness/__init__.py && \
     poetry install --no-root
 
-# 拷贝源代码文件
+# 拷贝源代码和真实 README；文档变化不会使依赖安装层失效
 COPY . .
 
 # 拷贝前端构建产物，运行时不再依赖 Node.js 或 Nginx
