@@ -10,6 +10,8 @@ from audio_harness.engines.models import EngineApi, EngineAssetData, EngineProto
 from audio_harness.workflows.models import (
     AsrNode,
     AsrNodeConfig,
+    AudioEmbeddingNodeConfig,
+    VectorSearchNodeConfig,
     AudioEdge,
     AudioNode,
     AudioWorkflowDocument,
@@ -29,6 +31,8 @@ class PortKind(str, Enum):
     SPEECH_STARTED = "speech_started"
     SPEECH_STOPPED = "speech_stopped"
     TRANSCRIPTION = "transcription"
+    EMBEDDING = "embedding"
+    VECTOR_SEARCH_RESULT = "vector_search_result"
 
 
 @dataclass(frozen=True)
@@ -42,7 +46,7 @@ class AudioNodeSpec:
     display_name: str
     inputs: Mapping[str, PortSpec]
     outputs: Mapping[str, PortSpec]
-    required_api: EngineApi
+    required_api: EngineApi | None
     config_model: type[BaseModel]
     version: int = 1
 
@@ -80,6 +84,18 @@ _NODE_SPECS: dict[str, AudioNodeSpec] = {
         required_api=EngineApi.UX_SPEECH,
         config_model=AsrNodeConfig,
     ),
+    "audio_embedding": AudioNodeSpec(
+        kind="audio_embedding", display_name="音频向量化",
+        inputs={"segments": PortSpec(PortKind.AUDIO_SEGMENT)},
+        outputs={"embeddings": PortSpec(PortKind.EMBEDDING)},
+        required_api=EngineApi.ENGINE_FEATURE, config_model=AudioEmbeddingNodeConfig,
+    ),
+    "vector_search": AudioNodeSpec(
+        kind="vector_search", display_name="向量搜索",
+        inputs={"embeddings": PortSpec(PortKind.EMBEDDING)},
+        outputs={"results": PortSpec(PortKind.VECTOR_SEARCH_RESULT)},
+        required_api=None, config_model=VectorSearchNodeConfig,
+    ),
 }
 
 
@@ -92,6 +108,7 @@ _REQUIRED_OUTPUTS = {
 _OPTIONAL_OUTPUTS = {
     "interim_transcript": PortKind.TRANSCRIPTION,
     "turn_progress": PortKind.TRANSCRIPTION,
+    "vector_search": PortKind.VECTOR_SEARCH_RESULT,
 }
 
 _KNOWN_OUTPUTS = {**_REQUIRED_OUTPUTS, **_OPTIONAL_OUTPUTS}
@@ -116,7 +133,7 @@ class AudioGraphValidationError(ValueError):
 class CompiledAudioNode:
     definition: AudioNode
     spec: AudioNodeSpec
-    engine_snapshot: EngineSnapshot
+    engine_snapshot: EngineSnapshot | None
 
 
 @dataclass(frozen=True)
@@ -131,6 +148,7 @@ class CompiledAudioGraph:
         snapshots = {
             (node.engine_snapshot.id, node.engine_snapshot.revision): node.engine_snapshot
             for node in self.nodes.values()
+            if node.engine_snapshot is not None
         }
         return tuple(snapshots[key] for key in sorted(snapshots))
 
@@ -206,6 +224,9 @@ def compile_audio_graph(
 
     for node in definition.nodes:
         spec = _NODE_SPECS[node.kind]
+        if spec.required_api is None:
+            compiled[node.id] = CompiledAudioNode(node, spec, None)
+            continue
         if node.engine_id is None:
             diagnostics.append(
                 AudioGraphDiagnostic(
@@ -468,6 +489,7 @@ def compiled_audio_graph_document(plan: CompiledAudioGraph) -> dict[str, Any]:
         "engine_snapshots": {
             node_id: _snapshot_document(node.engine_snapshot)
             for node_id, node in plan.nodes.items()
+            if node.engine_snapshot is not None
         },
     }
 
@@ -489,8 +511,10 @@ def restore_audio_graph(
         if raw_versions.get(node.id) != spec.version:
             raise ValueError(f"节点类型版本不兼容: {node.id}")
         raw = raw_snapshots.get(node.id)
-        if not isinstance(raw, dict):
-            raise ValueError(f"执行计划缺少节点引擎快照: {node.id}")
+        if spec.required_api is None:
+            compiled[node.id] = CompiledAudioNode(node, spec, None)
+            continue
+        if not isinstance(raw, dict): raise ValueError(f"执行计划缺少节点引擎快照: {node.id}")
         snapshot = EngineSnapshot(
             id=str(raw["id"]),
             revision=int(raw["revision"]),

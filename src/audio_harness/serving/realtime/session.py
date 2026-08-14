@@ -69,7 +69,7 @@ from audio_harness.voice_agents.service import ActiveVoiceAgent
 from audio_harness.workflows.settings import WorkflowSettingsStore
 from audio_harness.workflows.models import PhysicalVadNode
 from audio_harness.workflows.service import ActiveAudioWorkflow
-from audio_harness.workflows.events import SpeechStarted, SpeechStopped
+from audio_harness.workflows.events import SpeechStarted, SpeechStopped, VectorSearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -840,6 +840,7 @@ class RealtimeTranscriptionSession:
                     self._aha_version == "v1"
                     and not self._manual_commit_enabled
                 ),
+                include_vector_search=self._aha_version == "v1",
                 workflow=self._workflow,
             )
         else:
@@ -851,6 +852,7 @@ class RealtimeTranscriptionSession:
                     self._aha_version == "v1"
                     and not self._manual_commit_enabled
                 ),
+                include_vector_search=self._aha_version == "v1",
                 workflow=self._workflow,
             )
             self._transcription = await self._session_context.__aenter__()
@@ -895,6 +897,30 @@ class RealtimeTranscriptionSession:
                 )
 
     async def _handle_workflow_event(self, output_name: str, event: Any) -> None:
+        if output_name == "vector_search" and isinstance(event, VectorSearchResult):
+            if self._aha_version != "v1":
+                return
+            current_item_id = self._active_item_id or self._interim_item_id
+            if current_item_id is None and self._pending_items:
+                current_item_id = self._pending_items[0].item_id
+            if current_item_id is None:
+                logger.warning("向量搜索结果缺少关联 Realtime item")
+                return
+            common = {
+                "event_id": event_id(), "item_id": current_item_id,
+                "audio_start_ms": round(event.start_sample * 1000 / event.sample_rate),
+                "audio_end_ms": round(event.end_sample * 1000 / event.sample_rate),
+                "collection_name": event.collection_name,
+                "vector_name": event.vector_name,
+            }
+            if event.error_code is not None:
+                await self._send_event({"type": "x_aha.vector.search.failed", **common, "error": {"code": event.error_code, "message": event.error_message or "向量搜索失败"}})
+            else:
+                payload = {"type": "x_aha.vector.search.completed", **common, "matches": list(event.matches), "latency_ms": round(event.latency_ms, 3)}
+                if event.embedding is not None:
+                    payload["embedding"] = list(event.embedding)
+                await self._send_event(payload)
+            return
         if output_name == "interim_transcript":
             if (
                 self._aha_version == "v1"

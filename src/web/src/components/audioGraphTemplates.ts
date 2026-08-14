@@ -1,10 +1,11 @@
-import type { AudioNode, AudioWorkflowDocument } from "../api/types";
+import type { AudioNode, AudioWorkflowDocument, VectorSpace } from "../api/types";
 
 export type AudioGraphTemplateId =
   | "physical_asr"
   | "physical_semantic_asr"
   | "dual_physical_asr"
-  | "dual_physical_semantic_asr";
+  | "dual_physical_semantic_asr"
+  | "meeting_complete";
 
 type NodeKind = AudioNode["kind"];
 
@@ -127,9 +128,45 @@ function interimPhysicalVad(
   };
 }
 
+function audioEmbedding(document: AudioWorkflowDocument, vectorSpace?: VectorSpace) {
+  const existing = existingNode(document, "audio_embedding", "audio-embedding");
+  if (existing) return { ...existing, id: "audio-embedding" };
+  const vector = vectorSpace?.vectors[0];
+  return {
+    id: "audio-embedding",
+    kind: "audio_embedding" as const,
+    engine_id: null,
+    config: {
+      algorithm: vector?.name ?? "eres2netv2",
+      expected_dimension: vector?.size ?? 192,
+      normalize: true,
+    },
+  };
+}
+
+function vectorSearch(document: AudioWorkflowDocument, vectorSpace?: VectorSpace) {
+  const existing = outputNode(document, "vector_search", "vector_search")
+    ?? existingNode(document, "vector_search", "vector-search");
+  if (existing) return { ...existing, id: "vector-search" };
+  return {
+    id: "vector-search",
+    kind: "vector_search" as const,
+    engine_id: null,
+    config: {
+      collection_name: vectorSpace?.collection_name ?? "voiceprints",
+      vector_name: vectorSpace?.vectors[0]?.name ?? "eres2netv2",
+      top_k: 10,
+      score_threshold: null,
+      filter: {},
+      include_embedding: false,
+    },
+  };
+}
+
 export function applyAudioGraphTemplate(
   document: AudioWorkflowDocument,
   template: AudioGraphTemplateId,
+  vectorSpaces: readonly VectorSpace[] = [],
 ): AudioWorkflowDocument {
   const physical = physicalVad(document);
   const recognition = asr(document);
@@ -184,18 +221,35 @@ export function applyAudioGraphTemplate(
   }
 
   const semantic = semanticVad(document);
-  if (template === "dual_physical_semantic_asr") {
+  if (template === "dual_physical_semantic_asr" || template === "meeting_complete") {
     const previewRecognition = interimAsr(document, recognition);
     const previewPhysical = interimPhysicalVad(document, physical);
+    const preferredVectorSpace = vectorSpaces.find((space) => space.template === "voiceprint")
+      ?? vectorSpaces.find((space) => space.collection_name === "voiceprints")
+      ?? vectorSpaces.find((space) => space.vectors.length > 0);
+    const embedding = audioEmbedding(document, preferredVectorSpace);
+    const search = vectorSearch(document, preferredVectorSpace);
+    const completeMeeting = template === "meeting_complete";
     return {
       schema_version: 1,
-      nodes: [physical, semantic, recognition, previewPhysical, previewRecognition],
+      nodes: [
+        physical,
+        semantic,
+        recognition,
+        previewPhysical,
+        previewRecognition,
+        ...(completeMeeting ? [embedding, search] : []),
+      ],
       edges: [
         { id: "audio-to-physical-vad", source: { kind: "input", name: "audio" }, target: { node_id: "physical-vad", port: "audio" } },
         { id: "physical-vad-to-semantic-vad", source: { kind: "node", node_id: "physical-vad", port: "segments" }, target: { node_id: "semantic-vad", port: "segments" } },
         { id: "semantic-vad-to-asr", source: { kind: "node", node_id: "semantic-vad", port: "segments" }, target: { node_id: "asr", port: "segments" } },
         { id: "audio-to-interim-physical-vad", source: { kind: "input", name: "audio" }, target: { node_id: "interim-physical-vad", port: "audio" } },
         { id: "interim-physical-vad-to-asr", source: { kind: "node", node_id: "interim-physical-vad", port: "segments" }, target: { node_id: "interim-asr", port: "segments" } },
+        ...(completeMeeting ? [
+          { id: "semantic-vad-to-audio-embedding", source: { kind: "node" as const, node_id: "semantic-vad", port: "segments" }, target: { node_id: "audio-embedding", port: "segments" } },
+          { id: "audio-embedding-to-vector-search", source: { kind: "node" as const, node_id: "audio-embedding", port: "embeddings" }, target: { node_id: "vector-search", port: "embeddings" } },
+        ] : []),
       ],
       outputs: [
         { name: "primary_transcript", source: { kind: "node", node_id: "asr", port: "transcripts" } },
@@ -203,6 +257,9 @@ export function applyAudioGraphTemplate(
         { name: "speech_started", source: { kind: "node", node_id: "physical-vad", port: "speech_started" } },
         { name: "speech_stopped", source: { kind: "node", node_id: "semantic-vad", port: "speech_stopped" } },
         { name: "turn_progress", source: { kind: "node", node_id: "semantic-vad", port: "turn_progress" } },
+        ...(completeMeeting ? [
+          { name: "vector_search", source: { kind: "node" as const, node_id: "vector-search", port: "results" } },
+        ] : []),
       ],
       layout: {
         "physical-vad": { x: 240, y: 40 },
@@ -210,6 +267,10 @@ export function applyAudioGraphTemplate(
         asr: { x: 800, y: 40 },
         "interim-physical-vad": { x: 240, y: 360 },
         "interim-asr": { x: 520, y: 360 },
+        ...(completeMeeting ? {
+          "audio-embedding": { x: 800, y: 240 },
+          "vector-search": { x: 1080, y: 240 },
+        } : {}),
       },
     };
   }

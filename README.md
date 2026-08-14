@@ -58,6 +58,12 @@ gRPC / Realtime / WebRTC 数据面 ─────┘
 VAD 带有一组偏敏感的初始参数，但所有参数和引擎绑定都可继续编辑；现有默认工作流
 和已发布修订不会被自动迁移。
 
+“会议系统完全体”模板建立在双路物理与语义 VAD 模板之上，并把正式语义 VAD 输出的
+音频片段并联到“语音特征向量提取 → 向量搜索”，增加 `vector_search` 命名出口。
+模板优先选择带语音特征向量提取模板标记的 Qdrant Collection，并据其首个 Named
+Vector 初始化算法和维度；没有可用空间时使用 `voiceprints`、`eres2netv2`、192 维
+作为待确认配置。再次应用模板会保留已经选择的提取引擎、Collection 和检索参数。
+
 ASR 节点可以独立开启“移除转写标点”，在节点输出进入工作流出口前删除中英文及
 其他语言的 Unicode 标点，同时保留原有空白、符号和 emoji。该选项默认关闭；两个
 双路模板新建的预览 ASR 默认开启，正式 ASR 默认关闭。
@@ -95,7 +101,7 @@ src/web/
 
 ## 数据库策略
 
-数据库只支持 `sqlite+aiosqlite`。当前 Alembic head 为 `0001_initial`。
+数据库只支持 `sqlite+aiosqlite`。当前 Alembic head 为 `0003_remove_vector_spaces`。
 
 启动命令只接受：
 
@@ -123,6 +129,39 @@ poetry run audio-harness serve
 | `GRPC_HOST` / `GRPC_PORT` | `0.0.0.0` / `50051` | gRPC 监听地址 |
 | `HTTP_HOST` / `HTTP_PORT` | `0.0.0.0` / `8000` | HTTP、WSS 与 WebRTC 信令地址 |
 | `VOICE_STORAGE_DIR` | `./data-bin/voices` | 参考音频目录 |
+| `QDRANT_GRPC_TARGET` | 未配置 | Qdrant 正式数据面，例如 `192.168.0.222:16334` |
+| `QDRANT_HTTP_URL` | 未配置 | Qdrant Dashboard 与健康检查，例如 `http://192.168.0.222:16333` |
+
+## 音频向量检索
+
+控制台的“向量检索”页面将 Qdrant 定位为通用向量基础设施。Qdrant 是 Collection
+和 Named Vector 配置的唯一事实来源，Audio Harness 不在 SQLite 中保存空间注册表，
+而是通过 gRPC 实时读取 Qdrant。一个 Point 对应一次音频采集；同一 Point 可以包含
+多个 Named Vector，payload 接受任意 JSON。
+
+创建 Collection 时可以选择“语音特征向量提取”模板。模板默认创建
+`voiceprints` Collection，以及 `eres2netv2`、192 维、Cosine 距离的 Named Vector；
+同时直接在 Qdrant 中为以下 payload 字段建立索引：
+
+| 字段 | Qdrant 类型 | 约束与默认值 |
+| --- | --- | --- |
+| `speaker_id` | keyword | 必填，非空，最长 128 个字符 |
+| `channel_id` | keyword | 必填，非空，最长 128 个字符 |
+| `captured_at` | integer | Unix 毫秒；未填写时使用服务端当前时间 |
+| `quality_score` | float | 0 到 1；默认 `0.0` |
+| `cluster_id` | integer | 默认 `-1`，表示尚未分配 |
+
+模板身份不写入 SQLite。服务每次读取 Collection 时，根据 Qdrant 中这五个字段的
+索引类型识别模板，因此 Qdrant 仍是空间配置的唯一事实来源。普通 Collection 不套用
+这些字段约束，仍可登记任意 payload JSON。
+
+音频向量引擎需要在“推理引擎”中手工注册，能力选择“音频向量”，例如填写
+`192.168.0.213:51008`。当前兼容协议固定发送 16 kHz、单声道、PCM S16LE，算法填写
+`eres2netv2`，并按目标 Named Vector 维度校验服务返回的 float32 embedding。
+
+工作流可以将“音频向量化”接到 VAD 的音频片段，再连接“向量搜索”。向量搜索出口
+只在 OpenAI Realtime 客户端协商 `x_aha=v1` 时执行，结果通过
+`x_aha.vector.search.completed` 或 `x_aha.vector.search.failed` 返回；失败不会中断 ASR。
 
 控制台按“语音工作流、语音智能体、推理引擎、接入与运行”四个任务域组织。首次启动后的推荐顺序：
 

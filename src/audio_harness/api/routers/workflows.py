@@ -51,6 +51,7 @@ def workflow_revision(value: ActiveAudioWorkflow) -> AudioWorkflowRevisionRead:
         engine_revisions={
             node_id: node.engine_snapshot.revision
             for node_id, node in value.plan.nodes.items()
+            if node.engine_snapshot is not None
         },
     )
 

@@ -113,6 +113,7 @@ class EngineCatalog:
             EngineKind.VAD: EngineApi.UX_VAD,
             EngineKind.LLM: EngineApi.RESPONSES,
             EngineKind.TTS: EngineApi.QWEN_TTS_DUPLEX,
+            EngineKind.EMBEDDING: EngineApi.ENGINE_FEATURE,
         }[asset.kind]
         if asset.api is not expected:
             raise CatalogConflictError(

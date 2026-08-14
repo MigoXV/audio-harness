@@ -11,6 +11,7 @@ class EngineKind(str, Enum):
     VAD = "vad"
     LLM = "llm"
     TTS = "tts"
+    EMBEDDING = "embedding"
 
 
 class EngineApi(str, Enum):
@@ -18,6 +19,7 @@ class EngineApi(str, Enum):
     UX_VAD = "ux_vad"
     RESPONSES = "responses"
     QWEN_TTS_DUPLEX = "qwen_tts_duplex"
+    ENGINE_FEATURE = "engine_feature"
 
 
 class EngineProtocol(str, Enum):

@@ -12,6 +12,7 @@ import type {
   EngineAsset,
   RealtimeRoute,
   WorkflowSettings,
+  VectorSpace,
 } from "../api/types";
 import { AudioGraphEditor } from "../components/AudioGraphEditor";
 import { DeploymentPanel } from "../components/DeploymentPanel";
@@ -29,6 +30,7 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
   const [document, setDocument] = useState<AudioWorkflowDocument | null>(null);
   const [nodeTypes, setNodeTypes] = useState<AudioNodeType[]>([]);
   const [engines, setEngines] = useState<EngineAsset[]>([]);
+  const [vectorSpaces, setVectorSpaces] = useState<VectorSpace[]>([]);
   const [routes, setRoutes] = useState<RealtimeRoute[]>([]);
   const [workflowSettings, setWorkflowSettings] = useState<WorkflowSettings | null>(null);
   const [validation, setValidation] = useState<AudioWorkflowValidation>({ valid: false, diagnostics: [], topological_order: [] });
@@ -43,14 +45,16 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [items, draft, types, engineList, history, nextRoutes, nextSettings] = await Promise.all([
+      const [items, draft, types, engineList, history, nextRoutes, nextSettings, nextVectorSpaces] = await Promise.all([
         api.listAudioWorkflows(), api.getAudioWorkflowDraft(workflowId), api.listAudioNodeTypes(),
         api.listEngines({ limit: 200 }), api.listAudioWorkflowRevisions(workflowId), api.listRealtimeRoutes(), api.getWorkflowSettings(),
+        typeof api.listVectorSpaces === "function" ? api.listVectorSpaces() : Promise.resolve([]),
       ]);
       const summary = items.find((item) => item.id === workflowId);
       if (!summary) throw new Error("语音工作流不存在");
       setWorkflow(summary); setDocument(draft.document); setNodeTypes(types); setEngines(engineList.items); setRevisions(history);
       setRoutes(nextRoutes); setWorkflowSettings(nextSettings);
+      setVectorSpaces(nextVectorSpaces);
       setDraftRevision(draft.revision); setSaveState("idle");
       setValidation(await api.validateAudioWorkflow(workflowId));
     } catch (reason) { setError(errorMessage(reason, "工作流读取失败。")); }
@@ -131,6 +135,7 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
       document={document}
       nodeTypes={nodeTypes}
       engines={engines}
+      vectorSpaces={vectorSpaces}
       diagnostics={validation.diagnostics}
       sidebarOpen={sidebarOpen}
       sidebarContent={sidebarContent}

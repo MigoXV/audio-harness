@@ -133,6 +133,8 @@ def create_runtime_router(
             realtime=read(capacity.realtime_sessions),
             webrtc=read(capacity.webrtc_sessions),
             asr=read(capacity.asr),
+            embedding=read(capacity.embedding),
+            qdrant=read(capacity.qdrant),
             responses=read(capacity.responses),
             tts=read(capacity.tts),
             started_at=capacity.started_at,

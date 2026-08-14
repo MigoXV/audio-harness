@@ -17,6 +17,7 @@ from audio_harness.engines.models import (
 )
 from audio_harness.errors import CapacityExceededError
 from audio_harness.inferencers.asr.base import AsrInferencer
+from audio_harness.inferencers.embedding import AudioEmbeddingInferencer
 from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.media.pcm import PcmChunk
 from audio_harness.workflows import (
@@ -38,6 +39,14 @@ from audio_harness.workflows import (
     SemanticVadNode,
     compile_audio_graph,
 )
+from audio_harness.workflows.events import VectorSearchResult
+from audio_harness.workflows.models import (
+    AudioEmbeddingNode,
+    AudioEmbeddingNodeConfig,
+    VectorSearchNode,
+    VectorSearchNodeConfig,
+)
+from audio_harness.vectors.models import VectorMatch
 
 
 def _asset(asset_id: str, kind: EngineKind, api: EngineApi) -> EngineAssetData:
@@ -305,6 +314,49 @@ class _Asr(AsrInferencer):
     async def close(self) -> None: pass
 
 
+class _Embedding(AudioEmbeddingInferencer):
+    def __init__(self) -> None:
+        pass
+
+    async def embed(
+        self,
+        pcm_s16le: bytes,
+        *,
+        algorithm: str,
+        expected_dimension: int,
+        normalize: bool = True,
+    ) -> tuple[float, ...]:
+        assert pcm_s16le
+        assert algorithm == "eres2netv2"
+        assert expected_dimension == 2
+        assert normalize is True
+        return (1.0, 0.0)
+
+
+class _Qdrant:
+    def __init__(self, *, failure: Exception | None = None) -> None:
+        self.failure = failure
+
+    async def search(
+        self,
+        collection: str,
+        vector_name: str,
+        vector: tuple[float, ...],
+        *,
+        limit: int,
+        score_threshold: float | None = None,
+        filter_json: dict | None = None,
+    ) -> tuple[VectorMatch, ...]:
+        if self.failure is not None:
+            raise self.failure
+        assert (collection, vector_name, vector, limit) == (
+            "voiceprints", "eres2netv2", (1.0, 0.0), 10,
+        )
+        assert score_threshold is None
+        assert filter_json == {}
+        return (VectorMatch("point-1", 0.95, {"speaker_id": "speaker-1"}),)
+
+
 class _FailingVad(_Vad):
     async def stream_detect(
         self,
@@ -334,6 +386,101 @@ class _PreviewCapacityLimiter:
 
 async def _chunks() -> AsyncIterator[PcmChunk]:
     yield PcmChunk(pcm_s16le=bytes(16), sample_rate=4, start_sample=0)
+
+
+def _vector_definition() -> AudioWorkflowDocument:
+    definition = _definition()
+    definition.nodes.extend([
+        AudioEmbeddingNode(
+            id="embedding",
+            engine_id="embedding-engine",
+            config=AudioEmbeddingNodeConfig(
+                algorithm="eres2netv2",
+                expected_dimension=2,
+                normalize=True,
+            ),
+        ),
+        VectorSearchNode(
+            id="vector-search",
+            config=VectorSearchNodeConfig(
+                collection_name="voiceprints",
+                vector_name="eres2netv2",
+            ),
+        ),
+    ])
+    definition.edges.extend([
+        AudioEdge(
+            id="semantic-embedding",
+            source=NodeOutputRef(node_id="semantic", port="segments"),
+            target=NodeInputRef(node_id="embedding", port="segments"),
+        ),
+        AudioEdge(
+            id="embedding-vector-search",
+            source=NodeOutputRef(node_id="embedding", port="embeddings"),
+            target=NodeInputRef(node_id="vector-search", port="embeddings"),
+        ),
+    ])
+    definition.outputs.append(NamedOutputBinding(
+        name="vector_search",
+        source=NodeOutputRef(node_id="vector-search", port="results"),
+    ))
+    return definition
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("search_failure", [None, RuntimeError("qdrant unavailable")])
+async def test_vector_search_result_reaches_named_output_without_breaking_asr(
+    assets: dict[str, EngineAssetData],
+    search_failure: Exception | None,
+) -> None:
+    update = VadInferencer.Update(boundaries=((0, 8),), processed_samples=8)
+    plan_assets = {
+        **assets,
+        "embedding-engine": _asset(
+            "embedding-engine", EngineKind.EMBEDDING, EngineApi.ENGINE_FEATURE,
+        ),
+    }
+    runtime = AudioWorkflowRuntime(
+        plan=compile_audio_graph(_vector_definition(), assets=plan_assets),
+        inferencers={
+            "physical": _Vad([update]),
+            "semantic": _Vad([], turns=[True]),
+            "asr": _Asr(),
+            "embedding": _Embedding(),
+        },
+        runtime_config=AudioRuntimeConfig(2, 8),
+        asr_semaphore=asyncio.Semaphore(1),
+        qdrant=_Qdrant(failure=search_failure),  # type: ignore[arg-type]
+    )
+
+    outputs = [
+        output
+        async for output in runtime.stream(
+            _chunks(),
+            AudioInferenceRequest(
+                recognition=AsrInferencer.Options(
+                    sample_rate=4,
+                    language_code="zh-CN",
+                ),
+                include_vector_search=True,
+            ),
+        )
+    ]
+
+    assert {output.name for output in outputs} == {"primary_transcript", "vector_search"}
+    vector_output = next(output for output in outputs if output.name == "vector_search")
+    assert isinstance(vector_output.payload, VectorSearchResult)
+    if search_failure is None:
+        assert vector_output.payload.error_code is None
+        assert vector_output.payload.matches == ({
+            "point_id": "point-1",
+            "score": 0.95,
+            "payload": {"speaker_id": "speaker-1"},
+        },)
+    else:
+        assert vector_output.payload.error_code == "vector_search_failed"
+        assert vector_output.payload.error_message == "qdrant unavailable"
+        assert vector_output.payload.matches == ()
 
 
 def _dual_definition() -> AudioWorkflowDocument:

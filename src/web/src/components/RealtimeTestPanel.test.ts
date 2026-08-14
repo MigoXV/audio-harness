@@ -12,6 +12,7 @@ import {
   nextTranscriptView,
   realtimeEndpoint,
   realtimeSessionUpdate,
+  vectorSearchEventView,
   type TranscriptView,
 } from "./RealtimeTestPanel";
 
@@ -113,6 +114,66 @@ describe("eventDetail", () => {
       type: "x_aha.input_audio_transcription.interim_cleared",
       reason: "primary_transcript_started",
     })).toBe("中间结果已清除：primary_transcript_started");
+  });
+
+  it("summarizes completed and failed vector search events", () => {
+    expect(eventDetail({
+      type: "x_aha.vector.search.completed",
+      collection_name: "voiceprints",
+      vector_name: "eres2netv2",
+      latency_ms: 12.5,
+      matches: [{ point_id: "point-1" }, { point_id: "point-2" }],
+    })).toBe("voiceprints / eres2netv2 · 2 个命中 · 12.5 ms");
+    expect(eventDetail({
+      type: "x_aha.vector.search.failed",
+      collection_name: "voiceprints",
+      vector_name: "eres2netv2",
+      error: { code: "vector_search_failed", message: "Qdrant 不可用" },
+    })).toBe("voiceprints / eres2netv2 · Qdrant 不可用");
+  });
+});
+
+describe("vectorSearchEventView", () => {
+  it("parses a completed push into displayable matches", () => {
+    expect(vectorSearchEventView({
+      type: "x_aha.vector.search.completed",
+      event_id: "event-1",
+      item_id: "item-1",
+      audio_start_ms: 100,
+      audio_end_ms: 2300,
+      collection_name: "voiceprints",
+      vector_name: "eres2netv2",
+      latency_ms: 18.25,
+      matches: [{ point_id: "point-1", score: 0.9321, payload: { speaker_id: "speaker-1" } }],
+    }, "12:30:00")).toEqual({
+      id: "event-1",
+      status: "completed",
+      time: "12:30:00",
+      itemId: "item-1",
+      audioStartMs: 100,
+      audioEndMs: 2300,
+      collectionName: "voiceprints",
+      vectorName: "eres2netv2",
+      latencyMs: 18.25,
+      matches: [{ pointId: "point-1", score: 0.9321, payload: { speaker_id: "speaker-1" } }],
+      error: null,
+    });
+  });
+
+  it("parses a failed push and ignores unrelated events", () => {
+    expect(vectorSearchEventView({ type: "response.done" }, "12:30:00")).toBeNull();
+    expect(vectorSearchEventView({
+      type: "x_aha.vector.search.failed",
+      event_id: "event-2",
+      collection_name: "voiceprints",
+      vector_name: "eres2netv2",
+      error: { message: "Qdrant 不可用" },
+    }, "12:31:00")).toMatchObject({
+      status: "failed",
+      time: "12:31:00",
+      matches: [],
+      error: "Qdrant 不可用",
+    });
   });
 });
 

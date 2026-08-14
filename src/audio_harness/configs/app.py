@@ -30,6 +30,17 @@ class DatabaseConfig(StrictModel):
         return value
 
 
+class QdrantConfig(StrictModel):
+    grpc_target: str | None = None
+    http_url: str | None = None
+
+    @model_validator(mode="after")
+    def require_pair(self) -> "QdrantConfig":
+        if bool(self.grpc_target) != bool(self.http_url):
+            raise ValueError("QDRANT_GRPC_TARGET 与 QDRANT_HTTP_URL 必须同时配置")
+        return self
+
+
 class AppConfig(StrictModel):
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     workflow: WorkflowRuntimeConfig = Field(default_factory=WorkflowRuntimeConfig)
@@ -38,6 +49,7 @@ class AppConfig(StrictModel):
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
     voices: VoiceConfig = Field(default_factory=VoiceConfig)
     webrtc: WebRtcConfig = Field(default_factory=WebRtcConfig)
+    qdrant: QdrantConfig = Field(default_factory=QdrantConfig)
 
     @model_validator(mode="after")
     def validate_message_limits(self) -> "AppConfig":
@@ -58,6 +70,10 @@ class AppConfig(StrictModel):
                         "VOICE_STORAGE_DIR",
                         str(defaults.voices.storage_dir),
                     ),
+                },
+                "qdrant": {
+                    "grpc_target": os.getenv("QDRANT_GRPC_TARGET"),
+                    "http_url": os.getenv("QDRANT_HTTP_URL"),
                 },
             }
         )

@@ -49,6 +49,8 @@ def _config_from_model(model: CapacitySetting) -> CapacityConfig:
             max_sessions=model.webrtc_max_sessions
         ),
         max_asr_concurrency=model.max_asr_concurrency,
+        max_embedding_concurrency=model.max_embedding_concurrency,
+        max_qdrant_concurrency=model.max_qdrant_concurrency,
         max_responses_concurrency=model.max_responses_concurrency,
         max_tts_concurrency=model.max_tts_concurrency,
     )
@@ -123,6 +125,8 @@ class CapacitySettingsStore:
                 model.max_asr_concurrency = (
                     config.max_asr_concurrency
                 )
+                model.max_embedding_concurrency = config.max_embedding_concurrency
+                model.max_qdrant_concurrency = config.max_qdrant_concurrency
                 model.max_responses_concurrency = (
                     config.max_responses_concurrency
                 )

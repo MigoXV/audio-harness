@@ -72,6 +72,8 @@ class RuntimeStatusRead(StrictSchema):
     realtime: RuntimeLimiterRead
     webrtc: RuntimeLimiterRead
     asr: RuntimeLimiterRead
+    embedding: RuntimeLimiterRead
+    qdrant: RuntimeLimiterRead
     responses: RuntimeLimiterRead
     tts: RuntimeLimiterRead
     started_at: datetime

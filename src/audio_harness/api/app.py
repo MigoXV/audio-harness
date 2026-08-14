@@ -16,6 +16,7 @@ from audio_harness.api.routers.runtime import (
     readiness_response,
 )
 from audio_harness.api.routers.workflows import create_workflow_router
+from audio_harness.api.routers.vectors import create_vector_router
 from audio_harness.engines.catalog import (
     AssetNotFoundError,
     CatalogConflictError,
@@ -68,6 +69,9 @@ from audio_harness.workflows.service import (
     AudioWorkflowPublishError,
     AudioWorkflowService,
 )
+from audio_harness.vectors.service import VectorConflictError, VectorNotFoundError, VectorService
+from audio_harness.vectors.qdrant import QdrantUnavailableError
+from audio_harness.configs import QdrantConfig
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +105,8 @@ def create_http_app(
     webrtc_service: WebRtcCallService,
     max_message_bytes: int,
     voice_store: VoiceAssetStore,
+    vectors: VectorService | None = None,
+    qdrant_config: QdrantConfig | None = None,
     web_dist: Path | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Audio Harness", version="1.0.0")
@@ -119,6 +125,7 @@ def create_http_app(
     @app.exception_handler(RealtimeRouteNotFoundError)
     @app.exception_handler(VoiceAssetNotFoundError)
     @app.exception_handler(WebRtcCallNotFoundError)
+    @app.exception_handler(VectorNotFoundError)
     async def not_found_handler(_request: Request, exc: Exception) -> JSONResponse:
         return _error(404, "not_found", str(exc))
 
@@ -148,6 +155,7 @@ def create_http_app(
     @app.exception_handler(VoiceAgentConflictError)
     @app.exception_handler(WorkflowRevisionConflictError)
     @app.exception_handler(CapacityRevisionConflictError)
+    @app.exception_handler(VectorConflictError)
     async def conflict_handler(_request: Request, exc: Exception) -> JSONResponse:
         return _error(409, "revision_conflict", str(exc))
 
@@ -192,6 +200,10 @@ def create_http_app(
     async def capacity_handler(_request: Request, exc: Exception) -> JSONResponse:
         return _error(429, "capacity_exceeded", str(exc))
 
+    @app.exception_handler(QdrantUnavailableError)
+    async def qdrant_unavailable_handler(_request: Request, exc: Exception) -> JSONResponse:
+        return _error(503, "qdrant_unavailable", str(exc))
+
     @app.exception_handler(ValueError)
     async def value_error_handler(_request: Request, exc: ValueError) -> JSONResponse:
         return _error(400, "invalid_request", str(exc))
@@ -203,6 +215,8 @@ def create_http_app(
         return _error(500, "service_error", str(exc))
 
     app.include_router(create_engine_router(catalog))
+    if vectors is not None and qdrant_config is not None:
+        app.include_router(create_vector_router(vectors, qdrant_config))
     app.include_router(create_workflow_router(workflows, voice_agents))
     app.include_router(create_realtime_route_router(routes))
     app.include_router(

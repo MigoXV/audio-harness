@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package pb;
+
+service Engine {
+  rpc Feature(FeatRequest) returns (FeatReply) {}
+}
+
+message FeatRequest {
+  string vadAlg = 1;
+  string sidAlg = 2;
+  bytes pcm = 3;
+}
+
+message FeatReply {
+  bytes feat = 1;
+}

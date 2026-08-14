@@ -59,13 +59,21 @@ export type CapacitySettings = Omit<
 };
 export type CapacitySettingsUpdate = Omit<
   Schemas["CapacitySettingsUpdate"],
-  "max_responses_concurrency" | "max_tts_concurrency"
+  "max_embedding_concurrency" | "max_qdrant_concurrency" | "max_responses_concurrency" | "max_tts_concurrency"
 > & {
+  max_embedding_concurrency?: number;
+  max_qdrant_concurrency?: number;
   max_responses_concurrency?: number;
   max_tts_concurrency?: number;
 };
 export type RuntimeStatus = Schemas["RuntimeStatusRead"];
 export type RuntimeOverview = Schemas["RuntimeOverviewRead"];
+
+export interface NamedVector { name: string; size: number; distance: "cosine" | "euclid" | "dot" | "manhattan"; }
+export interface VectorSpace { collection_name: string; vectors: NamedVector[]; template: "voiceprint" | null; }
+export interface VectorInfrastructure { configured: boolean; ready: boolean; grpc_target: string | null; http_url: string | null; }
+export interface VectorPoint { point_id: string; payload: Record<string, unknown>; }
+export interface VectorMatch extends VectorPoint { score: number; }
 
 export interface AudioHarnessApi {
   listEngines(filters?: EngineFilters, signal?: AbortSignal): Promise<EngineListResponse>;
@@ -111,4 +119,13 @@ export interface AudioHarnessApi {
   getCapacitySettings(signal?: AbortSignal): Promise<CapacitySettings>;
   updateCapacitySettings(payload: CapacitySettingsUpdate): Promise<CapacitySettings>;
   getRuntimeStatus(signal?: AbortSignal): Promise<RuntimeStatus>;
+  getVectorInfrastructure(signal?: AbortSignal): Promise<VectorInfrastructure>;
+  listVectorSpaces(signal?: AbortSignal): Promise<VectorSpace[]>;
+  createVectorSpace(payload: Record<string, unknown>): Promise<VectorSpace>;
+  destroyVectorSpace(collectionName: string, confirmation: string): Promise<void>;
+  registerVectorAudio(id: string, form: FormData): Promise<{ point_id: string }>;
+  searchVectorAudio(id: string, form: FormData): Promise<{ embedding: number[]; matches: VectorMatch[] }>;
+  scrollVectorPoints(id: string, payload: Record<string, unknown>): Promise<{ items: VectorPoint[]; next_offset: string | null }>;
+  replaceVectorPayload(id: string, pointId: string, payload: Record<string, unknown>): Promise<void>;
+  deleteVectorPoint(id: string, pointId: string): Promise<void>;
 }

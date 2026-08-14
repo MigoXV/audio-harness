@@ -87,7 +87,7 @@ class NodePortRead(StrictSchema):
 class AudioNodeTypeRead(StrictSchema):
     kind: str
     display_name: str
-    required_api: EngineApi
+    required_api: EngineApi | None
     inputs: list[NodePortRead]
     outputs: list[NodePortRead]
     config_schema: dict[str, Any]

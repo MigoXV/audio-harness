@@ -24,6 +24,12 @@ class ServingCapacity:
         self.asr = ResizableConcurrencyLimiter(
             config.max_asr_concurrency
         )
+        self.embedding = ResizableConcurrencyLimiter(
+            config.max_embedding_concurrency
+        )
+        self.qdrant = ResizableConcurrencyLimiter(
+            config.max_qdrant_concurrency
+        )
         self.responses = ResizableConcurrencyLimiter(
             config.max_responses_concurrency
         )
@@ -43,6 +49,8 @@ class ServingCapacity:
                 snapshot.config.webrtc.max_sessions
             ),
             self.asr.resize(snapshot.config.max_asr_concurrency),
+            self.embedding.resize(snapshot.config.max_embedding_concurrency),
+            self.qdrant.resize(snapshot.config.max_qdrant_concurrency),
             self.responses.resize(
                 snapshot.config.max_responses_concurrency
             ),

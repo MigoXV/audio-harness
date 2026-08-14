@@ -30,5 +30,7 @@ class CapacityConfig(StrictModel):
     realtime: ProtocolCapacityConfig = Field(default_factory=ProtocolCapacityConfig)
     webrtc: ProtocolCapacityConfig = Field(default_factory=ProtocolCapacityConfig)
     max_asr_concurrency: int = Field(default=8, gt=0)
+    max_embedding_concurrency: int = Field(default=8, gt=0)
+    max_qdrant_concurrency: int = Field(default=8, gt=0)
     max_responses_concurrency: int = Field(default=8, gt=0)
     max_tts_concurrency: int = Field(default=1, gt=0)

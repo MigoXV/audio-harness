@@ -1,4 +1,4 @@
-from audio_harness.configs.app import AppConfig, DatabaseConfig, VoiceConfig
+from audio_harness.configs.app import AppConfig, DatabaseConfig, QdrantConfig, VoiceConfig
 from audio_harness.configs.base import StrictModel
 from audio_harness.configs.engine import EngineEndpoint
 from audio_harness.configs.serving import (
@@ -25,6 +25,7 @@ __all__ = [
     "IceServerConfig",
     "LimitsConfig",
     "ProtocolCapacityConfig",
+    "QdrantConfig",
     "StrictModel",
     "VoiceConfig",
     "WebRtcConfig",

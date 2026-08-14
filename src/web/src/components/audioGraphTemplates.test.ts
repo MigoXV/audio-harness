@@ -127,6 +127,72 @@ describe("audio graph templates", () => {
     expect(result.nodes.find((node) => node.id === "asr")?.config).toMatchObject({ remove_punctuation: false });
   });
 
+  it("builds the complete meeting graph with vector search on semantic segments", () => {
+    const result = applyAudioGraphTemplate(existing, "meeting_complete", [{
+      collection_name: "meeting-features",
+      vectors: [{ name: "meeting-model", size: 256, distance: "cosine" }],
+      template: "voiceprint",
+    }]);
+
+    expect(result.nodes.map((node) => node.id)).toEqual([
+      "physical-vad",
+      "semantic-vad",
+      "asr",
+      "interim-physical-vad",
+      "interim-asr",
+      "audio-embedding",
+      "vector-search",
+    ]);
+    expect(result.edges).toContainEqual({
+      id: "semantic-vad-to-audio-embedding",
+      source: { kind: "node", node_id: "semantic-vad", port: "segments" },
+      target: { node_id: "audio-embedding", port: "segments" },
+    });
+    expect(result.edges).toContainEqual({
+      id: "audio-embedding-to-vector-search",
+      source: { kind: "node", node_id: "audio-embedding", port: "embeddings" },
+      target: { node_id: "vector-search", port: "embeddings" },
+    });
+    expect(result.nodes.find((node) => node.id === "audio-embedding")).toMatchObject({
+      kind: "audio_embedding",
+      config: { algorithm: "meeting-model", expected_dimension: 256, normalize: true },
+    });
+    expect(result.nodes.find((node) => node.id === "vector-search")).toMatchObject({
+      kind: "vector_search",
+      config: { collection_name: "meeting-features", vector_name: "meeting-model", top_k: 10 },
+    });
+    expect(result.outputs).toContainEqual({
+      name: "vector_search",
+      source: { kind: "node", node_id: "vector-search", port: "results" },
+    });
+  });
+
+  it("preserves configured vector nodes when reapplying the complete meeting template", () => {
+    const first = applyAudioGraphTemplate(existing, "meeting_complete");
+    const embedding = first.nodes.find((node) => node.id === "audio-embedding");
+    const search = first.nodes.find((node) => node.id === "vector-search");
+    if (!embedding || embedding.kind !== "audio_embedding" || !search || search.kind !== "vector_search") {
+      throw new Error("vector branch missing");
+    }
+    embedding.engine_id = "embedding-1";
+    embedding.config = { algorithm: "custom-model", expected_dimension: 384, normalize: false };
+    search.config = { ...search.config, collection_name: "custom-collection", vector_name: "custom-model", top_k: 25 };
+
+    const result = applyAudioGraphTemplate(first, "meeting_complete", [{
+      collection_name: "other",
+      vectors: [{ name: "other-model", size: 192, distance: "cosine" }],
+      template: null,
+    }]);
+
+    expect(result.nodes.find((node) => node.id === "audio-embedding")).toMatchObject({
+      engine_id: "embedding-1",
+      config: { algorithm: "custom-model", expected_dimension: 384, normalize: false },
+    });
+    expect(result.nodes.find((node) => node.id === "vector-search")).toMatchObject({
+      config: { collection_name: "custom-collection", vector_name: "custom-model", top_k: 25 },
+    });
+  });
+
   it("preserves an explicit punctuation choice on an existing interim ASR", () => {
     const dual = applyAudioGraphTemplate(existing, "dual_physical_asr");
     const preview = dual.nodes.find((node) => node.id === "interim-asr");

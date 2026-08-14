@@ -121,6 +121,8 @@ class CapacitySetting(Base):
     realtime_max_sessions: Mapped[int] = mapped_column(Integer, nullable=False)
     webrtc_max_sessions: Mapped[int] = mapped_column(Integer, nullable=False)
     max_asr_concurrency: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_embedding_concurrency: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_qdrant_concurrency: Mapped[int] = mapped_column(Integer, nullable=False)
     max_responses_concurrency: Mapped[int] = mapped_column(
         Integer,
         nullable=False,

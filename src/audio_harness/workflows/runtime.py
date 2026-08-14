@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import unicodedata
+import time
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -12,13 +13,14 @@ from audio_harness.errors import CapacityExceededError
 from audio_harness.inferencers import Inferencer
 from audio_harness.inferencers.asr.base import AsrInferencer
 from audio_harness.inferencers.vad.base import VadInferencer
+from audio_harness.inferencers.embedding import AudioEmbeddingInferencer
 from audio_harness.media.pcm import PcmChunk
 from audio_harness.workflows.compiler import (
     CompiledAudioGraph,
     CompiledAudioNode,
     PortKind,
 )
-from audio_harness.workflows.events import SpeechStarted, SpeechStopped
+from audio_harness.workflows.events import AudioEmbeddingResult, SpeechStarted, SpeechStopped, VectorSearchResult
 from audio_harness.workflows.models import (
     AsrNode,
     FailurePolicy,
@@ -28,7 +30,10 @@ from audio_harness.workflows.models import (
     PhysicalVadNode,
     SemanticVadConfig,
     SemanticVadNode,
+    AudioEmbeddingNode,
+    VectorSearchNode,
 )
+from audio_harness.vectors.qdrant import QdrantGateway
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +49,7 @@ def _remove_punctuation(text: str) -> str:
     )
 
 
-AudioOutputPayload = SpeechStarted | SpeechStopped | AsrInferencer.Result
+AudioOutputPayload = SpeechStarted | SpeechStopped | AsrInferencer.Result | VectorSearchResult
 
 
 @dataclass(frozen=True)
@@ -53,6 +58,7 @@ class AudioInferenceRequest:
     include_vad_events: bool = False
     include_vad_progress: bool = False
     include_interim_transcripts: bool = False
+    include_vector_search: bool = False
 
 
 @dataclass(frozen=True)
@@ -439,7 +445,7 @@ class _EdgeRouter:
         for name in self._bindings.get((node_id, port), ()):
             if not isinstance(
                 payload,
-                (SpeechStarted, SpeechStopped, AsrInferencer.Result),
+                (SpeechStarted, SpeechStopped, AsrInferencer.Result, VectorSearchResult),
             ):
                 raise TypeError(f"出口 {name} 收到非法负载: {type(payload)!r}")
             await self._output.put(
@@ -535,9 +541,12 @@ class AudioWorkflowRuntime:
         inferencers: Mapping[str, Inferencer],
         runtime_config: AudioRuntimeConfig,
         asr_semaphore: asyncio.Semaphore,
+        embedding_semaphore: asyncio.Semaphore | None = None,
+        qdrant_semaphore: asyncio.Semaphore | None = None,
+        qdrant: QdrantGateway | None = None,
     ) -> None:
         self._plan = plan
-        expected = set(plan.nodes)
+        expected = {node_id for node_id, node in plan.nodes.items() if node.engine_snapshot is not None}
         actual = set(inferencers)
         if actual != expected:
             missing = sorted(expected - actual)
@@ -548,7 +557,10 @@ class AudioWorkflowRuntime:
         self._inferencers = dict(inferencers)
         self._vad_inferencers: dict[str, VadInferencer] = {}
         self._asr_inferencers: dict[str, AsrInferencer] = {}
+        self._embedding_inferencers: dict[str, AudioEmbeddingInferencer] = {}
         for node_id, node in plan.nodes.items():
+            if node.engine_snapshot is None:
+                continue
             inferencer = self._inferencers[node_id]
             if node.spec.kind in {"physical_vad", "semantic_vad"}:
                 if not isinstance(inferencer, VadInferencer):
@@ -564,8 +576,15 @@ class AudioWorkflowRuntime:
                         f"{type(inferencer).__name__}"
                     )
                 self._asr_inferencers[node_id] = inferencer
+            elif node.spec.kind == "audio_embedding":
+                if not isinstance(inferencer, AudioEmbeddingInferencer):
+                    raise TypeError(f"节点 {node_id} 需要 AudioEmbeddingInferencer")
+                self._embedding_inferencers[node_id] = inferencer
         self._runtime_config = runtime_config
         self._asr_semaphore = asr_semaphore
+        self._embedding_semaphore = embedding_semaphore
+        self._qdrant_semaphore = qdrant_semaphore
+        self._qdrant = qdrant
 
     async def stream(
         self,
@@ -578,9 +597,11 @@ class AudioWorkflowRuntime:
         available_outputs = {
             binding.name for binding in self._plan.definition.outputs
         }
-        active_outputs = available_outputs.difference({"interim_transcript"})
+        active_outputs = available_outputs.difference({"interim_transcript", "vector_search"})
         if request.include_interim_transcripts:
             active_outputs.add("interim_transcript")
+        if request.include_vector_search:
+            active_outputs.add("vector_search")
         active_nodes = _output_ancestors(self._plan, active_outputs)
         protected_nodes = _output_ancestors(
             self._plan,
@@ -715,6 +736,10 @@ class AudioWorkflowRuntime:
                     router,
                     best_effort=best_effort,
                 )
+            elif node.spec.kind == "audio_embedding":
+                await self._audio_embedding(node_id, node, request, router)
+            elif node.spec.kind == "vector_search":
+                await self._vector_search(node_id, node, router)
             else:
                 raise RuntimeError(f"没有节点执行器: {node.spec.kind}")
         except asyncio.CancelledError:
@@ -844,6 +869,60 @@ class AudioWorkflowRuntime:
                         await router.emit(node_id, "transcripts", result)
             except CapacityExceededError:
                 logger.debug("ASR 容量已满，跳过预览音频块: %s", node_id)
+
+    async def _audio_embedding(self, node_id: str, node: CompiledAudioNode, request: AudioInferenceRequest, router: _EdgeRouter) -> None:
+        definition = cast(AudioEmbeddingNode, node.definition)
+        inferencer = self._embedding_inferencers[node_id]
+        async for item in _items(router.input(node_id, "segments")):
+            candidate = cast(_SegmentCandidate, item)
+            started = time.monotonic()
+            try:
+                if self._embedding_semaphore is None:
+                    vector = await inferencer.embed(candidate.audio, algorithm=definition.config.algorithm, expected_dimension=definition.config.expected_dimension, normalize=definition.config.normalize)
+                else:
+                    async with self._embedding_semaphore:
+                        vector = await inferencer.embed(candidate.audio, algorithm=definition.config.algorithm, expected_dimension=definition.config.expected_dimension, normalize=definition.config.normalize)
+                result = AudioEmbeddingResult(
+                    candidate.start_sample, candidate.end_sample, request.recognition.sample_rate,
+                    vector, latency_ms=(time.monotonic() - started) * 1000,
+                )
+            except Exception as exc:
+                logger.warning("音频向量化失败，ASR 继续: %s", exc)
+                result = AudioEmbeddingResult(
+                    candidate.start_sample, candidate.end_sample, request.recognition.sample_rate,
+                    None, latency_ms=(time.monotonic() - started) * 1000,
+                    error_code="embedding_failed", error_message=str(exc),
+                )
+            await router.emit(node_id, "embeddings", result)
+
+    async def _vector_search(self, node_id: str, node: CompiledAudioNode, router: _EdgeRouter) -> None:
+        definition = cast(VectorSearchNode, node.definition)
+        async for item in _items(router.input(node_id, "embeddings")):
+            embedded = cast(AudioEmbeddingResult, item)
+            started = time.monotonic()
+            matches: tuple[dict[str, Any], ...] = ()
+            code = embedded.error_code
+            message = embedded.error_message
+            if code is None:
+                try:
+                    if self._qdrant is None: raise RuntimeError("Qdrant 尚未配置")
+                    if self._qdrant_semaphore is None:
+                        found = await self._qdrant.search(definition.config.collection_name, definition.config.vector_name, cast(tuple[float, ...], embedded.embedding), limit=definition.config.top_k, score_threshold=definition.config.score_threshold, filter_json=definition.config.filter)
+                    else:
+                        async with self._qdrant_semaphore:
+                            found = await self._qdrant.search(definition.config.collection_name, definition.config.vector_name, cast(tuple[float, ...], embedded.embedding), limit=definition.config.top_k, score_threshold=definition.config.score_threshold, filter_json=definition.config.filter)
+                    matches = tuple({"point_id": value.point_id, "score": value.score, "payload": value.payload} for value in found)
+                except Exception as exc:
+                    logger.warning("向量搜索失败，ASR 继续: %s", exc)
+                    code, message = "vector_search_failed", str(exc)
+            await router.emit(node_id, "results", VectorSearchResult(
+                start_sample=embedded.start_sample, end_sample=embedded.end_sample, sample_rate=embedded.sample_rate,
+                collection_name=definition.config.collection_name,
+                vector_name=definition.config.vector_name, matches=matches,
+                latency_ms=embedded.latency_ms + (time.monotonic() - started) * 1000,
+                embedding=embedded.embedding if definition.config.include_embedding and code is None else None,
+                error_code=code, error_message=message,
+            ))
 
     @asynccontextmanager
     async def _asr_slot(self, *, best_effort: bool) -> AsyncIterator[None]:
