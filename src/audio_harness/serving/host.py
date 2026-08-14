@@ -1,29 +1,30 @@
 from __future__ import annotations
 
+from functools import partial
 import logging
 
-from audio_harness.api.service import EngineCatalog
-from audio_harness.capacity import ServingCapacity
-from audio_harness.capacity_settings import CapacitySettingsStore
-from audio_harness.config import AppConfig, CapacityConfig
+from audio_harness.api import create_http_app
+from audio_harness.configs import AppConfig, CapacityConfig
 from audio_harness.database import Database
-from audio_harness.engine_health import EngineHealthMonitor
-from audio_harness.engines import InferencerPool
-from audio_harness.inferencers.factory import DefaultInferencerFactory
+from audio_harness.engines.health import EngineHealthMonitor
+from audio_harness.engines.catalog import EngineCatalog
+from audio_harness.engines.inferencer_factory import create_inferencer
+from audio_harness.engines.pool import InferencerPool
+from audio_harness.realtime_routes.service import RealtimeRouteService
 from audio_harness.serving.grpc import GrpcServer, SpeechServicer
-from audio_harness.serving.http import create_http_app
+from audio_harness.serving.capacity import ServingCapacity
+from audio_harness.serving.capacity_settings import CapacitySettingsStore
 from audio_harness.serving.realtime import RealtimeTranscriptionService
 from audio_harness.serving.realtime.tools import ToolRegistry
 from audio_harness.serving.status import ServingStatusService
 from audio_harness.serving.webrtc import WebRtcCallService
 from audio_harness.sessions import AudioWorkflowSessionService
 from audio_harness.voice_agents import (
-    RealtimeRouteService,
     VoiceAgentRepository,
     VoiceAgentService,
 )
-from audio_harness.voices import VoiceAssetStore
-from audio_harness.workflow_settings import WorkflowSettingsStore
+from audio_harness.voice_agents.voices import VoiceAssetStore
+from audio_harness.workflows.settings import WorkflowSettingsStore
 from audio_harness.workflows import AudioWorkflowRepository, AudioWorkflowService
 
 logger = logging.getLogger(__name__)
@@ -38,8 +39,8 @@ class AudioHarnessHost:
         self.database = Database(config.database.url)
 
         self.inferencer_pool = InferencerPool(
-            inferencer_factory=DefaultInferencerFactory(
-                min_chunk_bytes=config.workflow.min_chunk_bytes,
+            create_inferencer=partial(
+                create_inferencer,
                 max_message_bytes=max_message_bytes,
             )
         )

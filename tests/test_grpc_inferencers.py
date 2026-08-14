@@ -7,18 +7,13 @@ import grpc
 import pytest
 from google.protobuf import duration_pb2
 
-from audio_harness.config import EngineEndpoint
-from audio_harness.domain import (
-    AudioSegment,
-    PresetVoice,
-    RecognitionOptions,
-    VadPostprocessingOptions,
-)
-from audio_harness.inferencers.grpc import (
-    GrpcAsrInferencer,
-    GrpcDuplexTtsInferencer,
-    GrpcVadInferencer,
-)
+from audio_harness.configs import EngineEndpoint
+from audio_harness.inferencers.asr.base import AsrInferencer
+from audio_harness.inferencers.asr.grpc import UxSpeechAsrInferencer
+from audio_harness.inferencers.tts.grpc import QwenDuplexTtsInferencer
+from audio_harness.inferencers.tts.base import TtsInferencer
+from audio_harness.inferencers.vad.base import VadInferencer
+from audio_harness.inferencers.vad.grpc import UxVadInferencer
 from audio_harness.protos.asr import ux_speech_pb2 as speech_pb2
 from audio_harness.protos.asr import ux_speech_pb2_grpc as speech_pb2_grpc
 from audio_harness.protos.tts import tts_pb2, tts_pb2_grpc
@@ -123,7 +118,7 @@ async def test_grpc_vad_inferencer_uses_async_stream_and_unary_turn_detection() 
     vad_pb2_grpc.add_UxVoiceActivityDetectorServicer_to_server(fake, server)
     port = server.add_insecure_port("127.0.0.1:0")
     await server.start()
-    inferencer = GrpcVadInferencer(
+    inferencer = UxVadInferencer(
         EngineEndpoint(target=f"127.0.0.1:{port}"),
         max_message_bytes=1024,
     )
@@ -146,8 +141,7 @@ async def test_grpc_vad_inferencer_uses_async_stream_and_unary_turn_detection() 
 
     assert len(updates) == 1
     assert updates[0].processed_samples == 4
-    assert updates[0].boundaries[0].start_sample == 0
-    assert updates[0].boundaries[0].end_sample == 4
+    assert updates[0].boundaries[0] == (0, 4)
     assert completed is True
     assert fake.streaming_config is not None
     assert fake.streaming_config.sample_rate_hertz == 4
@@ -162,7 +156,7 @@ async def test_grpc_vad_inferencer_sends_postprocessing_only_in_stream_config() 
     vad_pb2_grpc.add_UxVoiceActivityDetectorServicer_to_server(fake, server)
     port = server.add_insecure_port("127.0.0.1:0")
     await server.start()
-    inferencer = GrpcVadInferencer(
+    inferencer = UxVadInferencer(
         EngineEndpoint(target=f"127.0.0.1:{port}"),
         max_message_bytes=1024,
     )
@@ -172,7 +166,7 @@ async def test_grpc_vad_inferencer_sends_postprocessing_only_in_stream_config() 
             async for update in inferencer.stream_detect(
                 audio_chunks(b"\x00\x00"),
                 sample_rate=16_000,
-                postprocessing=VadPostprocessingOptions(
+                postprocessing=VadInferencer.Postprocessing(
                     processor="firered.stream_vad",
                     version=1,
                     parameters={
@@ -204,17 +198,12 @@ async def test_grpc_asr_inferencer_always_requests_and_returns_interim_results()
     speech_pb2_grpc.add_UxSpeechServicer_to_server(fake, server)
     port = server.add_insecure_port("127.0.0.1:0")
     await server.start()
-    inferencer = GrpcAsrInferencer(
+    inferencer = UxSpeechAsrInferencer(
         EngineEndpoint(target=f"127.0.0.1:{port}"),
-        min_chunk_bytes=4,
         max_message_bytes=1024,
     )
-    segment = AudioSegment(
-        audio=b"\x00\x00\x01\x00\x02\x00\x03\x00",
-        start_sample=8,
-        end_sample=12,
-    )
-    options = RecognitionOptions(
+    audio = b"\x00\x00\x01\x00\x02\x00\x03\x00"
+    options = AsrInferencer.Options(
         sample_rate=4,
         language_code="zh-CN",
         hotwords=("Audio Harness",),
@@ -224,7 +213,13 @@ async def test_grpc_asr_inferencer_always_requests_and_returns_interim_results()
         await inferencer.ready()
         results = [
             result
-            async for result in inferencer.transcribe(segment, options)
+            async for result in inferencer.transcribe(
+                audio,
+                start_sample=8,
+                end_sample=12,
+                turn_completed=True,
+                options=options,
+            )
         ]
     finally:
         await inferencer.close()
@@ -240,7 +235,7 @@ async def test_grpc_asr_inferencer_always_requests_and_returns_interim_results()
     assert fake.config.interim_results is True
     assert fake.config.config.hotwords == ["Audio Harness"]
     assert fake.audio_message_count == 1
-    assert bytes(fake.audio) == segment.audio
+    assert bytes(fake.audio) == audio
 
 
 @pytest.mark.asyncio
@@ -251,7 +246,7 @@ async def test_grpc_tts_stream_is_not_cut_off_by_request_timeout() -> None:
     )
     port = server.add_insecure_port("127.0.0.1:0")
     await server.start()
-    inferencer = GrpcDuplexTtsInferencer(
+    inferencer = QwenDuplexTtsInferencer(
         EngineEndpoint(
             target=f"127.0.0.1:{port}",
             request_timeout_seconds=0.01,
@@ -267,7 +262,7 @@ async def test_grpc_tts_stream_is_not_cut_off_by_request_timeout() -> None:
             chunk
             async for chunk in inferencer.duplex_synthesize(
                 text_chunks(),
-                voice=PresetVoice("anbi"),
+                voice="anbi",
                 language="Chinese",
                 decoder_chunk_size=0,
             )

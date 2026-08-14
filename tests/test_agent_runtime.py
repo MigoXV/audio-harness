@@ -13,21 +13,20 @@ import pytest
 from openai.types.realtime import RealtimeServerEvent
 from pydantic import TypeAdapter
 
-from audio_harness.assets import (
+from audio_harness.engines.models import (
     EngineApi,
     EngineAssetData,
     EngineKind,
     EngineProtocol,
     EngineStatus,
 )
-from audio_harness.domain import SynthesizedAudioChunk
+from audio_harness.inferencers.tts.base import TtsInferencer
 from audio_harness.serving.realtime.agent import (
     RealtimeAgentRuntime,
     _FunctionCall,
 )
-from audio_harness.serving.realtime.conversation import encode_wire_audio
 from audio_harness.serving.realtime.tools import McpToolPool, ToolRegistry
-from audio_harness.capacity import ResizableConcurrencyLimiter
+from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
 from audio_harness.voice_agents.models import (
     DuplexTtsConfig,
     ResponsesConfig,
@@ -228,11 +227,11 @@ class FakeTts:
         self,
         chunks: AsyncIterator[str],
         **_kwargs,
-    ) -> AsyncIterator[SynthesizedAudioChunk]:
+    ) -> AsyncIterator[TtsInferencer.Chunk]:
         self.calls += 1
         async for text in chunks:
             self.text.append(text)
-            yield SynthesizedAudioChunk(
+            yield TtsInferencer.Chunk(
                 pcm_s16le=b"\0\0" * 240,
                 sample_rate=24_000,
                 chunk_index=len(self.text) - 1,
@@ -244,7 +243,7 @@ class FailingTts:
         self,
         _chunks: AsyncIterator[str],
         **_kwargs,
-    ) -> AsyncIterator[SynthesizedAudioChunk]:
+    ) -> AsyncIterator[TtsInferencer.Chunk]:
         raise RuntimeError("tts failed")
         yield  # pragma: no cover
 
@@ -257,10 +256,10 @@ class HangingTts:
         self,
         chunks: AsyncIterator[str],
         **_kwargs,
-    ) -> AsyncIterator[SynthesizedAudioChunk]:
+    ) -> AsyncIterator[TtsInferencer.Chunk]:
         async for _text in chunks:
             self.started.set()
-            yield SynthesizedAudioChunk(
+            yield TtsInferencer.Chunk(
                 pcm_s16le=b"\0\0" * 240,
                 sample_rate=24_000,
                 chunk_index=0,
@@ -769,13 +768,17 @@ async def test_oob_response_context_does_not_mutate_default_conversation() -> No
     assert runtime._history[0]["content"][0]["text"] == "saved"
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("format_type", ["audio/pcmu", "audio/pcma"])
-async def test_response_input_normalizes_g711_audio(format_type: str) -> None:
-    router = FakePool()
+@pytest.mark.parametrize(
+    "audio",
+    [
+        {"input": {"format": {"type": "audio/pcmu"}}},
+        {"output": {"format": {"type": "audio/pcma"}}},
+    ],
+)
+def test_agent_rejects_g711_audio_formats(audio: dict) -> None:
     runtime = RealtimeAgentRuntime(
         profile=_profile(),
-        inferencer_pool=router,
+        inferencer_pool=FakePool(),
         send_event=lambda _event: asyncio.sleep(0),
         send_audio=None,
         clear_audio=None,
@@ -783,39 +786,36 @@ async def test_response_input_normalizes_g711_audio(format_type: str) -> None:
         tts_limiter=None,
         tool_registry=ToolRegistry(),
     )
-    runtime.update_options(
-        {"audio": {"input": {"format": {"type": format_type}}}}
-    )
-    pcm = bytes(8_000 * 2)
-    wire_audio = encode_wire_audio(pcm, format_type=format_type)
-    await runtime.create_response(
-        {
-            "conversation": "none",
-            "output_modalities": ["text"],
-            "input": [
-                {
-                    "type": "message",
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "input_audio",
-                            "audio": base64.b64encode(wire_audio).decode(),
-                        }
-                    ],
-                }
-            ],
-        }
-    )
-    task = runtime._task
-    assert task is not None
-    await task
 
-    encoded_wav = router.responses.calls[-1]["input"][0]["content"][0][
-        "input_audio"
-    ]["data"]
-    with wave.open(io.BytesIO(base64.b64decode(encoded_wav)), "rb") as audio:
-        assert audio.getframerate() == 24_000
-        assert audio.getnframes() == 24_000
+    with pytest.raises(ValueError, match="不支持的音频格式"):
+        runtime.update_options({"audio": audio})
+
+
+def test_agent_rejects_incomplete_pcm_sample() -> None:
+    runtime = RealtimeAgentRuntime(
+        profile=_profile(),
+        inferencer_pool=FakePool(),
+        send_event=lambda _event: asyncio.sleep(0),
+        send_audio=None,
+        clear_audio=None,
+        responses_limiter=None,
+        tts_limiter=None,
+        tool_registry=ToolRegistry(),
+    )
+
+    with pytest.raises(ValueError, match="PCM S16LE"):
+        runtime.create_conversation_item(
+            {
+                "type": "message",
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_audio",
+                        "audio": base64.b64encode(b"\0").decode("ascii"),
+                    }
+                ],
+            }
+        )
 
 
 @pytest.mark.asyncio

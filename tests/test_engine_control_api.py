@@ -7,9 +7,12 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from audio_harness.config import AppConfig
+from audio_harness.configs import AppConfig
 from audio_harness.database import require_fresh_database, upgrade_database
-from audio_harness.domain import EngineDeadlineError, EngineUnavailableError
+from audio_harness.errors import (
+    EngineDeadlineError,
+    EngineUnavailableError,
+)
 from audio_harness.serving.host import AudioHarnessHost
 
 
@@ -77,7 +80,7 @@ async def control_plane(tmp_path: Path):
         }
     )
     host = AudioHarnessHost(config)
-    host.inferencer_pool._inferencer_factory = ReadyFactory()
+    host.inferencer_pool._create_inferencer = ReadyFactory().create
     await host.workflow_settings.initialize()
     capacity = await host.capacity_settings.initialize()
     await host.capacity.apply(capacity)
@@ -190,7 +193,7 @@ async def test_responses_engine_discovers_models_without_exposing_credentials(
     control_plane: ControlPlane,
 ) -> None:
     factory = ReadyFactory()
-    control_plane.host.inferencer_pool._inferencer_factory = factory
+    control_plane.host.inferencer_pool._create_inferencer = factory.create
     created = await control_plane.client.post(
         "/api/v1/engines",
         json=engine_payload(
@@ -282,7 +285,9 @@ async def test_model_discovery_maps_upstream_failures(
             protocol="https",
         ),
     )
-    control_plane.host.inferencer_pool._inferencer_factory = FailingModelFactory(error)
+    control_plane.host.inferencer_pool._create_inferencer = FailingModelFactory(
+        error
+    ).create
 
     response = await control_plane.client.get(
         f"/api/v1/engines/{created.json()['id']}/models"

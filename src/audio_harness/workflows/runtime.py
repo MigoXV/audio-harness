@@ -3,30 +3,22 @@ from __future__ import annotations
 import asyncio
 import logging
 import unicodedata
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, replace
-from typing import Any, cast
+from dataclasses import dataclass
+from typing import Any, NamedTuple, cast
 
-from audio_harness.domain import (
-    AsyncAsrEngine,
-    AsyncVadEngine,
-    AudioSegment,
-    CapacityExceededError,
-    PcmChunk,
-    RecognitionOptions,
-    SpeechStarted,
-    SpeechStopped,
-    TranscriptionResult,
-    VadUpdate,
-    VadPostprocessingOptions,
-)
-from audio_harness.inferencers.contracts import ManagedInferencer
+from audio_harness.errors import CapacityExceededError
+from audio_harness.inferencers import Inferencer
+from audio_harness.inferencers.asr.base import AsrInferencer
+from audio_harness.inferencers.vad.base import VadInferencer
+from audio_harness.media.pcm import PcmChunk
 from audio_harness.workflows.compiler import (
     CompiledAudioGraph,
     CompiledAudioNode,
     PortKind,
 )
+from audio_harness.workflows.events import SpeechStarted, SpeechStopped
 from audio_harness.workflows.models import (
     AsrNode,
     FailurePolicy,
@@ -52,12 +44,12 @@ def _remove_punctuation(text: str) -> str:
     )
 
 
-AudioOutputPayload = SpeechStarted | SpeechStopped | TranscriptionResult
+AudioOutputPayload = SpeechStarted | SpeechStopped | AsrInferencer.Result
 
 
 @dataclass(frozen=True)
 class AudioInferenceRequest:
-    recognition: RecognitionOptions
+    recognition: AsrInferencer.Options
     include_vad_events: bool = False
     include_vad_progress: bool = False
     include_interim_transcripts: bool = False
@@ -87,9 +79,11 @@ class _Envelope:
     payload: object
 
 
-@dataclass(frozen=True)
-class _SegmentCandidate:
-    segment: AudioSegment
+class _SegmentCandidate(NamedTuple):
+    audio: bytes
+    start_sample: int
+    end_sample: int
+    turn_completed: bool = True
     evaluate_turn: bool = True
 
 
@@ -193,12 +187,10 @@ class PhysicalVadSession:
         return (
             "segments",
             _SegmentCandidate(
-                AudioSegment(
-                    audio=self._audio.slice(start, end),
-                    start_sample=start,
-                    end_sample=end,
-                    turn_completed=True,
-                ),
+                audio=self._audio.slice(start, end),
+                start_sample=start,
+                end_sample=end,
+                turn_completed=True,
                 evaluate_turn=evaluate_turn,
             ),
         )
@@ -218,15 +210,16 @@ class PhysicalVadSession:
             result.append(item)
         return result
 
-    def update(self, update: VadUpdate) -> list[PhysicalEmission]:
+    def update(self, update: VadInferencer.Update) -> list[PhysicalEmission]:
         result: list[PhysicalEmission] = []
         self._last_processed = max(self._last_processed, update.processed_samples)
         processed = min(self._last_processed, self._audio.end_sample)
         for boundary in update.boundaries:
-            if boundary.start_sample is not None:
+            start_sample, end_sample = boundary
+            if start_sample is not None:
                 start = min(
                     max(
-                        boundary.start_sample - self._pre_roll_samples,
+                        start_sample - self._pre_roll_samples,
                         self._audio.base_sample,
                         0,
                     ),
@@ -242,8 +235,8 @@ class PhysicalVadSession:
                     )
                 else:
                     self._active_start = min(self._active_start, start)
-            if boundary.end_sample is not None:
-                end = min(max(boundary.end_sample, 0), self._audio.end_sample)
+            if end_sample is not None:
+                end = min(max(end_sample, 0), self._audio.end_sample)
                 if self._active_start is not None and end > self._active_start:
                     start = self._active_start
                     result.extend(self._physical_segments(start, end))
@@ -282,7 +275,10 @@ class PhysicalVadSession:
         ]
 
 
-SemanticEmission = tuple[str, _SegmentCandidate | SpeechStopped | TranscriptionResult]
+SemanticEmission = tuple[
+    str,
+    _SegmentCandidate | SpeechStopped | AsrInferencer.Result,
+]
 
 
 class SemanticVadSession:
@@ -308,12 +304,10 @@ class SemanticVadSession:
             (
                 "segments",
                 _SegmentCandidate(
-                    AudioSegment(
-                        audio=audio,
-                        start_sample=start,
-                        end_sample=end,
-                        turn_completed=True,
-                    ),
+                    audio=audio,
+                    start_sample=start,
+                    end_sample=end,
+                    turn_completed=True,
                     evaluate_turn=False,
                 ),
             ),
@@ -327,19 +321,18 @@ class SemanticVadSession:
         self,
         candidate: _SegmentCandidate,
         *,
-        engine: AsyncVadEngine,
+        inferencer: VadInferencer,
         failure_policy: FailurePolicy,
     ) -> list[SemanticEmission]:
-        segment = candidate.segment
-        samples = len(segment.audio) // 2
+        samples = len(candidate.audio) // 2
         result: list[SemanticEmission] = []
         if samples > self._max_samples:
             result.extend(self._complete())
             offset = 0
             while offset < samples:
                 end = min(offset + self._max_samples, samples)
-                self._pending_start = segment.start_sample + offset
-                self._pending_audio.extend(segment.audio[offset * 2 : end * 2])
+                self._pending_start = candidate.start_sample + offset
+                self._pending_audio.extend(candidate.audio[offset * 2 : end * 2])
                 result.extend(self._complete())
                 offset = end
             return result
@@ -349,12 +342,15 @@ class SemanticVadSession:
         ):
             result.extend(self._complete())
         if self._pending_start is None:
-            self._pending_start = segment.start_sample
-        self._pending_audio.extend(segment.audio)
+            self._pending_start = candidate.start_sample
+        self._pending_audio.extend(candidate.audio)
         completed = not candidate.evaluate_turn
         if candidate.evaluate_turn:
             try:
-                completed = await engine.detect_turn(segment.audio, self._sample_rate)
+                completed = await inferencer.detect_turn(
+                    candidate.audio,
+                    self._sample_rate,
+                )
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -368,11 +364,11 @@ class SemanticVadSession:
             result.append(
                 (
                     "turn_progress",
-                    TranscriptionResult(
+                    AsrInferencer.Result(
                         transcript="",
                         is_final=True,
-                        start_sample=segment.start_sample,
-                        end_sample=segment.end_sample,
+                        start_sample=candidate.start_sample,
+                        end_sample=candidate.end_sample,
                         sample_rate=self._sample_rate,
                         turn_completed=False,
                     ),
@@ -441,7 +437,10 @@ class _EdgeRouter:
         for queue in self._outgoing.get((node_id, port), ()):
             await queue.put(_Envelope(payload))
         for name in self._bindings.get((node_id, port), ()):
-            if not isinstance(payload, (SpeechStarted, SpeechStopped, TranscriptionResult)):
+            if not isinstance(
+                payload,
+                (SpeechStarted, SpeechStopped, AsrInferencer.Result),
+            ):
                 raise TypeError(f"出口 {name} 收到非法负载: {type(payload)!r}")
             await self._output.put(
                 AudioWorkflowOutput(name=name, sequence=self._sequence, payload=payload)
@@ -526,19 +525,45 @@ def _output_ancestors(
     return ancestors
 
 
-class AudioWorkflowInferencer:
-    """协议无关的类型化语音 DAG 推理门面。"""
+class AudioWorkflowRuntime:
+    """单次会话内的有状态语音 DAG 执行器。"""
 
     def __init__(
         self,
         *,
         plan: CompiledAudioGraph,
-        engines: dict[str, ManagedInferencer],
+        inferencers: Mapping[str, Inferencer],
         runtime_config: AudioRuntimeConfig,
         asr_semaphore: asyncio.Semaphore,
     ) -> None:
         self._plan = plan
-        self._engines = engines
+        expected = set(plan.nodes)
+        actual = set(inferencers)
+        if actual != expected:
+            missing = sorted(expected - actual)
+            extra = sorted(actual - expected)
+            raise ValueError(
+                f"节点 Inferencer 绑定不完整: missing={missing}, extra={extra}"
+            )
+        self._inferencers = dict(inferencers)
+        self._vad_inferencers: dict[str, VadInferencer] = {}
+        self._asr_inferencers: dict[str, AsrInferencer] = {}
+        for node_id, node in plan.nodes.items():
+            inferencer = self._inferencers[node_id]
+            if node.spec.kind in {"physical_vad", "semantic_vad"}:
+                if not isinstance(inferencer, VadInferencer):
+                    raise TypeError(
+                        f"节点 {node_id} 需要 VadInferencer，实际为 "
+                        f"{type(inferencer).__name__}"
+                    )
+                self._vad_inferencers[node_id] = inferencer
+            elif node.spec.kind == "asr":
+                if not isinstance(inferencer, AsrInferencer):
+                    raise TypeError(
+                        f"节点 {node_id} 需要 AsrInferencer，实际为 "
+                        f"{type(inferencer).__name__}"
+                    )
+                self._asr_inferencers[node_id] = inferencer
         self._runtime_config = runtime_config
         self._asr_semaphore = asr_semaphore
 
@@ -719,7 +744,7 @@ class AudioWorkflowInferencer:
     ) -> None:
         definition = cast(PhysicalVadNode, node.definition)
         state = PhysicalVadSession(definition.config, request.recognition.sample_rate)
-        engine = cast(AsyncVadEngine, self._engines[node_id])
+        inferencer = self._vad_inferencers[node_id]
         queue = router.input(node_id, "audio")
 
         async def recorded() -> AsyncIterator[bytes]:
@@ -736,7 +761,7 @@ class AudioWorkflowInferencer:
 
         postprocessing = definition.config.postprocessing
         request_postprocessing = (
-            VadPostprocessingOptions(
+            VadInferencer.Postprocessing(
                 processor=postprocessing.processor,
                 version=postprocessing.version,
                 parameters=postprocessing.parameters.model_dump(),
@@ -745,19 +770,19 @@ class AudioWorkflowInferencer:
             else None
         )
         updates = (
-            engine.stream_detect(
+            inferencer.stream_detect(
                 recorded(),
                 request.recognition.sample_rate,
                 postprocessing=request_postprocessing,
             )
             if request_postprocessing is not None
-            else engine.stream_detect(
+            else inferencer.stream_detect(
                 recorded(),
                 request.recognition.sample_rate,
             )
         )
         async for update in updates:
-            if not isinstance(update, VadUpdate):
+            if not isinstance(update, VadInferencer.Update):
                 raise TypeError(f"非法 VAD 更新类型: {type(update)!r}")
             await publish(state.update(update))
         await publish(state.finish())
@@ -771,12 +796,12 @@ class AudioWorkflowInferencer:
     ) -> None:
         definition = cast(SemanticVadNode, node.definition)
         state = SemanticVadSession(definition.config, request.recognition.sample_rate)
-        engine = cast(AsyncVadEngine, self._engines[node_id])
+        inferencer = self._vad_inferencers[node_id]
         async for item in _items(router.input(node_id, "segments")):
             candidate = cast(_SegmentCandidate, item)
             values = await state.accept(
                 candidate,
-                engine=engine,
+                inferencer=inferencer,
                 failure_policy=definition.failure_policy,
             )
             for port, payload in values:
@@ -800,18 +825,20 @@ class AudioWorkflowInferencer:
         best_effort: bool,
     ) -> None:
         definition = cast(AsrNode, node.definition)
-        engine = cast(AsyncAsrEngine, self._engines[node_id])
+        inferencer = self._asr_inferencers[node_id]
         async for item in _items(router.input(node_id, "segments")):
             candidate = cast(_SegmentCandidate, item)
             try:
                 async with self._asr_slot(best_effort=best_effort):
-                    async for result in engine.transcribe(
-                        candidate.segment,
-                        request.recognition,
+                    async for result in inferencer.transcribe(
+                        candidate.audio,
+                        start_sample=candidate.start_sample,
+                        end_sample=candidate.end_sample,
+                        turn_completed=candidate.turn_completed,
+                        options=request.recognition,
                     ):
                         if definition.config.remove_punctuation:
-                            result = replace(
-                                result,
+                            result = result._replace(
                                 transcript=_remove_punctuation(result.transcript),
                             )
                         await router.emit(node_id, "transcripts", result)

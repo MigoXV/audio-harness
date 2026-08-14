@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import httpx
 import pytest
 
-from audio_harness.config import AppConfig
+import audio_harness.api.app as api_app_module
+from audio_harness.api import create_http_app
+from audio_harness.configs import AppConfig
 from audio_harness.database import upgrade_database
 from audio_harness.serving.host import AudioHarnessHost
-from audio_harness.serving.http import create_http_app
 
 
-async def build_app(tmp_path: Path, web_dist: Path):
+async def build_app(tmp_path: Path, web_dist: Path | None):
     database_url = f"sqlite+aiosqlite:///{tmp_path / 'web-control.db'}"
     upgrade_database(database_url)
     host = AudioHarnessHost(
@@ -47,8 +49,13 @@ async def build_app(tmp_path: Path, web_dist: Path):
 
 
 @pytest.mark.asyncio
-async def test_api_remains_available_when_web_is_not_built(tmp_path: Path) -> None:
-    app, host = await build_app(tmp_path, tmp_path / "missing")
+async def test_api_remains_available_when_web_is_not_built(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    missing_web = tmp_path / "missing"
+    with caplog.at_level(logging.WARNING, logger="audio_harness.api.app"):
+        app, host = await build_app(tmp_path, missing_web)
     try:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
@@ -59,8 +66,44 @@ async def test_api_remains_available_when_web_is_not_built(tmp_path: Path) -> No
             engines = await client.get("/api/v1/engines")
             assert engines.status_code == 200
             assert engines.json()["total"] == 0
+        assert str(missing_web.resolve()) in caplog.text
+        assert "Web UI 未挂载" in caplog.text
     finally:
         await host.stop()
+
+
+@pytest.mark.asyncio
+async def test_default_web_dist_serves_repository_build(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    web_dist = tmp_path / "default-web-dist"
+    web_dist.mkdir()
+    (web_dist / "index.html").write_text(
+        "<!doctype html><title>Default Audio Harness Web</title>",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(api_app_module, "DEFAULT_WEB_DIST", web_dist)
+
+    app, host = await build_app(tmp_path, None)
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            root = await client.get("/")
+        assert root.status_code == 200
+        assert "Default Audio Harness Web" in root.text
+    finally:
+        await host.stop()
+
+
+def test_default_web_dist_points_to_frontend_build() -> None:
+    repository_root = Path(__file__).parents[1]
+
+    assert api_app_module.DEFAULT_WEB_DIST == (
+        repository_root / "src" / "web" / "dist"
+    ).resolve()
 
 
 @pytest.mark.asyncio

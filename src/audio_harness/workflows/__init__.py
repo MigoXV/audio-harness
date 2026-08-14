@@ -28,7 +28,7 @@ from audio_harness.workflows.runtime import (
     AudioGraphExecutionError,
     AudioInferenceRequest,
     AudioRuntimeConfig,
-    AudioWorkflowInferencer,
+    AudioWorkflowRuntime,
     AudioWorkflowOutput,
 )
 from audio_harness.workflows.repository import AudioWorkflowRepository
@@ -44,7 +44,7 @@ __all__ = [
     "AudioInferenceRequest",
     "AudioRuntimeConfig",
     "AudioWorkflowDocument",
-    "AudioWorkflowInferencer",
+    "AudioWorkflowRuntime",
     "AudioWorkflowOutput",
     "AudioWorkflowRepository",
     "AudioWorkflowService",

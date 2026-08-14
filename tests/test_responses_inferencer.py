@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from audio_harness.assets import EngineApi, EngineProtocol, EngineSnapshot
-from audio_harness.inferencers.http.responses import ResponsesInferencer
+from audio_harness.engines.models import EngineApi, EngineProtocol, EngineSnapshot
+from audio_harness.inferencers.responses.http import ResponsesInferencer
 
 
 @pytest.mark.asyncio

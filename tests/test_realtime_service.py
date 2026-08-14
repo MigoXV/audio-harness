@@ -12,39 +12,33 @@ from openai.types.realtime import RealtimeServerEvent
 from pydantic import TypeAdapter
 from starlette.websockets import WebSocketDisconnect
 
-from audio_harness.capacity import ServingCapacity
-from audio_harness.config import CapacityConfig, WorkflowRuntimeConfig
-from audio_harness.domain import (
-    AudioSegment,
-    RecognitionOptions,
-    TranscriptionResult,
-    VadBoundary,
-    VadUpdate,
-)
+from audio_harness.serving.capacity import ServingCapacity
+from audio_harness.configs import CapacityConfig, WorkflowRuntimeConfig
+from audio_harness.inferencers.asr.base import AsrInferencer
+from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.serving.realtime.connection import (
     RealtimeConnectionMode,
     RealtimeTranscriptionService,
     _OnlinePcmResampler,
 )
-from audio_harness.serving.http.routers.data_plane import create_data_plane_router
-from audio_harness.serving.realtime.conversation import encode_wire_audio
+from audio_harness.api.routers.data_plane import create_data_plane_router
 from audio_harness.sessions import AudioWorkflowSessionService
-from audio_harness.workflow_settings import WorkflowSettingsSnapshot
+from audio_harness.workflows.settings import WorkflowSettingsSnapshot
 from tests.graph_fakes import StaticRouteService, static_audio_workflow
 
 _SERVER_EVENT_ADAPTER = TypeAdapter(RealtimeServerEvent)
 
 
-class ImmediateVad:
+class ImmediateVad(VadInferencer):
     async def stream_detect(
         self,
         audio_chunks: AsyncIterator[bytes],
         sample_rate: int,
-    ) -> AsyncIterator[VadUpdate]:
+    ) -> AsyncIterator[VadInferencer.Update]:
         async for chunk in audio_chunks:
             samples = len(chunk) // 2
-            yield VadUpdate(
-                boundaries=(VadBoundary(0, samples),),
+            yield VadInferencer.Update(
+                boundaries=((0, samples),),
                 processed_samples=samples,
             )
             return
@@ -52,20 +46,24 @@ class ImmediateVad:
     async def detect_turn(self, audio: bytes, sample_rate: int) -> bool:
         return True
 
+    async def ready(self) -> None: pass
+    async def probe(self) -> None: pass
+    async def close(self) -> None: pass
+
 
 class TwoSegmentVad(ImmediateVad):
     async def stream_detect(
         self,
         audio_chunks: AsyncIterator[bytes],
         sample_rate: int,
-    ) -> AsyncIterator[VadUpdate]:
+    ) -> AsyncIterator[VadInferencer.Update]:
         async for chunk in audio_chunks:
             samples = len(chunk) // 2
             middle = samples // 2
-            yield VadUpdate(
+            yield VadInferencer.Update(
                 boundaries=(
-                    VadBoundary(0, middle),
-                    VadBoundary(middle, samples),
+                    (0, middle),
+                    (middle, samples),
                 ),
                 processed_samples=samples,
             )
@@ -81,21 +79,29 @@ class PendingThenCompleteVad(ImmediateVad):
         return self.calls > 1
 
 
-class FinalAsr:
+class FinalAsr(AsrInferencer):
     async def transcribe(
         self,
-        segment: AudioSegment,
-        options: RecognitionOptions,
-    ) -> AsyncIterator[TranscriptionResult]:
-        yield TranscriptionResult(
+        audio: bytes,
+        *,
+        start_sample: int,
+        end_sample: int,
+        turn_completed: bool,
+        options: AsrInferencer.Options,
+    ) -> AsyncIterator[AsrInferencer.Result]:
+        yield AsrInferencer.Result(
             transcript="你好，世界",
             is_final=True,
-            start_sample=segment.start_sample,
-            end_sample=segment.end_sample,
+            start_sample=start_sample,
+            end_sample=end_sample,
             sample_rate=options.sample_rate,
-            turn_completed=True,
+            turn_completed=turn_completed,
             language_code=options.language_code,
         )
+
+    async def ready(self) -> None: pass
+    async def probe(self) -> None: pass
+    async def close(self) -> None: pass
 
 
 class StaticSettings:
@@ -192,6 +198,40 @@ def configure_transcription(websocket, *, event_id: str = "client-session"):
     assert updated.type == "session.updated"
     assert updated.session.id is not None
     return updated
+
+
+@pytest.mark.parametrize("format_type", ["audio/pcmu", "audio/pcma"])
+def test_realtime_rejects_g711_and_keeps_connection_open(
+    format_type: str,
+) -> None:
+    with TestClient(build_app()) as client:
+        with client.websocket_connect(
+            "/v1/realtime?intent=transcription"
+        ) as websocket:
+            assert receive_official_event(websocket).type == "session.created"
+            websocket.send_json(
+                {
+                    "type": "session.update",
+                    "event_id": "unsupported-audio-format",
+                    "session": {
+                        "type": "transcription",
+                        "audio": {
+                            "input": {
+                                "format": {"type": format_type},
+                                "transcription": {
+                                    "model": "gpt-4o-transcribe"
+                                },
+                            }
+                        },
+                    },
+                }
+            )
+
+            error = receive_official_event(websocket)
+            assert error.type == "error"
+            assert error.error.code == "invalid_session"
+            assert "不支持的输入音频格式" in error.error.message
+            configure_transcription(websocket, event_id="pcm-after-error")
 
 
 class _UnexpectedDataPlaneService:
@@ -352,10 +392,11 @@ def test_realtime_rejects_session_update_with_resampler_audio_pending() -> None:
                         "type": "transcription",
                         "audio": {
                             "input": {
-                                "transcription": {
-                                    "model": "gpt-4o-transcribe"
+                                "transcription": {"model": "other-model"},
+                                "format": {
+                                    "type": "audio/pcm",
+                                    "rate": 24_000,
                                 },
-                                "format": {"type": "audio/pcmu"},
                             }
                         },
                     },
@@ -684,17 +725,8 @@ def test_soxr_online_resampler_preserves_one_second_duration() -> None:
     assert all(len(chunk) <= 6400 for chunk in chunks)
 
 
-@pytest.mark.parametrize("format_type", ["audio/pcmu", "audio/pcma"])
-def test_online_resampler_supports_g711_input(format_type: str) -> None:
-    resampler = _OnlinePcmResampler(
-        chunk_bytes=6400,
-        format_type=format_type,
-        input_sample_rate=8_000,
-    )
-    pcm = np.zeros(8_000, dtype="<i2").tobytes()
-    wire_audio = encode_wire_audio(pcm, format_type=format_type)
+def test_online_resampler_rejects_incomplete_pcm_sample() -> None:
+    resampler = _OnlinePcmResampler(chunk_bytes=6400)
 
-    chunks = resampler.append(wire_audio)
-    chunks.extend(resampler.finish())
-
-    assert sum(map(len, chunks)) // 2 == 16_000
+    with pytest.raises(ValueError, match="PCM S16LE"):
+        resampler.append(b"\0")

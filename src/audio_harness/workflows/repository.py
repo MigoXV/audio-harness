@@ -9,7 +9,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from audio_harness.assets import EngineSnapshot
+from audio_harness.engines.models import EngineSnapshot
 from audio_harness.database.models import (
     AudioWorkflow,
     AudioWorkflowActivation,
@@ -23,7 +23,7 @@ from audio_harness.database.models import (
 )
 from audio_harness.database.mappers import asset_data
 from audio_harness.workflows.models import AudioWorkflowDocument, default_audio_workflow
-from audio_harness.workflow_types import RealtimeRouteTargetType
+from audio_harness.realtime_routes.models import RealtimeRouteTargetType
 
 
 class AudioWorkflowRepositoryError(Exception):

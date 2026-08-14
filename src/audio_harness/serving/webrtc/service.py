@@ -24,10 +24,14 @@ from openai.types.realtime import (
 )
 from pydantic import TypeAdapter, ValidationError
 
-from audio_harness.config import WebRtcConfig
-from audio_harness.capacity import ResizableConcurrencyLimiter
-from audio_harness.domain import CapacityExceededError
+from audio_harness.configs import WebRtcConfig
+from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
+from audio_harness.errors import CapacityExceededError
 from audio_harness.engines.pool import InferencerPool
+from audio_harness.realtime_routes.service import (
+    RealtimeRouteService,
+    RealtimeTarget,
+)
 from audio_harness.serving.realtime.session import (
     RealtimeTranscriptionSession,
     default_transcription_session,
@@ -42,12 +46,8 @@ from audio_harness.sessions import (
 )
 from audio_harness.serving.realtime.tools import ToolRegistry
 from audio_harness.serving.realtime.agent import VoiceResolver
-from audio_harness.workflow_settings import WorkflowSettingsStore
-from audio_harness.voice_agents.service import (
-    ActiveVoiceAgent,
-    RealtimeRouteService,
-    RealtimeTarget,
-)
+from audio_harness.workflows.settings import WorkflowSettingsStore
+from audio_harness.voice_agents.service import ActiveVoiceAgent
 from audio_harness.workflows.models import PhysicalVadNode
 
 logger = logging.getLogger(__name__)

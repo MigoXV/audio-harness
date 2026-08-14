@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from audio_harness.config import AppConfig, parse_ice_servers_json
+from audio_harness.configs import AppConfig, parse_ice_servers_json
 
 
 def test_load_config_from_environment(

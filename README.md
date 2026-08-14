@@ -68,16 +68,21 @@ ASR 节点可以独立开启“移除转写标点”，在节点输出进入工�
 
 ```text
 src/audio_harness/
+├── api/                # FastAPI 应用、URL、路由与异常映射
+├── errors.py           # 跨能力共享的应用异常
+├── schemas/            # 跨协议的请求与响应数据契约
+├── configs/            # 按用途拆分的进程配置
+├── realtime_routes/    # Realtime 模型路由控制面
 ├── workflows/          # AudioWorkflow 文档、编译器、运行时、仓储与发布服务
-├── voice_agents/       # 语音智能体配置与 Realtime Route
-├── engines/            # InferencerPool
-├── inferencers/        # 各协议推理客户端适配器
+├── voice_agents/       # 语音智能体配置、仓储与发布服务
+├── engines/            # 引擎资产目录与 InferencerPool
+├── inferencers/        # 按能力分组的推理客户端适配器
+├── media/              # PCM 等媒体数据类型
 ├── sessions/           # 协议无关会话生命周期与容量租约
-├── serving/
+├── serving/            # 进程容量、状态与协议服务
 │   ├── grpc/           # gRPC 数据面适配器
 │   ├── realtime/       # OpenAI Realtime WebSocket 适配器
-│   ├── webrtc/         # WebRTC 适配器
-│   └── http/routers/   # 按资源拆分的 HTTP 控制面
+│   └── webrtc/         # WebRTC 适配器
 └── database/           # SQLAlchemy 模型与单一 Alembic 基线
 
 src/web/
@@ -232,7 +237,7 @@ WebSocket 建连时必须在 `intent=transcription` 和 `model=...` 中二选一
 前端不手写后端 DTO。修改接口后执行：
 
 ```bash
-poetry run audio-harness export-openapi --output src/web/openapi.json
+poetry run python scripts/export_openapi.py
 cd src/web
 pnpm generate:api
 ```

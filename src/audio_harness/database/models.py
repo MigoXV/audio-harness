@@ -17,13 +17,13 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from audio_harness.assets import (
+from audio_harness.engines.models import (
     EngineApi,
     EngineKind,
     EngineProtocol,
     EngineStatus,
 )
-from audio_harness.workflow_types import (
+from audio_harness.realtime_routes.models import (
     ModelRouteVisibility,
     RealtimeRouteTargetType,
 )

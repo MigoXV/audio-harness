@@ -8,14 +8,15 @@ import pytest
 from openai.types.realtime import RealtimeClientEvent, RealtimeServerEvent
 from pydantic import TypeAdapter
 
-from audio_harness.config import WorkflowRuntimeConfig
-from audio_harness.domain import SpeechStarted, SpeechStopped, TranscriptionResult
+from audio_harness.configs import WorkflowRuntimeConfig
+from audio_harness.inferencers.asr.base import AsrInferencer
 from audio_harness.serving.realtime.session import RealtimeTranscriptionSession
 from audio_harness.serving.realtime.connection import (
     RealtimeConnectionMode,
     RealtimeTranscriptionService,
 )
 from audio_harness.serving.realtime.tools import ToolRegistry
+from audio_harness.workflows.events import SpeechStarted, SpeechStopped
 from tests.test_agent_runtime import (
     BlockingResponses,
     ClientToolThenTextResponses,
@@ -391,7 +392,7 @@ async def test_voice_agent_x_aha_adds_pending_semantic_turn_event() -> None:
     )
     await session._handle_workflow_event(
         "turn_progress",
-        TranscriptionResult(
+        AsrInferencer.Result(
             transcript="还没说完",
             is_final=False,
             start_sample=240,
@@ -450,7 +451,7 @@ async def test_x_aha_interim_transcript_is_cumulative_and_cleared_by_primary() -
     ):
         await session._handle_workflow_event(
             "interim_transcript",
-            TranscriptionResult(
+            AsrInferencer.Result(
                 transcript=transcript,
                 is_final=final,
                 start_sample=start,
@@ -469,7 +470,7 @@ async def test_x_aha_interim_transcript_is_cumulative_and_cleared_by_primary() -
     )
     await session._handle_workflow_event(
         "primary_transcript",
-        TranscriptionResult(
+        AsrInferencer.Result(
             transcript="hello world",
             is_final=True,
             start_sample=0,

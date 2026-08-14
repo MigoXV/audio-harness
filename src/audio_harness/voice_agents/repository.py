@@ -9,7 +9,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from audio_harness.assets import EngineAssetData, EngineSnapshot
+from audio_harness.engines.models import EngineAssetData, EngineSnapshot
 from audio_harness.database.mappers import asset_data
 from audio_harness.database.models import (
     EngineAsset,
@@ -20,7 +20,7 @@ from audio_harness.database.models import (
     utc_now,
 )
 from audio_harness.voice_agents.models import VoiceAgentDefinition
-from audio_harness.workflow_types import RealtimeRouteTargetType
+from audio_harness.realtime_routes.models import RealtimeRouteTargetType
 
 
 class VoiceAgentRepositoryError(Exception):

@@ -45,13 +45,8 @@ from openai.types.realtime.conversation_item_input_audio_transcription_failed_ev
     Error as TranscriptionError,
 )
 
-from audio_harness.domain import (
-    RecognitionOptions,
-    SpeechStarted,
-    SpeechStopped,
-    TranscriptionResult,
-)
-from audio_harness.capacity import ResizableConcurrencyLimiter
+from audio_harness.inferencers.asr.base import AsrInferencer
+from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
 from audio_harness.engines.pool import InferencerPool
 from audio_harness.serving.realtime.conversation import (
     ConversationMutationError,
@@ -69,10 +64,12 @@ from audio_harness.sessions import (
     AudioWorkflowSessionReservation,
     AudioWorkflowSessionService,
 )
-from audio_harness.voice_agents.service import ActiveVoiceAgent, RealtimeTarget
-from audio_harness.workflow_settings import WorkflowSettingsStore
+from audio_harness.realtime_routes.service import RealtimeTarget
+from audio_harness.voice_agents.service import ActiveVoiceAgent
+from audio_harness.workflows.settings import WorkflowSettingsStore
 from audio_harness.workflows.models import PhysicalVadNode
 from audio_harness.workflows.service import ActiveAudioWorkflow
+from audio_harness.workflows.events import SpeechStarted, SpeechStopped
 
 logger = logging.getLogger(__name__)
 
@@ -193,8 +190,6 @@ def _transcription_audio_settings(
         if audio_format.get("rate", INPUT_SAMPLE_RATE) != INPUT_SAMPLE_RATE:
             raise ValueError("audio/pcm 只支持 24 kHz")
         audio_format = {"type": "audio/pcm", "rate": INPUT_SAMPLE_RATE}
-    elif format_type in {"audio/pcmu", "audio/pcma"}:
-        audio_format = {"type": format_type}
     else:
         raise ValueError(f"不支持的输入音频格式: {format_type}")
     turn_detection = audio_input.get("turn_detection", {"type": "server_vad"})
@@ -831,13 +826,13 @@ class RealtimeTranscriptionSession:
         )
 
     async def _start_workflow(self) -> None:
-        options = RecognitionOptions(
+        options = AsrInferencer.Options(
             sample_rate=ENGINE_SAMPLE_RATE,
             language_code=self.language,
             enable_automatic_punctuation=True,
         )
         if self._reservation is not None:
-            self._transcription = self._reservation.create(
+            self._transcription = await self._reservation.create(
                 options=options,
                 include_vad_events=True,
                 include_vad_progress=self._aha_version == "v1",
@@ -904,7 +899,7 @@ class RealtimeTranscriptionSession:
             if (
                 self._aha_version == "v1"
                 and not self._manual_commit_enabled
-                and isinstance(event, TranscriptionResult)
+                and isinstance(event, AsrInferencer.Result)
             ):
                 await self._handle_interim_transcript(event)
             return
@@ -912,7 +907,7 @@ class RealtimeTranscriptionSession:
             if (
                 self._aha_version == "v1"
                 and not self._manual_commit_enabled
-                and isinstance(event, TranscriptionResult)
+                and isinstance(event, AsrInferencer.Result)
                 and not event.turn_completed
             ):
                 if self._active_item_id is None:
@@ -990,7 +985,7 @@ class RealtimeTranscriptionSession:
             )
             await self._emit_committed_item(item, append_pending=False)
             return
-        if not isinstance(event, TranscriptionResult):
+        if not isinstance(event, AsrInferencer.Result):
             return
         if not self._pending_items:
             await self._emit_committed_item(
@@ -1050,7 +1045,7 @@ class RealtimeTranscriptionSession:
 
     async def _handle_interim_transcript(
         self,
-        event: TranscriptionResult,
+        event: AsrInferencer.Result,
     ) -> None:
         current_item_id = self._active_item_id or self._interim_item_id
         if current_item_id is None and self._pending_items:

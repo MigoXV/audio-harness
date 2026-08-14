@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import audioop
 import base64
 import binascii
 import copy
@@ -340,37 +339,3 @@ def _pcm_base64_to_wav(value: str) -> str:
         output.setframerate(24_000)
         output.writeframes(pcm)
     return base64.b64encode(target.getvalue()).decode("ascii")
-
-
-def decode_wire_audio(
-    audio: bytes,
-    *,
-    format_type: str,
-) -> bytes:
-    """Decode a Realtime wire audio chunk to mono PCM S16LE."""
-
-    if format_type == "audio/pcm":
-        if len(audio) % 2:
-            raise ValueError("PCM S16LE 音频字节数必须为偶数")
-        return audio
-    if format_type == "audio/pcmu":
-        return audioop.ulaw2lin(audio, 2)
-    if format_type == "audio/pcma":
-        return audioop.alaw2lin(audio, 2)
-    raise ValueError(f"不支持的输入音频格式: {format_type}")
-
-
-def encode_wire_audio(
-    pcm: bytes,
-    *,
-    format_type: str,
-) -> bytes:
-    """Encode mono PCM S16LE to a Realtime wire audio format."""
-
-    if format_type == "audio/pcm":
-        return pcm
-    if format_type == "audio/pcmu":
-        return audioop.lin2ulaw(pcm, 2)
-    if format_type == "audio/pcma":
-        return audioop.lin2alaw(pcm, 2)
-    raise ValueError(f"不支持的输出音频格式: {format_type}")

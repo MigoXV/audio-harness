@@ -14,19 +14,11 @@ from uuid import uuid4
 import numpy as np
 import soxr
 
-from audio_harness.capacity import ResizableConcurrencyLimiter
-from audio_harness.domain import (
-    AsyncResponsesEngine,
-    AsyncTtsEngine,
-    PresetVoice,
-    VoiceSelection,
-)
+from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
 from audio_harness.engines.pool import InferencerPool
-from audio_harness.serving.realtime.conversation import (
-    RealtimeConversation,
-    decode_wire_audio,
-    encode_wire_audio,
-)
+from audio_harness.inferencers.responses.http import ResponsesInferencer
+from audio_harness.inferencers.tts.base import TtsInferencer
+from audio_harness.serving.realtime.conversation import RealtimeConversation
 from audio_harness.serving.realtime.tools import (
     McpToolPool,
     ToolRegistry,
@@ -39,7 +31,7 @@ EventSender = Callable[[dict[str, Any]], Awaitable[None]]
 AudioSender = Callable[[bytes, int, int], Awaitable[None]]
 AudioClearer = Callable[[int], Awaitable[None]]
 AudioFinisher = Callable[[int], Awaitable[None]]
-VoiceResolver = Callable[[str], Awaitable[VoiceSelection]]
+VoiceResolver = Callable[[str], Awaitable[TtsInferencer.Voice]]
 InterruptReason = Literal["turn_detected", "client_cancelled"]
 
 _TEXT_END = object()
@@ -395,8 +387,6 @@ class RealtimeAgentRuntime:
             if payload.get("rate", 24_000) != 24_000:
                 raise ValueError("audio/pcm 只支持 24 kHz")
             return {"type": "audio/pcm", "rate": 24_000}
-        if format_type in {"audio/pcmu", "audio/pcma"}:
-            return {"type": format_type}
         raise ValueError(f"不支持的音频格式: {format_type}")
 
     @staticmethod
@@ -441,8 +431,6 @@ class RealtimeAgentRuntime:
     def _normalize_input_audio(self, item: dict[str, Any]) -> None:
         if item.get("type") != "message" or item.get("role") != "user":
             return
-        format_type = str(self.options.input_audio_format["type"])
-        sample_rate = 24_000 if format_type == "audio/pcm" else 8_000
         for part in item.get("content") or []:
             if part.get("type") != "input_audio" or not part.get("audio"):
                 continue
@@ -452,15 +440,9 @@ class RealtimeAgentRuntime:
                 raise ValueError(
                     "input_audio.audio 必须是合法的 base64"
                 ) from exc
-            pcm = decode_wire_audio(wire_audio, format_type=format_type)
-            if sample_rate != 24_000:
-                pcm = soxr.resample(
-                    np.frombuffer(pcm, dtype="<i2"),
-                    sample_rate,
-                    24_000,
-                    quality="HQ",
-                ).astype("<i2", copy=False).tobytes()
-            part["audio"] = base64.b64encode(pcm).decode("ascii")
+            if len(wire_audio) % 2:
+                raise ValueError("input_audio.audio 必须是 PCM S16LE")
+            part["audio"] = base64.b64encode(wire_audio).decode("ascii")
 
     def retrieve_conversation_item(self, item_id: str) -> dict[str, Any]:
         return self._conversation.retrieve(item_id)
@@ -970,7 +952,7 @@ class RealtimeAgentRuntime:
                     else (self._response_snapshot,)
                 ) as leased:
                     responses = cast(
-                        AsyncResponsesEngine,
+                        ResponsesInferencer,
                         leased[
                             (
                                 self._response_snapshot.id,
@@ -980,7 +962,7 @@ class RealtimeAgentRuntime:
                     )
                     tts = (
                         cast(
-                            AsyncTtsEngine,
+                            TtsInferencer,
                             leased[
                                 (
                                     self._tts_snapshot.id,
@@ -1063,8 +1045,8 @@ class RealtimeAgentRuntime:
         response_id: str,
         output_item_id: str,
         output_state: _ResponseOutput,
-        responses: AsyncResponsesEngine,
-        tts: AsyncTtsEngine | None,
+        responses: ResponsesInferencer,
+        tts: TtsInferencer | None,
         options: ResponseRunOptions,
         history: list[dict[str, Any]],
     ) -> dict[str, Any]:
@@ -1146,7 +1128,6 @@ class RealtimeAgentRuntime:
                     tts=tts,
                     text_queue=text_queue,
                     voice=options.voice,
-                    output_format=options.output_audio_format,
                 )
             )
             if tts is not None
@@ -1233,7 +1214,7 @@ class RealtimeAgentRuntime:
     async def _responses_round(
         self,
         *,
-        responses: AsyncResponsesEngine,
+        responses: ResponsesInferencer,
         instructions: str,
         tools: list[dict[str, Any]],
         tool_choice: Any,
@@ -1464,10 +1445,9 @@ class RealtimeAgentRuntime:
         epoch: int,
         response_id: str,
         output_item_id: str,
-        tts: AsyncTtsEngine,
+        tts: TtsInferencer,
         text_queue: asyncio.Queue[str | object],
         voice: str | None,
-        output_format: dict[str, Any],
     ) -> None:
         async def chunks() -> AsyncIterator[str]:
             while True:
@@ -1481,16 +1461,11 @@ class RealtimeAgentRuntime:
         selection = (
             await self._voice_resolver(voice)
             if self._voice_resolver is not None
-            else PresetVoice(voice)
+            else voice
         )
         wss_sample_rate: int | None = None
         wss_resampler: soxr.ResampleStream | None = None
-        format_type = str(output_format["type"])
-        output_sample_rate = (
-            _REALTIME_OUTPUT_SAMPLE_RATE
-            if format_type == "audio/pcm"
-            else 8_000
-        )
+
         async def send_wss_audio(pcm: bytes) -> None:
             if not pcm:
                 return
@@ -1503,9 +1478,7 @@ class RealtimeAgentRuntime:
                     "item_id": output_item_id,
                     "output_index": 0,
                     "content_index": 0,
-                    "delta": base64.b64encode(
-                        encode_wire_audio(pcm, format_type=format_type)
-                    ).decode("ascii"),
+                    "delta": base64.b64encode(pcm).decode("ascii"),
                 }
             )
 
@@ -1521,10 +1494,10 @@ class RealtimeAgentRuntime:
             else:
                 if wss_sample_rate is None:
                     wss_sample_rate = chunk.sample_rate
-                    if chunk.sample_rate != output_sample_rate:
+                    if chunk.sample_rate != _REALTIME_OUTPUT_SAMPLE_RATE:
                         wss_resampler = soxr.ResampleStream(
                             chunk.sample_rate,
-                            output_sample_rate,
+                            _REALTIME_OUTPUT_SAMPLE_RATE,
                             1,
                             dtype="int16",
                             quality="HQ",

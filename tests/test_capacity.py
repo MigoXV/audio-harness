@@ -4,14 +4,12 @@ import asyncio
 
 import pytest
 
-from audio_harness.capacity import (
-    ResizableConcurrencyLimiter,
-    ResizableSessionLimiter,
-    ServingCapacity,
-)
-from audio_harness.capacity_settings import CapacitySettingsSnapshot
-from audio_harness.config import CapacityConfig, ProtocolCapacityConfig
-from audio_harness.domain import CapacityExceededError
+from audio_harness.configs import CapacityConfig, ProtocolCapacityConfig
+from audio_harness.errors import CapacityExceededError
+from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
+from audio_harness.serving.capacity import ServingCapacity
+from audio_harness.serving.capacity_settings import CapacitySettingsSnapshot
+from audio_harness.sessions.limits import ResizableSessionLimiter
 from datetime import datetime, timezone
 
 

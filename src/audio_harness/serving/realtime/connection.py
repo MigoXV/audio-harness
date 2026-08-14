@@ -24,9 +24,14 @@ from openai.types.realtime import (
 )
 from pydantic import TypeAdapter, ValidationError
 
-from audio_harness.capacity import ResizableConcurrencyLimiter
-from audio_harness.domain import CapacityExceededError
+from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
+from audio_harness.errors import CapacityExceededError
 from audio_harness.engines.pool import InferencerPool
+from audio_harness.realtime_routes.service import (
+    RealtimeRouteNotFoundError,
+    RealtimeRouteService,
+    RealtimeTarget,
+)
 from audio_harness.serving.realtime.session import (
     ENGINE_SAMPLE_RATE,
     INPUT_SAMPLE_RATE,
@@ -35,17 +40,11 @@ from audio_harness.serving.realtime.session import (
     session_id,
     session_values,
 )
-from audio_harness.serving.realtime.conversation import decode_wire_audio
 from audio_harness.serving.realtime.agent import VoiceResolver
 from audio_harness.sessions import AudioWorkflowSessionService
 from audio_harness.serving.realtime.tools import ToolRegistry
-from audio_harness.workflow_settings import WorkflowSettingsStore
-from audio_harness.voice_agents.service import (
-    ActiveVoiceAgent,
-    RealtimeRouteNotFoundError,
-    RealtimeRouteService,
-    RealtimeTarget,
-)
+from audio_harness.workflows.settings import WorkflowSettingsStore
+from audio_harness.voice_agents.service import ActiveVoiceAgent
 
 logger = logging.getLogger(__name__)
 
@@ -61,18 +60,10 @@ class RealtimeConnectionMode(str, Enum):
 
 
 class _OnlinePcmResampler:
-    def __init__(
-        self,
-        chunk_bytes: int,
-        *,
-        format_type: str = "audio/pcm",
-        input_sample_rate: int = INPUT_SAMPLE_RATE,
-    ) -> None:
+    def __init__(self, chunk_bytes: int) -> None:
         self.chunk_bytes = chunk_bytes
-        self.format_type = format_type
-        self.input_sample_rate = input_sample_rate
         self._resampler = soxr.ResampleStream(
-            input_sample_rate,
+            INPUT_SAMPLE_RATE,
             ENGINE_SAMPLE_RATE,
             1,
             dtype="int16",
@@ -96,8 +87,9 @@ class _OnlinePcmResampler:
             raise ValueError("音频输入已经结束")
         if not audio:
             return []
-        pcm = decode_wire_audio(audio, format_type=self.format_type)
-        samples = np.frombuffer(pcm, dtype="<i2")
+        if len(audio) % 2:
+            raise ValueError("PCM S16LE 音频字节数必须为偶数")
+        samples = np.frombuffer(audio, dtype="<i2")
         converted = self._resampler.resample_chunk(samples, last=False)
         self._buffer.extend(converted.astype("<i2", copy=False).tobytes())
         return self._take_chunks(flush=False)
@@ -138,7 +130,6 @@ class _RealtimeConnection:
         self._send_lock = asyncio.Lock()
         self._chunk_bytes = workflow_settings.current().config.min_chunk_bytes
         self._resampler = _OnlinePcmResampler(self._chunk_bytes)
-        self._resampler_key = ("audio/pcm", INPUT_SAMPLE_RATE)
         self._input_contract_locked = False
         self._session_service = session_service
         self._workflow_settings = workflow_settings
@@ -346,26 +337,6 @@ class _RealtimeConnection:
             exclude_unset=True,
         )
         audio_input = ((payload.get("audio") or {}).get("input") or {})
-        requested_format = audio_input.get("format")
-        if requested_format is not None:
-            current_format = self._session.input_audio_format
-            requested_type = requested_format.get("type")
-            current_type = current_format.get("type")
-            requested_rate = (
-                requested_format.get("rate", INPUT_SAMPLE_RATE)
-                if requested_type == "audio/pcm"
-                else None
-            )
-            current_rate = (
-                current_format.get("rate", INPUT_SAMPLE_RATE)
-                if current_type == "audio/pcm"
-                else None
-            )
-            if (requested_type, requested_rate) != (
-                current_type,
-                current_rate,
-            ):
-                return True
         if not self._dynamic_transcription:
             return False
         transcription = audio_input.get("transcription") or {}
@@ -478,7 +449,6 @@ class _RealtimeConnection:
         event: InputAudioBufferAppendEvent,
     ) -> None:
         assert self._session is not None
-        self._ensure_audio_format()
         try:
             audio = base64.b64decode(event.audio, validate=True)
         except (binascii.Error, ValueError):
@@ -512,32 +482,8 @@ class _RealtimeConnection:
         for chunk in chunks:
             await self._session.append_engine_audio(chunk)
 
-    def _ensure_audio_format(self) -> None:
-        assert self._session is not None
-        audio_format = self._session.input_audio_format
-        format_type = str(audio_format["type"])
-        sample_rate = (
-            int(audio_format.get("rate", INPUT_SAMPLE_RATE))
-            if format_type == "audio/pcm"
-            else 8_000
-        )
-        key = (format_type, sample_rate)
-        if key == self._resampler_key:
-            return
-        self._resampler_key = key
-        self._resampler = _OnlinePcmResampler(
-            self._chunk_bytes,
-            format_type=format_type,
-            input_sample_rate=sample_rate,
-        )
-
     def _reset_resampler(self) -> None:
-        format_type, sample_rate = self._resampler_key
-        self._resampler = _OnlinePcmResampler(
-            self._chunk_bytes,
-            format_type=format_type,
-            input_sample_rate=sample_rate,
-        )
+        self._resampler = _OnlinePcmResampler(self._chunk_bytes)
         self._input_contract_locked = False
 
 

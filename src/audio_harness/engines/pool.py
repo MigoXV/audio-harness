@@ -1,24 +1,21 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import cast
 
-from audio_harness.assets import EngineApi, EngineSnapshot
-from audio_harness.domain import EngineConfigurationInvalidError
-from audio_harness.inferencers.contracts import (
-    InferencerFactory,
-    ManagedInferencer,
-    ManagedResponsesInferencer,
-)
+from audio_harness.engines.models import EngineApi, EngineSnapshot
+from audio_harness.errors import EngineConfigurationInvalidError
+from audio_harness.inferencers import Inferencer
+from audio_harness.inferencers.responses.http import ResponsesInferencer
 
 
 @dataclass(eq=False)
 class _InferencerEntry:
     key: tuple[str, int]
-    inferencer: ManagedInferencer
+    inferencer: Inferencer
     ready_task: asyncio.Task[None]
     references: int = 0
     retired: bool = False
@@ -27,8 +24,12 @@ class _InferencerEntry:
 class InferencerPool:
     """按不可变引擎快照管理推理客户端及其会话租约。"""
 
-    def __init__(self, *, inferencer_factory: InferencerFactory) -> None:
-        self._inferencer_factory = inferencer_factory
+    def __init__(
+        self,
+        *,
+        create_inferencer: Callable[[EngineSnapshot], Inferencer],
+    ) -> None:
+        self._create_inferencer = create_inferencer
         self._entries: dict[tuple[str, int], _InferencerEntry] = {}
         self._lock = asyncio.Lock()
         self._closed = False
@@ -40,7 +41,7 @@ class InferencerPool:
                 raise RuntimeError("推理客户端池已经关闭")
             entry = self._entries.get(key)
             if entry is None or entry.retired:
-                inferencer = self._inferencer_factory.create(snapshot)
+                inferencer = self._create_inferencer(snapshot)
                 entry = _InferencerEntry(
                     key=key,
                     inferencer=inferencer,
@@ -94,7 +95,7 @@ class InferencerPool:
         async with self._lock:
             if self._closed:
                 raise RuntimeError("推理客户端池已经关闭")
-        inferencer = self._inferencer_factory.create(snapshot)
+        inferencer = self._create_inferencer(snapshot)
         try:
             await inferencer.probe()
         finally:
@@ -111,8 +112,8 @@ class InferencerPool:
             if self._closed:
                 raise RuntimeError("推理客户端池已经关闭")
         inferencer = cast(
-            ManagedResponsesInferencer,
-            self._inferencer_factory.create(snapshot),
+            ResponsesInferencer,
+            self._create_inferencer(snapshot),
         )
         try:
             return await inferencer.list_models()
@@ -155,7 +156,7 @@ class InferencerPool:
 
     async def retire_snapshot(self, asset_id: str, revision: int) -> None:
         key = (asset_id, revision)
-        close_inferencer: ManagedInferencer | None = None
+        close_inferencer: Inferencer | None = None
         async with self._lock:
             entry = self._entries.get(key)
             if entry is None:

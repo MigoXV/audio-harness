@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 from pydantic import BaseModel
 
-from audio_harness.assets import EngineApi, EngineAssetData, EngineProtocol, EngineSnapshot
+from audio_harness.engines.models import EngineApi, EngineAssetData, EngineProtocol, EngineSnapshot
 from audio_harness.workflows.models import (
     AsrNode,
     AsrNodeConfig,
