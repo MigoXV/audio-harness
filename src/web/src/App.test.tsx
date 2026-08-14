@@ -10,7 +10,7 @@ const document: AudioWorkflowDocument = {
   schema_version: 1,
   nodes: [
     { id: "physical-vad", kind: "physical_vad", engine_id: "vad-1", config: { min_segment_seconds: .5, max_segment_seconds: 60, audio_buffer_seconds: 120, speech_pre_roll_seconds: .3 } },
-    { id: "asr", kind: "asr", engine_id: "asr-1", config: {} },
+    { id: "asr", kind: "asr", engine_id: "asr-1", config: { remove_punctuation: false } },
   ],
   edges: [
     { id: "audio-vad", source: { kind: "input", name: "audio" }, target: { node_id: "physical-vad", port: "audio" } },
@@ -117,6 +117,7 @@ describe("typed audio workflow control plane", () => {
     expect(screen.getByRole("region", { name: "语音工作流画布" })).toBeVisible();
     expect(screen.getByRole("navigation", { name: "工作流页面" })).toBeVisible();
     expect(screen.getByRole("button", { name: /^语义 VAD/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: /^双路物理 \+ 语义 VAD \+ ASR/ })).toBeVisible();
 
     const inputNode = screen.getByLabelText("节点 PCM 输入");
     const processorNode = screen.getByLabelText("节点 physical-vad");
@@ -169,6 +170,21 @@ describe("typed audio workflow control plane", () => {
         min_silence_frame: 20,
       },
     });
+  });
+
+  it("configures punctuation removal on ASR nodes", async () => {
+    const { api, saveAudioWorkflowDraft } = fakeApi();
+    renderApp(api, "/audio-workflows/wf-1/build");
+    fireEvent.click(await screen.findByLabelText("节点 asr"));
+
+    const toggle = screen.getByRole("checkbox", { name: "移除转写标点" });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(saveAudioWorkflowDraft).toHaveBeenCalled());
+    const saved = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
+    const asr = saved.nodes.find((node) => node.kind === "asr");
+    expect(asr?.config?.remove_punctuation).toBe(true);
   });
 
   it("keeps one left sidebar across workflow pages", async () => {
@@ -272,7 +288,7 @@ describe("typed audio workflow control plane", () => {
     const saveButton = await screen.findByRole("button", { name: "保存草稿" });
     expect(saveButton).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: /物理 \+ 语义 VAD \+ ASR/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^物理 \+ 语义 VAD \+ ASR/ }));
     fireEvent.click(screen.getByRole("button", { name: "确认应用" }));
     expect(saveButton).toBeEnabled();
     fireEvent.click(saveButton);
@@ -283,7 +299,7 @@ describe("typed audio workflow control plane", () => {
 
   it("applies a complete semantic VAD template and preserves engine choices", async () => {
     const { api, saveAudioWorkflowDraft } = fakeApi(); renderApp(api, "/audio-workflows/wf-1/build");
-    fireEvent.click(await screen.findByRole("button", { name: /物理 \+ 语义 VAD \+ ASR/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^物理 \+ 语义 VAD \+ ASR/ }));
     expect(screen.getByRole("alertdialog", { name: "应用快速模板？" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "确认应用" }));
 

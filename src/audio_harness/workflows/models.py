@@ -85,7 +85,7 @@ class SemanticVadNode(StrictModel):
 
 
 class AsrNodeConfig(StrictModel):
-    pass
+    remove_punctuation: bool = False
 
 
 class AsrNode(StrictModel):

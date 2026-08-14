@@ -89,6 +89,13 @@ _REQUIRED_OUTPUTS = {
     "speech_stopped": PortKind.SPEECH_STOPPED,
 }
 
+_OPTIONAL_OUTPUTS = {
+    "interim_transcript": PortKind.TRANSCRIPTION,
+    "turn_progress": PortKind.TRANSCRIPTION,
+}
+
+_KNOWN_OUTPUTS = {**_REQUIRED_OUTPUTS, **_OPTIONAL_OUTPUTS}
+
 
 @dataclass(frozen=True)
 class AudioGraphDiagnostic:
@@ -383,7 +390,7 @@ def compile_audio_graph(
                 )
             )
             continue
-        expected = _REQUIRED_OUTPUTS.get(output.name)
+        expected = _KNOWN_OUTPUTS.get(output.name)
         if expected is not None and source_port.kind is not expected:
             diagnostics.append(
                 AudioGraphDiagnostic(

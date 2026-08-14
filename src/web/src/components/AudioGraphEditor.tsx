@@ -62,6 +62,7 @@ type GraphNode = Node<GraphNodeData>;
 
 const OUTPUTS = [
   { name: "primary_transcript", kind: "transcription" },
+  { name: "interim_transcript", kind: "transcription" },
   { name: "speech_started", kind: "speech_started" },
   { name: "speech_stopped", kind: "speech_stopped" },
   { name: "turn_progress", kind: "transcription" },
@@ -185,7 +186,7 @@ function nodeConfig(kind: string): AudioNode {
       failure_policy: "fail_open",
     };
   }
-  return { id, kind: "asr", engine_id: null, config: {} };
+  return { id, kind: "asr", engine_id: null, config: { remove_punctuation: false } };
 }
 
 function edgeId(connection: Connection): string {
@@ -508,6 +509,8 @@ function AudioGraphEditorInner({
             <p>生成完整处理链与命名出口，只需选择执行引擎。</p>
             <button onClick={() => setPendingTemplate("physical_asr")}><strong>物理 VAD + ASR</strong><small>PCM → 物理 VAD → ASR</small></button>
             <button onClick={() => setPendingTemplate("physical_semantic_asr")}><strong>物理 + 语义 VAD + ASR</strong><small>PCM → 物理 VAD → 语义 VAD → ASR</small></button>
+            <button onClick={() => setPendingTemplate("dual_physical_asr")}><strong>物理双路 VAD + ASR</strong><small>正式转写 + AHA 中间结果预览</small></button>
+            <button onClick={() => setPendingTemplate("dual_physical_semantic_asr")}><strong>双路物理 + 语义 VAD + ASR</strong><small>正式分支语义判停 + AHA 中间结果预览</small></button>
           </div>
         </details>
         <details className="audio-node-catalog" open={nodeCatalogOpen} onToggle={(event) => setNodeCatalogOpen(event.currentTarget.open)}>
@@ -569,7 +572,8 @@ function AudioGraphEditorInner({
           <div className={`inspector-state ${selected.engine_id ? "configured" : "unconfigured"}`}><strong>{selectedSpec.display_name}</strong><span>{selected.engine_id ? "已绑定执行引擎" : "待绑定执行引擎"}</span></div>
           <label><span>节点 ID</span><input value={selected.id} disabled /></label>
           <label><span>执行引擎</span><select value={selected.engine_id ?? ""} onChange={(event) => updateNode({ ...selected, engine_id: event.target.value || null } as AudioNode)}><option value="">未绑定</option>{engines.filter((engine) => engine.enabled && engine.api === selectedSpec.required_api).map((engine) => <option key={engine.id} value={engine.id}>{engine.name} · {engine.status}</option>)}</select><small>需要 {selectedSpec.required_api} 能力</small></label>
-          {Object.entries(selected.config ?? {}).filter(([key]) => key !== "postprocessing").map(([key, value]) => <label key={key}><span>{key}</span><input type="number" step="0.1" value={String(value)} onChange={(event) => updateNode({ ...selected, config: { ...(selected.config ?? {}), [key]: Number(event.target.value) } } as AudioNode)} /></label>)}
+          {Object.entries(selected.config ?? {}).filter(([key]) => !["postprocessing", "remove_punctuation"].includes(key)).map(([key, value]) => <label key={key}><span>{key}</span><input type="number" step="0.1" value={String(value)} onChange={(event) => updateNode({ ...selected, config: { ...(selected.config ?? {}), [key]: Number(event.target.value) } } as AudioNode)} /></label>)}
+          {selected.kind === "asr" && <label className="switch-control"><input type="checkbox" checked={selected.config?.remove_punctuation ?? false} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, remove_punctuation: event.target.checked } })} /><span>移除转写标点</span></label>}
           {selected.kind === "physical_vad" && selectedPhysicalConfig && <section className="vad-postprocessing-settings">
             <label className="switch-control"><input type="checkbox" checked={selectedPostprocessing != null} onChange={(event) => updateNode({ ...selected, config: { ...selectedPhysicalConfig, postprocessing: event.target.checked ? structuredClone(FIRERED_POSTPROCESSING_DEFAULTS) : null } })} /><span>自定义 FireRed 后处理</span></label>
             {selectedPostprocessing && <>

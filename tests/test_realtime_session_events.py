@@ -9,7 +9,7 @@ from openai.types.realtime import RealtimeClientEvent, RealtimeServerEvent
 from pydantic import TypeAdapter
 
 from audio_harness.config import WorkflowRuntimeConfig
-from audio_harness.domain import SpeechStarted, TranscriptionResult
+from audio_harness.domain import SpeechStarted, SpeechStopped, TranscriptionResult
 from audio_harness.serving.realtime.session import RealtimeTranscriptionSession
 from audio_harness.serving.realtime.connection import (
     RealtimeConnectionMode,
@@ -416,6 +416,94 @@ async def test_voice_agent_x_aha_adds_pending_semantic_turn_event() -> None:
         for event in emitted
         if not event["type"].startswith("x_aha.")
     )
+
+
+@pytest.mark.asyncio
+async def test_x_aha_interim_transcript_is_cumulative_and_cleared_by_primary() -> None:
+    emitted: list[dict] = []
+
+    async def send_event(event) -> None:
+        emitted.append(
+            event.model_dump(mode="json", exclude_none=True)
+            if hasattr(event, "model_dump")
+            else event
+        )
+
+    session = RealtimeTranscriptionSession(
+        send_event=send_event,
+        session_service=object(),  # type: ignore[arg-type]
+        workflow_settings=_Settings(),  # type: ignore[arg-type]
+        model="voice-agent",
+        target=_profile(),
+        inferencer_pool=FakePool(),  # type: ignore[arg-type]
+        tool_registry=ToolRegistry(),
+        aha_version="v1",
+    )
+    await session.start()
+    await session._handle_workflow_event(
+        "speech_started",
+        SpeechStarted(start_sample=0, sample_rate=16_000),
+    )
+    for transcript, start, end, final in (
+        ("hello", 0, 8_000, False),
+        ("world", 8_000, 16_000, True),
+    ):
+        await session._handle_workflow_event(
+            "interim_transcript",
+            TranscriptionResult(
+                transcript=transcript,
+                is_final=final,
+                start_sample=start,
+                end_sample=end,
+                sample_rate=16_000,
+                turn_completed=True,
+            ),
+        )
+    await session._handle_workflow_event(
+        "speech_stopped",
+        SpeechStopped(
+            start_sample=0,
+            end_sample=16_000,
+            sample_rate=16_000,
+        ),
+    )
+    await session._handle_workflow_event(
+        "primary_transcript",
+        TranscriptionResult(
+            transcript="hello world",
+            is_final=True,
+            start_sample=0,
+            end_sample=16_000,
+            sample_rate=16_000,
+            turn_completed=True,
+        ),
+    )
+    await session.close()
+
+    interim = [
+        event
+        for event in emitted
+        if event["type"] == "x_aha.input_audio_transcription.interim"
+    ]
+    assert [(event["revision"], event["transcript"]) for event in interim] == [
+        (1, "hello"),
+        (2, "hello world"),
+    ]
+    cleared_index = next(
+        index
+        for index, event in enumerate(emitted)
+        if event["type"]
+        == "x_aha.input_audio_transcription.interim_cleared"
+    )
+    delta_index = next(
+        index
+        for index, event in enumerate(emitted)
+        if event["type"]
+        == "conversation.item.input_audio_transcription.delta"
+    )
+    assert cleared_index < delta_index
+    assert emitted[cleared_index]["reason"] == "primary_transcript_started"
+    assert len({event["item_id"] for event in emitted if "item_id" in event}) == 1
 
 
 @pytest.mark.asyncio

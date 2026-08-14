@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import unicodedata
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
-from typing import cast
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, replace
+from typing import Any, cast
 
 from audio_harness.domain import (
     AsyncAsrEngine,
     AsyncVadEngine,
     AudioSegment,
+    CapacityExceededError,
     PcmChunk,
     RecognitionOptions,
     SpeechStarted,
@@ -25,8 +28,10 @@ from audio_harness.workflows.compiler import (
     PortKind,
 )
 from audio_harness.workflows.models import (
+    AsrNode,
     FailurePolicy,
     GraphInputRef,
+    NodeOutputRef,
     PhysicalVadConfig,
     PhysicalVadNode,
     SemanticVadConfig,
@@ -38,6 +43,15 @@ logger = logging.getLogger(__name__)
 _EDGE_END = object()
 _OUTPUT_END = object()
 
+
+def _remove_punctuation(text: str) -> str:
+    return "".join(
+        character
+        for character in text
+        if not unicodedata.category(character).startswith("P")
+    )
+
+
 AudioOutputPayload = SpeechStarted | SpeechStopped | TranscriptionResult
 
 
@@ -46,6 +60,7 @@ class AudioInferenceRequest:
     recognition: RecognitionOptions
     include_vad_events: bool = False
     include_vad_progress: bool = False
+    include_interim_transcripts: bool = False
 
 
 @dataclass(frozen=True)
@@ -376,13 +391,24 @@ class _EdgeRouter:
         *,
         config: AudioRuntimeConfig,
         output: asyncio.Queue[AudioWorkflowOutput | BaseException | object],
+        active_nodes: set[str],
+        active_outputs: set[str],
     ) -> None:
         self._output = output
         self._sequence = 0
         self._outgoing: dict[tuple[str, str], list[asyncio.Queue[object]]] = {}
         self._incoming: dict[tuple[str, str], asyncio.Queue[object]] = {}
+        self._incoming_sources: dict[asyncio.Queue[object], str] = {}
         self._bindings: dict[tuple[str, str], list[str]] = {}
+        self._closed: set[str] = set()
         for edge in plan.edges:
+            if edge.target.node_id not in active_nodes:
+                continue
+            if (
+                isinstance(edge.source, NodeOutputRef)
+                and edge.source.node_id not in active_nodes
+            ):
+                continue
             if isinstance(edge.source, GraphInputRef):
                 source_key = ("$input", edge.source.name)
                 kind = PortKind.PCM_CHUNK
@@ -397,7 +423,10 @@ class _EdgeRouter:
             queue: asyncio.Queue[object] = asyncio.Queue(maxsize=capacity)
             self._outgoing.setdefault(source_key, []).append(queue)
             self._incoming[(edge.target.node_id, edge.target.port)] = queue
+            self._incoming_sources[queue] = source_key[0]
         for binding in plan.definition.outputs:
+            if binding.name not in active_outputs:
+                continue
             self._bindings.setdefault(
                 (binding.source.node_id, binding.source.port), []
             ).append(binding.name)
@@ -420,6 +449,9 @@ class _EdgeRouter:
             self._sequence += 1
 
     async def close(self, node_id: str, *, discard: bool = False) -> None:
+        if node_id in self._closed:
+            return
+        self._closed.add(node_id)
         queues: set[asyncio.Queue[object]] = set()
         for (source_node, _), values in self._outgoing.items():
             if source_node == node_id:
@@ -430,6 +462,23 @@ class _EdgeRouter:
                     queue.get_nowait()
             await queue.put(_EDGE_END)
 
+    async def drain_inputs(self, node_id: str) -> None:
+        queues = [
+            queue
+            for (target_node, _), queue in self._incoming.items()
+            if target_node == node_id
+        ]
+        await asyncio.gather(
+            *(
+                _drain(
+                    queue,
+                    source_node=self._incoming_sources[queue],
+                    closed_nodes=self._closed,
+                )
+                for queue in queues
+            )
+        )
+
 
 async def _items(queue: asyncio.Queue[object]) -> AsyncIterator[object]:
     while True:
@@ -438,6 +487,43 @@ async def _items(queue: asyncio.Queue[object]) -> AsyncIterator[object]:
             return
         assert isinstance(item, _Envelope)
         yield item.payload
+
+
+async def _drain(
+    queue: asyncio.Queue[object],
+    *,
+    source_node: str,
+    closed_nodes: set[str],
+) -> None:
+    while True:
+        if queue.empty() and source_node in closed_nodes:
+            return
+        item = await queue.get()
+        if item is _EDGE_END:
+            return
+
+
+def _output_ancestors(
+    plan: CompiledAudioGraph,
+    output_names: set[str],
+) -> set[str]:
+    reverse: dict[str, set[str]] = {node_id: set() for node_id in plan.nodes}
+    for edge in plan.edges:
+        if isinstance(edge.source, NodeOutputRef):
+            reverse[edge.target.node_id].add(edge.source.node_id)
+    pending = [
+        binding.source.node_id
+        for binding in plan.definition.outputs
+        if binding.name in output_names
+    ]
+    ancestors: set[str] = set()
+    while pending:
+        node_id = pending.pop()
+        if node_id in ancestors:
+            continue
+        ancestors.add(node_id)
+        pending.extend(reverse[node_id])
+    return ancestors
 
 
 class AudioWorkflowInferencer:
@@ -464,7 +550,28 @@ class AudioWorkflowInferencer:
         output: asyncio.Queue[AudioWorkflowOutput | BaseException | object] = asyncio.Queue(
             maxsize=self._runtime_config.result_queue_capacity
         )
-        router = _EdgeRouter(self._plan, config=self._runtime_config, output=output)
+        available_outputs = {
+            binding.name for binding in self._plan.definition.outputs
+        }
+        active_outputs = available_outputs.difference({"interim_transcript"})
+        if request.include_interim_transcripts:
+            active_outputs.add("interim_transcript")
+        active_nodes = _output_ancestors(self._plan, active_outputs)
+        protected_nodes = _output_ancestors(
+            self._plan,
+            available_outputs.difference({"interim_transcript"}),
+        )
+        preview_nodes = (
+            _output_ancestors(self._plan, {"interim_transcript"})
+            .difference(protected_nodes)
+        )
+        router = _EdgeRouter(
+            self._plan,
+            config=self._runtime_config,
+            output=output,
+            active_nodes=active_nodes,
+            active_outputs=active_outputs,
+        )
         tasks = [
             asyncio.create_task(
                 self._feed(audio, request, router),
@@ -472,10 +579,17 @@ class AudioWorkflowInferencer:
             ),
             *[
                 asyncio.create_task(
-                    self._run_node(node_id, self._plan.nodes[node_id], request, router),
+                    self._run_node(
+                        node_id,
+                        self._plan.nodes[node_id],
+                        request,
+                        router,
+                        best_effort=node_id in preview_nodes,
+                    ),
                     name=f"audio-graph-node-{node_id}",
                 )
                 for node_id in self._plan.topological_order
+                if node_id in active_nodes
             ],
         ]
         supervisor = asyncio.create_task(
@@ -559,6 +673,8 @@ class AudioWorkflowInferencer:
         node: CompiledAudioNode,
         request: AudioInferenceRequest,
         router: _EdgeRouter,
+        *,
+        best_effort: bool,
     ) -> None:
         failed = False
         try:
@@ -567,13 +683,28 @@ class AudioWorkflowInferencer:
             elif node.spec.kind == "semantic_vad":
                 await self._semantic_vad(node_id, node, request, router)
             elif node.spec.kind == "asr":
-                await self._asr(node_id, request, router)
+                await self._asr(
+                    node_id,
+                    node,
+                    request,
+                    router,
+                    best_effort=best_effort,
+                )
             else:
                 raise RuntimeError(f"没有节点执行器: {node.spec.kind}")
         except asyncio.CancelledError:
             failed = True
             raise
         except BaseException as exc:
+            if best_effort:
+                logger.warning(
+                    "预览语音节点失败，正式转写继续: %s",
+                    node_id,
+                    exc_info=True,
+                )
+                await router.close(node_id, discard=True)
+                await router.drain_inputs(node_id)
+                return
             failed = True
             raise AudioGraphExecutionError(node_id, exc) from exc
         finally:
@@ -662,12 +793,39 @@ class AudioWorkflowInferencer:
     async def _asr(
         self,
         node_id: str,
+        node: CompiledAudioNode,
         request: AudioInferenceRequest,
         router: _EdgeRouter,
+        *,
+        best_effort: bool,
     ) -> None:
+        definition = cast(AsrNode, node.definition)
         engine = cast(AsyncAsrEngine, self._engines[node_id])
         async for item in _items(router.input(node_id, "segments")):
             candidate = cast(_SegmentCandidate, item)
-            async with self._asr_semaphore:
-                async for result in engine.transcribe(candidate.segment, request.recognition):
-                    await router.emit(node_id, "transcripts", result)
+            try:
+                async with self._asr_slot(best_effort=best_effort):
+                    async for result in engine.transcribe(
+                        candidate.segment,
+                        request.recognition,
+                    ):
+                        if definition.config.remove_punctuation:
+                            result = replace(
+                                result,
+                                transcript=_remove_punctuation(result.transcript),
+                            )
+                        await router.emit(node_id, "transcripts", result)
+            except CapacityExceededError:
+                logger.debug("ASR 容量已满，跳过预览音频块: %s", node_id)
+
+    @asynccontextmanager
+    async def _asr_slot(self, *, best_effort: bool) -> AsyncIterator[None]:
+        limiter = self._asr_semaphore
+        if best_effort and hasattr(limiter, "try_slot"):
+            async with cast(Any, limiter).try_slot():
+                yield
+            return
+        if best_effort and hasattr(limiter, "locked") and limiter.locked():
+            raise CapacityExceededError("ASR 并发容量已满")
+        async with limiter:
+            yield

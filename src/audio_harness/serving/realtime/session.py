@@ -216,6 +216,25 @@ class _TranscriptItem:
     sent_transcript: str = ""
 
 
+def _join_interim_parts(parts: list[str]) -> str:
+    result = ""
+    for raw in parts:
+        part = raw.strip()
+        if not part:
+            continue
+        separator = (
+            " "
+            if result
+            and result[-1].isascii()
+            and result[-1].isalnum()
+            and part[0].isascii()
+            and part[0].isalnum()
+            else ""
+        )
+        result += separator + part
+    return result
+
+
 class RealtimeTranscriptionSession:
     """OpenAI Realtime 转写语义，不感知 WebSocket 或 WebRTC。"""
 
@@ -251,13 +270,20 @@ class RealtimeTranscriptionSession:
             if isinstance(target, ActiveVoiceAgent)
             else target
         )
-        physical_node = next(
+        speech_started_binding = next(
             (
-                node
-                for node in self._workflow.plan.nodes.values()
-                if node.spec.kind == "physical_vad"
+                output
+                for output in self._workflow.plan.definition.outputs
+                if output.name == "speech_started"
             ),
             None,
+        )
+        physical_node = (
+            self._workflow.plan.nodes.get(
+                speech_started_binding.source.node_id
+            )
+            if speech_started_binding is not None
+            else None
         )
         if physical_node is None or not isinstance(
             physical_node.definition,
@@ -334,6 +360,12 @@ class RealtimeTranscriptionSession:
         self._workflow_task: asyncio.Task[None] | None = None
         self._active_item_id: str | None = None
         self._pending_items: deque[_TranscriptItem] = deque()
+        self._interim_segments: dict[tuple[int, int], str] = {}
+        self._interim_item_id: str | None = None
+        self._interim_revision = 0
+        self._interim_sent_transcript = ""
+        self._interim_was_sent = False
+        self._interim_suppressed_item_id: str | None = None
         self._previous_item_id: str | None = None
         self._manual_audio_buffer = bytearray()
         self._audio_started = False
@@ -671,6 +703,7 @@ class RealtimeTranscriptionSession:
         try:
             await self._finish_workflow(send_results=False)
         finally:
+            await self._clear_interim("input_audio_buffer_cleared")
             self._active_item_id = None
             self._pending_items.clear()
             self._manual_audio_buffer.clear()
@@ -808,6 +841,10 @@ class RealtimeTranscriptionSession:
                 options=options,
                 include_vad_events=True,
                 include_vad_progress=self._aha_version == "v1",
+                include_interim_transcripts=(
+                    self._aha_version == "v1"
+                    and not self._manual_commit_enabled
+                ),
                 workflow=self._workflow,
             )
         else:
@@ -815,6 +852,10 @@ class RealtimeTranscriptionSession:
                 options,
                 include_vad_events=True,
                 include_vad_progress=self._aha_version == "v1",
+                include_interim_transcripts=(
+                    self._aha_version == "v1"
+                    and not self._manual_commit_enabled
+                ),
                 workflow=self._workflow,
             )
             self._transcription = await self._session_context.__aenter__()
@@ -859,6 +900,14 @@ class RealtimeTranscriptionSession:
                 )
 
     async def _handle_workflow_event(self, output_name: str, event: Any) -> None:
+        if output_name == "interim_transcript":
+            if (
+                self._aha_version == "v1"
+                and not self._manual_commit_enabled
+                and isinstance(event, TranscriptionResult)
+            ):
+                await self._handle_interim_transcript(event)
+            return
         if output_name == "turn_progress":
             if (
                 self._aha_version == "v1"
@@ -887,6 +936,8 @@ class RealtimeTranscriptionSession:
         if isinstance(event, SpeechStarted):
             if self._active_item_id is not None:
                 return
+            if self._interim_item_id is not None:
+                await self._clear_interim("superseded")
             interrupt_response = (
                 self._agent is not None
                 and self._agent.active_response_id is not None
@@ -897,6 +948,8 @@ class RealtimeTranscriptionSession:
                 )
             )
             self._active_item_id = item_id()
+            self._interim_item_id = self._active_item_id
+            self._interim_suppressed_item_id = None
             if self._manual_commit_enabled:
                 return
             await self._send_event(
@@ -912,6 +965,7 @@ class RealtimeTranscriptionSession:
             if interrupt_response:
                 assert self._agent is not None
                 await self._agent.interrupt(reason="turn_detected")
+            await self._emit_interim_snapshot(event.sample_rate)
             return
         if isinstance(event, SpeechStopped):
             current_item_id = self._active_item_id or item_id()
@@ -947,6 +1001,11 @@ class RealtimeTranscriptionSession:
                 ),
             )
         item = self._pending_items[0]
+        if self._interim_suppressed_item_id != item.item_id:
+            await self._clear_interim(
+                "primary_transcript_started",
+                suppress_item_id=item.item_id,
+            )
         delta = (
             event.transcript[len(item.sent_transcript) :]
             if event.transcript.startswith(item.sent_transcript)
@@ -988,6 +1047,72 @@ class RealtimeTranscriptionSession:
                         event.transcript,
                         input_item_id=item.item_id,
                     )
+
+    async def _handle_interim_transcript(
+        self,
+        event: TranscriptionResult,
+    ) -> None:
+        current_item_id = self._active_item_id or self._interim_item_id
+        if current_item_id is None and self._pending_items:
+            current_item_id = self._pending_items[0].item_id
+        if current_item_id == self._interim_suppressed_item_id:
+            return
+        key = (event.start_sample, event.end_sample)
+        self._interim_segments[key] = event.transcript
+        if current_item_id is None:
+            return
+        self._interim_item_id = current_item_id
+        await self._emit_interim_snapshot(event.sample_rate)
+
+    async def _emit_interim_snapshot(self, sample_rate: int) -> None:
+        if self._interim_item_id is None or not self._interim_segments:
+            return
+        ordered = sorted(self._interim_segments.items())
+        transcript = _join_interim_parts([text for _, text in ordered])
+        if transcript == self._interim_sent_transcript:
+            return
+        self._interim_revision += 1
+        self._interim_sent_transcript = transcript
+        self._interim_was_sent = True
+        await self._send_event(
+            {
+                "type": "x_aha.input_audio_transcription.interim",
+                "event_id": event_id(),
+                "item_id": self._interim_item_id,
+                "content_index": 0,
+                "revision": self._interim_revision,
+                "transcript": transcript,
+                "audio_start_ms": round(
+                    ordered[0][0][0] * 1000 / sample_rate
+                ),
+                "audio_end_ms": round(
+                    max(key[1] for key, _ in ordered) * 1000 / sample_rate
+                ),
+            }
+        )
+
+    async def _clear_interim(
+        self,
+        reason: str,
+        *,
+        suppress_item_id: str | None = None,
+    ) -> None:
+        current_item_id = self._interim_item_id
+        if self._interim_was_sent and current_item_id is not None:
+            await self._send_event(
+                {
+                    "type": "x_aha.input_audio_transcription.interim_cleared",
+                    "event_id": event_id(),
+                    "item_id": current_item_id,
+                    "reason": reason,
+                }
+            )
+        self._interim_segments.clear()
+        self._interim_item_id = None
+        self._interim_revision = 0
+        self._interim_sent_transcript = ""
+        self._interim_was_sent = False
+        self._interim_suppressed_item_id = suppress_item_id
 
     async def _emit_committed_item(
         self,

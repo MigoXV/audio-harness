@@ -650,7 +650,13 @@ export interface components {
             config?: components["schemas"]["AsrNodeConfig"];
         };
         /** AsrNodeConfig */
-        AsrNodeConfig: Record<string, never>;
+        AsrNodeConfig: {
+            /**
+             * Remove Punctuation
+             * @default false
+             */
+            remove_punctuation: boolean;
+        };
         /** AudioEdge */
         AudioEdge: {
             /** Id */

@@ -40,6 +40,7 @@ class AudioWorkflowSession:
         options: RecognitionOptions,
         include_vad_events: bool,
         include_vad_progress: bool,
+        include_interim_transcripts: bool,
     ) -> None:
         self._inferencer_pool = inferencer_pool
         self._workflow = workflow
@@ -49,6 +50,7 @@ class AudioWorkflowSession:
             recognition=options,
             include_vad_events=include_vad_events,
             include_vad_progress=include_vad_progress,
+            include_interim_transcripts=include_interim_transcripts,
         )
         self._audio: asyncio.Queue[bytes | object] = asyncio.Queue(
             maxsize=audio_queue_capacity
@@ -187,6 +189,7 @@ class AudioWorkflowSessionService:
         *,
         include_vad_events: bool = False,
         include_vad_progress: bool = False,
+        include_interim_transcripts: bool = False,
         workflow: ActiveAudioWorkflow | None = None,
     ):
         async with self.reserve() as reservation:
@@ -194,6 +197,7 @@ class AudioWorkflowSessionService:
                 options=options,
                 include_vad_events=include_vad_events,
                 include_vad_progress=include_vad_progress,
+                include_interim_transcripts=include_interim_transcripts,
                 workflow=workflow,
             )
             try:
@@ -216,6 +220,7 @@ class AudioWorkflowSessionReservation:
         options: RecognitionOptions,
         include_vad_events: bool = False,
         include_vad_progress: bool = False,
+        include_interim_transcripts: bool = False,
         workflow: ActiveAudioWorkflow | None = None,
     ) -> AudioWorkflowSession:
         if self._closed:
@@ -235,6 +240,7 @@ class AudioWorkflowSessionReservation:
             options=options,
             include_vad_events=include_vad_events,
             include_vad_progress=include_vad_progress,
+            include_interim_transcripts=include_interim_transcripts,
         )
         return self._session
 

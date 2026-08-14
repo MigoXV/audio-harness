@@ -43,12 +43,24 @@ gRPC / Realtime / WebRTC 数据面 ─────┘
 - 单输入端口是否发生隐式 fan-in；
 - 是否存在环、不可达节点或断开的输出路径；
 - 引擎是否存在、启用且 API 能力匹配；
-- `primary_transcript`、`speech_started`、`speech_stopped` 三个稳定出口是否完整且类型正确。
+- `primary_transcript`、`speech_started`、`speech_stopped` 三个稳定出口是否完整且类型正确；
+- 可选的 `interim_transcript` 是否连接到 `transcription` 端口。
 
 物理 VAD 节点可以按工作流配置 FireRed `firered.stream_vad` v1 后处理参数，
 包括概率平滑、判定阈值、起点前补以及语音/静音帧数限制。未启用自定义配置时，
 流式首包不会发送 `postprocessing` 字段，继续使用 VAD 服务端默认值；参数修改随
 工作流重新发布后生效，不会热更新已经运行的会话。旧 VAD 服务可以忽略新增字段。
+
+工作流编辑器另提供“物理双路 VAD + ASR”和“物理双路 + 语义 VAD + ASR”模板。
+两者都使用独立的敏感物理 VAD 与 ASR 生成 `interim_transcript` Realtime 预览结果；
+后一个模板的正式分支为“物理 VAD → 语义 VAD → ASR”，由语义 VAD 输出正式的
+`speech_stopped` 和 `turn_progress`。`primary_transcript` 始终是正式结果，预览分支的
+VAD 带有一组偏敏感的初始参数，但所有参数和引擎绑定都可继续编辑；现有默认工作流
+和已发布修订不会被自动迁移。
+
+ASR 节点可以独立开启“移除转写标点”，在节点输出进入工作流出口前删除中英文及
+其他语言的 Unicode 标点，同时保留原有空白、符号和 emoji。该选项默认关闭；两个
+双路模板新建的预览 ASR 默认开启，正式 ASR 默认关闭。
 
 工作流的语义文档与画布 `layout` 分开保存。发布时重新编译草稿、准备全部引擎，然后原子写入不可变 revision；活动会话不会被后续草稿或引擎资产修改热改。
 
@@ -175,7 +187,39 @@ WebSocket 建连时必须在 `intent=transcription` 和 `model=...` 中二选一
 }
 ```
 
-该 `item_id` 与本轮标准 `input_audio_buffer.speech_started` 及最终的
+当工作流声明了 `interim_transcript` 出口时，协商扩展的自动 VAD 会话还会按轮次发送
+累计中间转写快照：
+
+```json
+{
+  "type": "x_aha.input_audio_transcription.interim",
+  "event_id": "event_xxx",
+  "item_id": "item_xxx",
+  "content_index": 0,
+  "revision": 2,
+  "transcript": "这是当前累计的临时文本",
+  "audio_start_ms": 120,
+  "audio_end_ms": 2120
+}
+```
+
+客户端应按相同 `item_id` 下单调递增的 `revision` 覆盖旧文本。正式转写开始前服务端
+会先发送清除事件，随后继续发送标准 OpenAI Realtime delta/completed：
+
+```json
+{
+  "type": "x_aha.input_audio_transcription.interim_cleared",
+  "event_id": "event_xxx",
+  "item_id": "item_xxx",
+  "reason": "primary_transcript_started"
+}
+```
+
+中间结果只用于界面预览，不提交 conversation item、不触发语音智能体回复，也不替代
+最终标准事件。未协商 `x_aha=v1` 或使用手动 commit 时不会执行预览分支；ASR 容量
+繁忙时可能跳过预览块。预览分支失败不会中断正式转写，gRPC 服务仍只执行正式出口。
+
+上述扩展事件的 `item_id` 与本轮标准 `input_audio_buffer.speech_started` 及最终的
 `input_audio_buffer.speech_stopped` 相同。Python SDK 客户端可使用
 `extra_query={"intent": "transcription", "x_aha": "v1"}` 协商转写扩展，
 或使用 `extra_query={"model": "<route>", "x_aha": "v1"}` 协商语音智能体

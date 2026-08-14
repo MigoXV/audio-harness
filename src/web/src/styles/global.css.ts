@@ -166,7 +166,9 @@ globalStyle(".conversation-grid", { display: "grid", gridTemplateColumns: "1fr 1
 globalStyle(".conversation-grid.transcription-only", { gridTemplateColumns: "1fr" });
 globalStyle(".conversation-card", { minHeight: 160, padding: "18px 0", borderTop: `1px solid ${vars.color.lineStrong}` });
 globalStyle(".conversation-label", { marginBottom: vars.space.x4, color: vars.color.textMuted, fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".06em" });
+globalStyle(".interim-badge", { marginLeft: vars.space.x2, padding: "2px 6px", borderRadius: vars.radius.pill, background: vars.color.accentSoft, color: vars.color.accent, fontSize: 10, letterSpacing: 0 });
 globalStyle(".conversation-card p", { color: vars.color.text, fontSize: 16, lineHeight: 1.7 });
+globalStyle(".conversation-card p.interim-transcript", { color: vars.color.textMuted, fontStyle: "italic" });
 globalStyle(".assistant-card", { borderLeft: `2px solid ${vars.color.accent}`, paddingLeft: vars.space.x4 });
 globalStyle(".latency-grid, .runtime-metrics", { display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: vars.space.x3 });
 globalStyle(".latency-grid.transcription-only", { gridTemplateColumns: "minmax(260px, 1fr) 2fr" });

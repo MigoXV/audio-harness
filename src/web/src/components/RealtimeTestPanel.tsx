@@ -21,9 +21,68 @@ interface EventLine {
 }
 
 interface Latencies {
+  interim?: number;
   transcription?: number;
   model?: number;
   audio?: number;
+}
+
+export type TranscriptViewPhase = "idle" | "listening" | "interim" | "processing" | "primary" | "final";
+
+export interface TranscriptView {
+  phase: TranscriptViewPhase;
+  text: string;
+  itemId: string | null;
+}
+
+const EMPTY_TRANSCRIPT_VIEW: TranscriptView = { phase: "idle", text: "", itemId: null };
+
+export function nextTranscriptView(
+  current: TranscriptView,
+  event: Record<string, unknown>,
+): TranscriptView {
+  const type = String(event.type ?? "");
+  const itemId = String(event.item_id ?? "") || null;
+  const currentIsActive = ["listening", "interim", "processing", "primary"].includes(current.phase);
+  const belongsToOlderItem = currentIsActive
+    && current.itemId !== null
+    && itemId !== null
+    && current.itemId !== itemId;
+  if (type === "input_audio_buffer.speech_started") {
+    return current.phase === "interim" && current.itemId === itemId
+      ? current
+      : { phase: "listening", text: "正在聆听…", itemId };
+  }
+  if (type === "x_aha.input_audio_transcription.interim") {
+    const text = String(event.transcript ?? "");
+    return text ? { phase: "interim", text, itemId } : current;
+  }
+  if (type === "x_aha.input_audio_transcription.interim_cleared") {
+    return current.phase === "interim" && !belongsToOlderItem
+      ? { phase: "processing", text: "正在生成最终转写…", itemId: current.itemId }
+      : current;
+  }
+  if (type === "input_audio_buffer.speech_stopped") {
+    if (belongsToOlderItem) return current;
+    return current.phase === "interim" || current.phase === "primary"
+      ? current
+      : { phase: "processing", text: "正在生成最终转写…", itemId: itemId ?? current.itemId };
+  }
+  if (type === "conversation.item.input_audio_transcription.delta") {
+    if (belongsToOlderItem) return current;
+    const delta = String(event.delta ?? "");
+    if (!delta) return current;
+    return {
+      phase: "primary",
+      text: current.phase === "primary" ? current.text + delta : delta,
+      itemId: itemId ?? current.itemId,
+    };
+  }
+  if (type === "conversation.item.input_audio_transcription.completed") {
+    if (belongsToOlderItem) return current;
+    return { phase: "final", text: String(event.transcript ?? ""), itemId: itemId ?? current.itemId };
+  }
+  return current;
 }
 
 export function eventDetail(event: Record<string, unknown>): string {
@@ -32,6 +91,12 @@ export function eventDetail(event: Record<string, unknown>): string {
   }
   if (event.type === "x_aha.vad.physical_speech_stopped") {
     return `物理停顿 ${String(event.audio_start_ms)}–${String(event.audio_end_ms)} ms；语义轮次未结束`;
+  }
+  if (event.type === "x_aha.input_audio_transcription.interim") {
+    return `预览 r${String(event.revision)} · ${String(event.audio_start_ms)}–${String(event.audio_end_ms)} ms · ${String(event.transcript ?? "")}`;
+  }
+  if (event.type === "x_aha.input_audio_transcription.interim_cleared") {
+    return `中间结果已清除：${String(event.reason ?? "unknown")}`;
   }
   return String(
     event.delta
@@ -121,7 +186,7 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
   const [ahaEnabled, setAhaEnabled] = useState(workflowKind === "transcription");
   const [connection, setConnection] = useState<"idle" | "connecting" | "connected" | "error">("idle");
   const [notice, setNotice] = useState("等待开始测试");
-  const [transcript, setTranscript] = useState("");
+  const [transcriptView, setTranscriptView] = useState<TranscriptView>(EMPTY_TRANSCRIPT_VIEW);
   const [assistant, setAssistant] = useState("");
   const [events, setEvents] = useState<EventLine[]>([]);
   const [eventTotal, setEventTotal] = useState(0);
@@ -134,6 +199,9 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
   const playerRef = useRef(new PcmPlayer());
   const stoppingRef = useRef(false);
   const speechStoppedAt = useRef<number | null>(null);
+  const speechStartedAt = useRef<number | null>(null);
+  const interimRevisionRef = useRef(0);
+  const interimItemRef = useRef<string | null>(null);
   const transcriptAt = useRef<number | null>(null);
   const modelAt = useRef<number | null>(null);
 
@@ -153,27 +221,63 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
     appendEvent(event);
     const type = String(event.type ?? "");
     if (type === "input_audio_buffer.speech_started") {
+      speechStartedAt.current = performance.now();
       speechStoppedAt.current = null;
       transcriptAt.current = null;
       modelAt.current = null;
       setNotice(workflowKind === "voice_agent" ? "检测到用户语音；旧回复已中断" : "检测到用户语音，正在接收音频");
       playerRef.current.clear();
-      setTranscript("");
+      setTranscriptView((current) => nextTranscriptView(current, event));
+      const startedItemId = String(event.item_id ?? "") || null;
+      if (interimItemRef.current !== startedItemId) interimRevisionRef.current = 0;
+      interimItemRef.current = startedItemId;
       setAssistant("");
       setLatencies({});
     } else if (type === "x_aha.vad.physical_speech_stopped") {
       setNotice("检测到物理停顿，语义 VAD 仍在等待本轮后续语音");
+    } else if (type === "x_aha.input_audio_transcription.interim") {
+      const itemId = String(event.item_id ?? "");
+      const revision = Number(event.revision ?? 0);
+      if (
+        itemId
+        && revision > 0
+        && (interimItemRef.current === null || interimItemRef.current === itemId)
+        && revision > interimRevisionRef.current
+      ) {
+        interimItemRef.current = itemId;
+        interimRevisionRef.current = revision;
+        setTranscriptView((current) => nextTranscriptView(current, event));
+        setNotice("正在生成中间转写，最终结果稍后确认");
+        if (speechStartedAt.current !== null) {
+          setLatencies((current) => current.interim === undefined
+            ? { ...current, interim: performance.now() - speechStartedAt.current! }
+            : current);
+        }
+      }
+    } else if (type === "x_aha.input_audio_transcription.interim_cleared") {
+      if (interimItemRef.current === String(event.item_id ?? "")) {
+        setTranscriptView((current) => nextTranscriptView(current, event));
+      }
     } else if (type === "input_audio_buffer.speech_stopped") {
       speechStoppedAt.current = performance.now();
+      setTranscriptView((current) => nextTranscriptView(current, event));
       setNotice("话音结束，正在转写");
     } else if (type === "conversation.item.input_audio_transcription.delta") {
-      setTranscript((current) => current + String(event.delta ?? ""));
+      setTranscriptView((current) => nextTranscriptView(current, event));
     } else if (type === "conversation.item.input_audio_transcription.completed") {
       const now = performance.now();
-      transcriptAt.current = now;
-      setTranscript(String(event.transcript ?? ""));
-      if (speechStoppedAt.current !== null) setLatencies((current) => ({ ...current, transcription: now - speechStoppedAt.current! }));
-      setNotice(workflowKind === "voice_agent" ? "转写完成，大模型正在回复" : "转写完成，可以继续说话");
+      const completedItemId = String(event.item_id ?? "") || null;
+      const superseded = completedItemId !== null
+        && interimItemRef.current !== null
+        && completedItemId !== interimItemRef.current;
+      if (!superseded) {
+        transcriptAt.current = now;
+        setTranscriptView((current) => nextTranscriptView(current, event));
+        interimRevisionRef.current = 0;
+        interimItemRef.current = null;
+        if (speechStoppedAt.current !== null) setLatencies((current) => ({ ...current, transcription: now - speechStoppedAt.current! }));
+        setNotice(workflowKind === "voice_agent" ? "转写完成，大模型正在回复" : "转写完成，可以继续说话");
+      }
     } else if (isResponseTextDelta(type)) {
       const now = performance.now();
       if (modelAt.current === null) {
@@ -205,6 +309,9 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
     peerRef.current = null;
     await playerRef.current.close();
     setConnection("idle");
+    setTranscriptView(EMPTY_TRANSCRIPT_VIEW);
+    interimRevisionRef.current = 0;
+    interimItemRef.current = null;
     setNotice("测试已停止；本次文本和音频不会写入数据库");
   };
 
@@ -287,10 +394,13 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
     setNotice("正在检查资源、路由和麦克风");
     setEvents([]);
     setEventTotal(0);
-    setTranscript("");
+    setTranscriptView(EMPTY_TRANSCRIPT_VIEW);
     setAssistant("");
     setLatencies({});
     speechStoppedAt.current = null;
+    speechStartedAt.current = null;
+    interimRevisionRef.current = 0;
+    interimItemRef.current = null;
     transcriptAt.current = null;
     modelAt.current = null;
     try {
@@ -309,6 +419,12 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
   };
 
   const connectionLocked = connection === "connecting" || connection === "connected";
+  const transcriptBadge = transcriptView.phase === "listening"
+    ? "聆听中"
+    : transcriptView.phase === "interim"
+      ? "中间结果"
+      : transcriptView.phase === "processing" ? "处理中" : null;
+  const transcriptIsPending = ["listening", "interim", "processing"].includes(transcriptView.phase);
 
   return (
     <div className="test-console">
@@ -322,11 +438,12 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
       </section>
 
       <section className={`conversation-grid ${workflowKind === "transcription" ? "transcription-only" : ""}`}>
-        <article className="panel conversation-card"><div className="conversation-label">用户转写</div><p>{transcript || "开始说话后，实时转写会显示在这里。"}</p></article>
+        <article className="panel conversation-card"><div className="conversation-label">用户转写{transcriptBadge && <span className="interim-badge">{transcriptBadge}</span>}</div><p className={transcriptIsPending ? "interim-transcript" : undefined}>{transcriptView.text || "开始说话后，实时转写会显示在这里。"}</p></article>
         {workflowKind === "voice_agent" && <article className="panel conversation-card assistant-card"><div className="conversation-label">模型回复</div><p>{assistant || "Responses 文本增量会显示在这里，并同步送入 TTS。"}</p></article>}
       </section>
 
       <section className={`latency-grid ${workflowKind === "transcription" ? "transcription-only" : ""}`}>
+        <div className="metric-card"><span>检测到语音 → 首个中间结果</span><strong>{displayMs(latencies.interim, "等待中间结果")}</strong></div>
         <div className="metric-card"><span>话音结束 → 最终转写</span><strong>{displayMs(latencies.transcription, "等待最终转写")}</strong></div>
         {workflowKind === "voice_agent" && <><div className="metric-card"><span>转写 → 模型首字</span><strong>{displayMs(latencies.model, "等待模型首字")}</strong></div><div className="metric-card"><span>模型首字 → TTS 首个音频块</span><strong>{displayMs(latencies.audio, "等待 TTS 音频")}</strong></div></>}
       </section>

@@ -9,8 +9,10 @@ import {
   isTtsFirstAudio,
   appendGroupedEvent,
   eventDetail,
+  nextTranscriptView,
   realtimeEndpoint,
   realtimeSessionUpdate,
+  type TranscriptView,
 } from "./RealtimeTestPanel";
 
 describe("realtimeSessionUpdate", () => {
@@ -98,6 +100,20 @@ describe("eventDetail", () => {
       turn_completed: false,
     })).toBe("物理停顿 1200–2380 ms；语义轮次未结束");
   });
+
+  it("describes interim transcript snapshots and clearing", () => {
+    expect(eventDetail({
+      type: "x_aha.input_audio_transcription.interim",
+      revision: 2,
+      audio_start_ms: 0,
+      audio_end_ms: 1500,
+      transcript: "正在识别",
+    })).toBe("预览 r2 · 0–1500 ms · 正在识别");
+    expect(eventDetail({
+      type: "x_aha.input_audio_transcription.interim_cleared",
+      reason: "primary_transcript_started",
+    })).toBe("中间结果已清除：primary_transcript_started");
+  });
 });
 
 describe("RealtimeTestPanel", () => {
@@ -126,6 +142,91 @@ describe("RealtimeTestPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "WebRTC" }));
     expect(screen.getByRole("button", { name: "WebRTC" })).toHaveClass("active");
     expect(screen.getByRole("button", { name: "WSS" })).not.toHaveClass("active");
+  });
+});
+
+describe("nextTranscriptView", () => {
+  it("replaces the previous final result through the next turn lifecycle", () => {
+    let view: TranscriptView = { phase: "final", text: "上一轮最终结果", itemId: "old" };
+
+    view = nextTranscriptView(view, { type: "input_audio_buffer.speech_started", item_id: "new" });
+    expect(view).toEqual({ phase: "listening", text: "正在聆听…", itemId: "new" });
+
+    view = nextTranscriptView(view, {
+      type: "x_aha.input_audio_transcription.interim",
+      item_id: "new",
+      transcript: "新的中间",
+    });
+    expect(view).toEqual({ phase: "interim", text: "新的中间", itemId: "new" });
+
+    view = nextTranscriptView(view, {
+      type: "x_aha.input_audio_transcription.interim_cleared",
+      item_id: "new",
+      reason: "primary_transcript_started",
+    });
+    expect(view).toEqual({ phase: "processing", text: "正在生成最终转写…", itemId: "new" });
+
+    view = nextTranscriptView(view, {
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "new",
+      delta: "新的",
+    });
+    view = nextTranscriptView(view, {
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "new",
+      delta: "最终结果",
+    });
+    expect(view).toEqual({ phase: "primary", text: "新的最终结果", itemId: "new" });
+
+    view = nextTranscriptView(view, {
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "new",
+      transcript: "新的最终结果。",
+    });
+    expect(view).toEqual({ phase: "final", text: "新的最终结果。", itemId: "new" });
+  });
+
+  it("keeps an interim result visible while speech is stopping", () => {
+    const interim = { phase: "interim" as const, text: "还在识别", itemId: "item" };
+
+    expect(nextTranscriptView(interim, {
+      type: "input_audio_buffer.speech_stopped",
+      item_id: "item",
+    })).toEqual(interim);
+    expect(nextTranscriptView({ phase: "listening", text: "正在聆听…", itemId: "item" }, {
+      type: "input_audio_buffer.speech_stopped",
+      item_id: "item",
+    })).toEqual({ phase: "processing", text: "正在生成最终转写…", itemId: "item" });
+  });
+
+  it("does not hide an interim result that arrives before speech started", () => {
+    const interim = nextTranscriptView(
+      { phase: "final", text: "上一轮最终结果", itemId: "old" },
+      {
+        type: "x_aha.input_audio_transcription.interim",
+        item_id: "new",
+        transcript: "抢先到达的预览",
+      },
+    );
+
+    expect(nextTranscriptView(interim, {
+      type: "input_audio_buffer.speech_started",
+      item_id: "new",
+    })).toEqual({ phase: "interim", text: "抢先到达的预览", itemId: "new" });
+  });
+
+  it("ignores a completed result from an older item while a new turn is active", () => {
+    const current: TranscriptView = {
+      phase: "interim",
+      text: "当前轮预览",
+      itemId: "new",
+    };
+
+    expect(nextTranscriptView(current, {
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "old",
+      transcript: "迟到的上一轮最终结果",
+    })).toEqual(current);
   });
 });
 

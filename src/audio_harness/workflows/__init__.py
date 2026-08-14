@@ -9,6 +9,7 @@ from audio_harness.workflows.compiler import (
 )
 from audio_harness.workflows.models import (
     AsrNode,
+    AsrNodeConfig,
     AudioEdge,
     AudioWorkflowDocument,
     FailurePolicy,
@@ -35,6 +36,7 @@ from audio_harness.workflows.service import AudioWorkflowService
 
 __all__ = [
     "AsrNode",
+    "AsrNodeConfig",
     "AudioEdge",
     "AudioGraphDiagnostic",
     "AudioGraphExecutionError",

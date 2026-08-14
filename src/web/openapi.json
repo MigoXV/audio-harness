@@ -2158,7 +2158,13 @@
         "title": "AsrNode"
       },
       "AsrNodeConfig": {
-        "properties": {},
+        "properties": {
+          "remove_punctuation": {
+            "type": "boolean",
+            "title": "Remove Punctuation",
+            "default": false
+          }
+        },
         "additionalProperties": false,
         "type": "object",
         "title": "AsrNodeConfig"

@@ -497,11 +497,14 @@ class WebRtcCallService:
             else target
         )
         workflow = self._workflow_settings.current().config
-        physical_definition = next(
-            node.definition
-            for node in audio_workflow.plan.nodes.values()
-            if node.spec.kind == "physical_vad"
+        speech_started_binding = next(
+            output
+            for output in audio_workflow.plan.definition.outputs
+            if output.name == "speech_started"
         )
+        physical_definition = audio_workflow.plan.nodes[
+            speech_started_binding.source.node_id
+        ].definition
         physical_vad = cast(PhysicalVadNode, physical_definition).config
         initial_session = session
         if initial_session is None and not isinstance(target, ActiveVoiceAgent):
