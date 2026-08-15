@@ -5,6 +5,7 @@ from audio_harness.inferencers.responses.http import ResponsesInferencer
 from audio_harness.inferencers.tts.base import TtsInferencer
 from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.inferencers.embedding import AudioEmbeddingInferencer
+from audio_harness.inferencers.diarization import DiarizationInferencer
 
 
 Inferencer: TypeAlias = (
@@ -13,12 +14,14 @@ Inferencer: TypeAlias = (
     | TtsInferencer
     | ResponsesInferencer
     | AudioEmbeddingInferencer
+    | DiarizationInferencer
 )
 
 
 __all__ = [
     "AsrInferencer",
     "AudioEmbeddingInferencer",
+    "DiarizationInferencer",
     "Inferencer",
     "TtsInferencer",
     "VadInferencer",

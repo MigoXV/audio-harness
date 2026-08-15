@@ -4,6 +4,7 @@ import grpc
 import warnings
 
 from audio_harness.protos.embedding import engine_pb2 as audio__harness_dot_protos_dot_embedding_dot_engine__pb2
+from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 
 GRPC_GENERATED_VERSION = '1.83.0'
 GRPC_VERSION = grpc.__version__
@@ -34,17 +35,61 @@ class EngineStub:
         Args:
             channel: A grpc.Channel.
         """
+        self.EngineInfo = channel.unary_unary(
+                '/pb.Engine/EngineInfo',
+                request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+                response_deserializer=audio__harness_dot_protos_dot_embedding_dot_engine__pb2.EngineInfoReply.FromString,
+                _registered_method=True)
         self.Feature = channel.unary_unary(
                 '/pb.Engine/Feature',
                 request_serializer=audio__harness_dot_protos_dot_embedding_dot_engine__pb2.FeatRequest.SerializeToString,
                 response_deserializer=audio__harness_dot_protos_dot_embedding_dot_engine__pb2.FeatReply.FromString,
+                _registered_method=True)
+        self.Compare = channel.unary_unary(
+                '/pb.Engine/Compare',
+                request_serializer=audio__harness_dot_protos_dot_embedding_dot_engine__pb2.CompareRequest.SerializeToString,
+                response_deserializer=audio__harness_dot_protos_dot_embedding_dot_engine__pb2.CompareReply.FromString,
+                _registered_method=True)
+        self.Clustering = channel.unary_unary(
+                '/pb.Engine/Clustering',
+                request_serializer=audio__harness_dot_protos_dot_embedding_dot_engine__pb2.ClusteringRequest.SerializeToString,
+                response_deserializer=audio__harness_dot_protos_dot_embedding_dot_engine__pb2.ClusteringReply.FromString,
+                _registered_method=True)
+        self.StreamingClustering = channel.stream_stream(
+                '/pb.Engine/StreamingClustering',
+                request_serializer=audio__harness_dot_protos_dot_embedding_dot_engine__pb2.StreamingClusteringRequest.SerializeToString,
+                response_deserializer=audio__harness_dot_protos_dot_embedding_dot_engine__pb2.StreamingClusteringReply.FromString,
                 _registered_method=True)
 
 
 class EngineServicer:
     """Missing associated documentation comment in .proto file."""
 
+    def EngineInfo(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def Feature(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Compare(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Clustering(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StreamingClustering(self, request_iterator, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -53,10 +98,30 @@ class EngineServicer:
 
 def add_EngineServicer_to_server(servicer, server):
     rpc_method_handlers = {
+            'EngineInfo': grpc.unary_unary_rpc_method_handler(
+                    servicer.EngineInfo,
+                    request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                    response_serializer=audio__harness_dot_protos_dot_embedding_dot_engine__pb2.EngineInfoReply.SerializeToString,
+            ),
             'Feature': grpc.unary_unary_rpc_method_handler(
                     servicer.Feature,
                     request_deserializer=audio__harness_dot_protos_dot_embedding_dot_engine__pb2.FeatRequest.FromString,
                     response_serializer=audio__harness_dot_protos_dot_embedding_dot_engine__pb2.FeatReply.SerializeToString,
+            ),
+            'Compare': grpc.unary_unary_rpc_method_handler(
+                    servicer.Compare,
+                    request_deserializer=audio__harness_dot_protos_dot_embedding_dot_engine__pb2.CompareRequest.FromString,
+                    response_serializer=audio__harness_dot_protos_dot_embedding_dot_engine__pb2.CompareReply.SerializeToString,
+            ),
+            'Clustering': grpc.unary_unary_rpc_method_handler(
+                    servicer.Clustering,
+                    request_deserializer=audio__harness_dot_protos_dot_embedding_dot_engine__pb2.ClusteringRequest.FromString,
+                    response_serializer=audio__harness_dot_protos_dot_embedding_dot_engine__pb2.ClusteringReply.SerializeToString,
+            ),
+            'StreamingClustering': grpc.stream_stream_rpc_method_handler(
+                    servicer.StreamingClustering,
+                    request_deserializer=audio__harness_dot_protos_dot_embedding_dot_engine__pb2.StreamingClusteringRequest.FromString,
+                    response_serializer=audio__harness_dot_protos_dot_embedding_dot_engine__pb2.StreamingClusteringReply.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -68,6 +133,33 @@ def add_EngineServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class Engine:
     """Missing associated documentation comment in .proto file."""
+
+    @staticmethod
+    def EngineInfo(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/pb.Engine/EngineInfo',
+            google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            audio__harness_dot_protos_dot_embedding_dot_engine__pb2.EngineInfoReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def Feature(request,
@@ -86,6 +178,87 @@ class Engine:
             '/pb.Engine/Feature',
             audio__harness_dot_protos_dot_embedding_dot_engine__pb2.FeatRequest.SerializeToString,
             audio__harness_dot_protos_dot_embedding_dot_engine__pb2.FeatReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Compare(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/pb.Engine/Compare',
+            audio__harness_dot_protos_dot_embedding_dot_engine__pb2.CompareRequest.SerializeToString,
+            audio__harness_dot_protos_dot_embedding_dot_engine__pb2.CompareReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Clustering(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/pb.Engine/Clustering',
+            audio__harness_dot_protos_dot_embedding_dot_engine__pb2.ClusteringRequest.SerializeToString,
+            audio__harness_dot_protos_dot_embedding_dot_engine__pb2.ClusteringReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamingClustering(request_iterator,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.stream_stream(
+            request_iterator,
+            target,
+            '/pb.Engine/StreamingClustering',
+            audio__harness_dot_protos_dot_embedding_dot_engine__pb2.StreamingClusteringRequest.SerializeToString,
+            audio__harness_dot_protos_dot_embedding_dot_engine__pb2.StreamingClusteringReply.FromString,
             options,
             channel_credentials,
             insecure,

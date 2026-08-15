@@ -116,6 +116,33 @@ export function eventDetail(event: Record<string, unknown>): string {
   if (event.type === "x_aha.vector.search.failed") {
     return String((event.error as { message?: string } | undefined)?.message ?? "人物搜索失败");
   }
+  if (event.type === "x_aha.diarization.local.delta") {
+    const segments = Array.isArray(event.segments) ? event.segments.length : 0;
+    return `局部分离增量 #${String(event.sequence ?? 0)} · ${segments} 个片段`;
+  }
+  if (event.type === "x_aha.diarization.local.completed") {
+    const segments = Array.isArray(event.segments) ? event.segments.length : 0;
+    return `局部分离完成 · ${segments} 个片段 · ${String(event.latency_ms ?? "—")} ms`;
+  }
+  if (event.type === "x_aha.diarization.local.failed") {
+    return String((event.error as { message?: string } | undefined)?.message ?? "说话人分离失败");
+  }
+  if (event.type === "x_aha.input_audio_transcription.speaker.delta") {
+    return `说话人 ${String(event.local_speaker_id ?? "未识别")} · ${String(event.delta ?? "")}`;
+  }
+  if (event.type === "x_aha.input_audio_transcription.speaker.completed") {
+    return `说话人 ${String(event.local_speaker_id ?? "未识别")} · ${String(event.transcript ?? "")}`;
+  }
+  if (event.type === "x_aha.input_audio_transcription.speaker.failed") {
+    return String((event.error as { message?: string } | undefined)?.message ?? "说话人片段转写失败");
+  }
+  if (event.type === "x_aha.diarization.cluster.completed") {
+    const assignments = Array.isArray(event.assignments) ? event.assignments.length : 0;
+    return `聚类快照 r${String(event.revision)} · ${assignments} 个片段`;
+  }
+  if (event.type === "x_aha.diarization.cluster.failed") {
+    return String((event.error as { message?: string } | undefined)?.message ?? "说话人聚类失败");
+  }
   return String(
     event.delta
       ?? event.transcript

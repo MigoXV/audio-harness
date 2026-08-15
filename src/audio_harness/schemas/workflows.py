@@ -82,12 +82,14 @@ class AudioWorkflowValidationRead(StrictSchema):
 class NodePortRead(StrictSchema):
     name: str
     kind: str
+    accepted_kinds: list[str] = Field(default_factory=list)
 
 
 class AudioNodeTypeRead(StrictSchema):
     kind: str
     display_name: str
     required_api: EngineApi | None
+    required_capability: str | None = None
     inputs: list[NodePortRead]
     outputs: list[NodePortRead]
     config_schema: dict[str, Any]

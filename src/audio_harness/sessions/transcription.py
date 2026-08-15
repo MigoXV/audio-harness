@@ -47,6 +47,7 @@ class AudioWorkflowSession:
         include_vad_progress: bool,
         include_interim_transcripts: bool,
         include_vector_search: bool = False,
+        include_diarization: bool = False,
         vectors: VectorService | None = None,
     ) -> None:
         self._inferencers = dict(inferencers)
@@ -60,6 +61,7 @@ class AudioWorkflowSession:
             include_vad_progress=include_vad_progress,
             include_interim_transcripts=include_interim_transcripts,
             include_vector_search=include_vector_search,
+            include_diarization=include_diarization,
         )
         self._audio: asyncio.Queue[bytes | object] = asyncio.Queue(
             maxsize=audio_queue_capacity
@@ -214,6 +216,7 @@ class AudioWorkflowSessionService:
         include_vad_progress: bool = False,
         include_interim_transcripts: bool = False,
         include_vector_search: bool = False,
+        include_diarization: bool = False,
         workflow: ActiveAudioWorkflow | None = None,
     ):
         async with self.reserve() as reservation:
@@ -223,6 +226,7 @@ class AudioWorkflowSessionService:
                 include_vad_progress=include_vad_progress,
                 include_interim_transcripts=include_interim_transcripts,
                 include_vector_search=include_vector_search,
+                include_diarization=include_diarization,
                 workflow=workflow,
             )
             try:
@@ -250,6 +254,7 @@ class AudioWorkflowSessionReservation:
         include_vad_progress: bool = False,
         include_interim_transcripts: bool = False,
         include_vector_search: bool = False,
+        include_diarization: bool = False,
         workflow: ActiveAudioWorkflow | None = None,
     ) -> AudioWorkflowSession:
         if self._closed:
@@ -285,6 +290,7 @@ class AudioWorkflowSessionReservation:
                 include_vad_progress=include_vad_progress,
                 include_interim_transcripts=include_interim_transcripts,
                 include_vector_search=include_vector_search,
+                include_diarization=include_diarization,
                 vectors=self._service.vectors,
             )
             await session.start()

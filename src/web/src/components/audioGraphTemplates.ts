@@ -1,4 +1,4 @@
-import type { AudioNode, AudioWorkflowDocument, VectorSpace } from "../api/types";
+import type { AudioNode, AudioWorkflowDocument, EngineAsset, VectorSpace } from "../api/types";
 
 export type AudioGraphTemplateId =
   | "physical_asr"
@@ -163,10 +163,63 @@ function vectorSearch(document: AudioWorkflowDocument, vectorSpace?: VectorSpace
   };
 }
 
+function speakerDiarization(document: AudioWorkflowDocument) {
+  const existing = outputNode(
+    document,
+    "diarization_local",
+    "speaker_diarization",
+  ) ?? existingNode(document, "speaker_diarization", "speaker-diarization");
+  if (existing) return { ...existing, id: "speaker-diarization" };
+  return {
+    id: "speaker-diarization",
+    kind: "speaker_diarization" as const,
+    engine_id: null,
+    config: { min_batch_seconds: 60, max_batch_seconds: 120 },
+  };
+}
+
+function speakerClustering(
+  document: AudioWorkflowDocument,
+  engines: readonly EngineAsset[],
+) {
+  const existing = outputNode(
+    document,
+    "diarization_cluster",
+    "speaker_clustering",
+  ) ?? existingNode(document, "speaker_clustering", "speaker-clustering");
+  if (existing) return { ...existing, id: "speaker-clustering" };
+  const engine = engines.find((item) =>
+    item.enabled
+    && item.api === "engine_feature"
+    && Array.isArray(item.details?.capabilities)
+    && item.details.capabilities.includes("streaming_clustering"),
+  );
+  return {
+    id: "speaker-clustering",
+    kind: "speaker_clustering" as const,
+    engine_id: engine?.id ?? null,
+    config: {
+      embedding_algorithm: "eres2netv2",
+      expected_dimension: 192,
+      normalize: true,
+      max_embedding_seconds: 60,
+      clustering_algorithm: "hdbscan",
+      parameters: {
+        min_cluster_size: 2,
+        min_samples: 2,
+        allow_single_cluster: true,
+      },
+      max_vectors: 10000,
+    },
+    failure_policy: "fail_open" as const,
+  };
+}
+
 export function applyAudioGraphTemplate(
   document: AudioWorkflowDocument,
   template: AudioGraphTemplateId,
   vectorSpaces: readonly VectorSpace[] = [],
+  engines: readonly EngineAsset[] = [],
 ): AudioWorkflowDocument {
   const physical = physicalVad(document);
   const recognition = asr(document);
@@ -227,6 +280,8 @@ export function applyAudioGraphTemplate(
     const preferredVectorSpace = vectorSpaces.find((space) => space.template === "voiceprint");
     const embedding = audioEmbedding(document, preferredVectorSpace);
     const search = vectorSearch(document, preferredVectorSpace);
+    const diarization = speakerDiarization(document);
+    const clustering = speakerClustering(document, engines);
     const completeMeeting = template === "meeting_complete";
     return {
       schema_version: 1,
@@ -236,12 +291,18 @@ export function applyAudioGraphTemplate(
         recognition,
         previewPhysical,
         previewRecognition,
-        ...(completeMeeting ? [embedding, search] : []),
+        ...(completeMeeting ? [embedding, search, diarization, clustering] : []),
       ],
       edges: [
         { id: "audio-to-physical-vad", source: { kind: "input", name: "audio" }, target: { node_id: "physical-vad", port: "audio" } },
         { id: "physical-vad-to-semantic-vad", source: { kind: "node", node_id: "physical-vad", port: "segments" }, target: { node_id: "semantic-vad", port: "segments" } },
-        { id: "semantic-vad-to-asr", source: { kind: "node", node_id: "semantic-vad", port: "segments" }, target: { node_id: "asr", port: "segments" } },
+        ...(completeMeeting ? [
+          { id: "semantic-vad-to-speaker-diarization", source: { kind: "node" as const, node_id: "semantic-vad", port: "segments" }, target: { node_id: "speaker-diarization", port: "segments" } },
+          { id: "speaker-diarization-to-asr", source: { kind: "node" as const, node_id: "speaker-diarization", port: "segments" }, target: { node_id: "asr", port: "segments" } },
+          { id: "speaker-diarization-to-clustering", source: { kind: "node" as const, node_id: "speaker-diarization", port: "segments" }, target: { node_id: "speaker-clustering", port: "segments" } },
+        ] : [
+          { id: "semantic-vad-to-asr", source: { kind: "node" as const, node_id: "semantic-vad", port: "segments" }, target: { node_id: "asr", port: "segments" } },
+        ]),
         { id: "audio-to-interim-physical-vad", source: { kind: "input", name: "audio" }, target: { node_id: "interim-physical-vad", port: "audio" } },
         { id: "interim-physical-vad-to-asr", source: { kind: "node", node_id: "interim-physical-vad", port: "segments" }, target: { node_id: "interim-asr", port: "segments" } },
         ...(completeMeeting ? [
@@ -257,17 +318,22 @@ export function applyAudioGraphTemplate(
         { name: "turn_progress", source: { kind: "node", node_id: "semantic-vad", port: "turn_progress" } },
         ...(completeMeeting ? [
           { name: "vector_search", source: { kind: "node" as const, node_id: "vector-search", port: "results" } },
+          { name: "diarization_local", source: { kind: "node" as const, node_id: "speaker-diarization", port: "local_results" } },
+          { name: "speaker_transcript", source: { kind: "node" as const, node_id: "asr", port: "speaker_transcripts" } },
+          { name: "diarization_cluster", source: { kind: "node" as const, node_id: "speaker-clustering", port: "results" } },
         ] : []),
       ],
       layout: {
         "physical-vad": { x: 240, y: 40 },
         "semantic-vad": { x: 520, y: 40 },
-        asr: { x: 800, y: 40 },
+        asr: { x: completeMeeting ? 1080 : 800, y: 40 },
         "interim-physical-vad": { x: 240, y: 360 },
         "interim-asr": { x: 520, y: 360 },
         ...(completeMeeting ? {
           "audio-embedding": { x: 800, y: 240 },
           "vector-search": { x: 1080, y: 240 },
+          "speaker-diarization": { x: 800, y: 40 },
+          "speaker-clustering": { x: 1080, y: 400 },
         } : {}),
       },
     };

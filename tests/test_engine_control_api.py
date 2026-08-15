@@ -176,7 +176,9 @@ async def test_fresh_baseline_is_explicitly_unconfigured(
         "semantic_vad",
         "asr",
         "audio_embedding",
-        "vector_search",
+            "speaker_diarization",
+            "speaker_clustering",
+            "vector_search",
     }
     readiness = await control_plane.client.get("/health/ready")
     assert readiness.status_code == 503
@@ -188,6 +190,24 @@ async def test_fresh_baseline_is_explicitly_unconfigured(
         "grpc_workflow_unpublished",
         "realtime_route_unconfigured",
     }
+
+
+@pytest.mark.asyncio
+async def test_diarization_engine_uses_dedicated_kind_and_api(
+    control_plane: ControlPlane,
+) -> None:
+    response = await control_plane.client.post(
+        "/api/v1/engines",
+        json=engine_payload(
+            "moss-trancribe-diarize",
+            kind="diarization",
+            api="ux_speaker_diarization",
+        ),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["kind"] == "diarization"
+    assert response.json()["api"] == "ux_speaker_diarization"
 
 
 @pytest.mark.asyncio

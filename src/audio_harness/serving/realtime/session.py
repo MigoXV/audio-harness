@@ -69,7 +69,14 @@ from audio_harness.voice_agents.service import ActiveVoiceAgent
 from audio_harness.workflows.settings import WorkflowSettingsStore
 from audio_harness.workflows.models import PhysicalVadNode
 from audio_harness.workflows.service import ActiveAudioWorkflow
-from audio_harness.workflows.events import SpeechStarted, SpeechStopped, VectorSearchResult
+from audio_harness.workflows.events import (
+    DiarizationClusterResult,
+    DiarizationLocalResult,
+    SpeakerTranscriptionResult,
+    SpeechStarted,
+    SpeechStopped,
+    VectorSearchResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +86,27 @@ ENGINE_SAMPLE_RATE = 16_000
 EventSender = Callable[[Any], Awaitable[None]]
 AudioEventHandler = Callable[[InputAudioBufferAppendEvent], Awaitable[None]]
 _DEFAULT_TURN_DETECTION = object()
+
+DIARIZATION_LOCAL_EVENT_TYPES = frozenset(
+    {
+        "x_aha.diarization.local.delta",
+        "x_aha.diarization.local.completed",
+        "x_aha.diarization.local.failed",
+    }
+)
+DIARIZATION_CLUSTER_EVENT_TYPES = frozenset(
+    {
+        "x_aha.diarization.cluster.completed",
+        "x_aha.diarization.cluster.failed",
+    }
+)
+SPEAKER_TRANSCRIPTION_EVENT_TYPES = frozenset(
+    {
+        "x_aha.input_audio_transcription.speaker.delta",
+        "x_aha.input_audio_transcription.speaker.completed",
+        "x_aha.input_audio_transcription.speaker.failed",
+    }
+)
 
 
 def event_id() -> str:
@@ -841,6 +869,7 @@ class RealtimeTranscriptionSession:
                     and not self._manual_commit_enabled
                 ),
                 include_vector_search=self._aha_version == "v1",
+                include_diarization=self._aha_version == "v1",
                 workflow=self._workflow,
             )
         else:
@@ -853,6 +882,7 @@ class RealtimeTranscriptionSession:
                     and not self._manual_commit_enabled
                 ),
                 include_vector_search=self._aha_version == "v1",
+                include_diarization=self._aha_version == "v1",
                 workflow=self._workflow,
             )
             self._transcription = await self._session_context.__aenter__()
@@ -897,6 +927,143 @@ class RealtimeTranscriptionSession:
                 )
 
     async def _handle_workflow_event(self, output_name: str, event: Any) -> None:
+        if output_name == "diarization_local" and isinstance(
+            event,
+            DiarizationLocalResult,
+        ):
+            if self._aha_version != "v1":
+                return
+            event_type = f"x_aha.diarization.local.{event.phase}"
+            if event_type not in DIARIZATION_LOCAL_EVENT_TYPES:
+                raise RuntimeError(f"未知 diarization 事件阶段: {event.phase}")
+            common = {
+                "type": event_type,
+                "event_id": event_id(),
+                "batch_id": event.batch_id,
+                "batch_audio_start_ms": round(
+                    event.batch_start_sample * 1000 / event.sample_rate
+                ),
+                "batch_audio_end_ms": round(
+                    event.batch_end_sample * 1000 / event.sample_rate
+                ),
+                "speech_duration_ms": round(
+                    event.speech_samples * 1000 / event.sample_rate
+                ),
+                "segments": [
+                    {
+                        "segment_id": segment.segment_id,
+                        "audio_start_ms": round(
+                            segment.start_sample * 1000 / event.sample_rate
+                        ),
+                        "audio_end_ms": round(
+                            segment.end_sample * 1000 / event.sample_rate
+                        ),
+                        "speaker": segment.speaker,
+                        "local_speaker_id": segment.local_speaker_id,
+                    }
+                    for segment in event.segments
+                ],
+                "latency_ms": round(event.latency_ms, 3),
+            }
+            if event.sequence is not None:
+                common["sequence"] = event.sequence
+            if event.error_code is not None:
+                common["error"] = {
+                    "code": event.error_code,
+                    "message": event.error_message or "说话人分离失败",
+                }
+            await self._send_event(common)
+            return
+        if output_name == "speaker_transcript" and isinstance(
+            event,
+            SpeakerTranscriptionResult,
+        ):
+            if self._aha_version != "v1":
+                return
+            event_type = (
+                "x_aha.input_audio_transcription.speaker."
+                f"{event.phase}"
+            )
+            if event_type not in SPEAKER_TRANSCRIPTION_EVENT_TYPES:
+                raise RuntimeError(
+                    f"未知说话人转写事件阶段: {event.phase}"
+                )
+            matched_item = next(
+                (
+                    item
+                    for item in self._pending_items
+                    if item.start_sample <= event.start_sample
+                    and item.end_sample >= event.end_sample
+                ),
+                None,
+            )
+            current_item_id = (
+                matched_item.item_id
+                if matched_item is not None
+                else self._active_item_id or self._interim_item_id
+            )
+            common = {
+                "type": event_type,
+                "event_id": event_id(),
+                "item_id": current_item_id,
+                "item_source_id": event.item_source_id,
+                "segment_id": event.segment_id,
+                "batch_id": event.batch_id,
+                "local_speaker_id": event.local_speaker_id,
+                "speaker": event.speaker,
+                "audio_start_ms": round(
+                    event.start_sample * 1000 / event.sample_rate
+                ),
+                "audio_end_ms": round(
+                    event.end_sample * 1000 / event.sample_rate
+                ),
+            }
+            if event.language_code is not None:
+                common["language"] = event.language_code
+            if event.phase == "delta":
+                common["delta"] = event.text
+            elif event.phase == "completed":
+                common["transcript"] = event.text
+            else:
+                common["error"] = {
+                    "code": event.error_code
+                    or "speaker_transcription_failed",
+                    "message": event.error_message or "说话人片段转写失败",
+                }
+            await self._send_event(common)
+            return
+        if output_name == "diarization_cluster" and isinstance(
+            event,
+            DiarizationClusterResult,
+        ):
+            if self._aha_version != "v1":
+                return
+            event_type = f"x_aha.diarization.cluster.{event.phase}"
+            if event_type not in DIARIZATION_CLUSTER_EVENT_TYPES:
+                raise RuntimeError(f"未知聚类事件阶段: {event.phase}")
+            common = {
+                "type": event_type,
+                "event_id": event_id(),
+                "revision": event.revision,
+                "replaces_revision": event.replaces_revision,
+            }
+            if event.phase == "completed":
+                common["full_snapshot"] = True
+                common["assignments"] = [
+                    {
+                        "segment_id": assignment.segment_id,
+                        "local_speaker_id": assignment.local_speaker_id,
+                        "speaker_id": assignment.speaker_id,
+                    }
+                    for assignment in event.assignments
+                ]
+            else:
+                common["error"] = {
+                    "code": event.error_code or "diarization_cluster_failed",
+                    "message": event.error_message or "说话人聚类失败",
+                }
+            await self._send_event(common)
+            return
         if output_name == "vector_search" and isinstance(event, VectorSearchResult):
             if self._aha_version != "v1":
                 return

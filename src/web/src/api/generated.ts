@@ -874,6 +874,8 @@ export interface components {
             /** Display Name */
             display_name: string;
             required_api: components["schemas"]["EngineApi"] | null;
+            /** Required Capability */
+            required_capability?: string | null;
             /** Inputs */
             inputs: components["schemas"]["NodePortRead"][];
             /** Outputs */
@@ -909,7 +911,7 @@ export interface components {
              */
             schema_version: 1;
             /** Nodes */
-            nodes: (components["schemas"]["PhysicalVadNode"] | components["schemas"]["SemanticVadNode"] | components["schemas"]["AsrNode"] | components["schemas"]["AudioEmbeddingNode"] | components["schemas"]["VectorSearchNode"])[];
+            nodes: (components["schemas"]["PhysicalVadNode"] | components["schemas"]["SemanticVadNode"] | components["schemas"]["AsrNode"] | components["schemas"]["AudioEmbeddingNode"] | components["schemas"]["SpeakerDiarizationNode"] | components["schemas"]["SpeakerClusteringNode"] | components["schemas"]["VectorSearchNode"])[];
             /** Edges */
             edges: components["schemas"]["AudioEdge"][];
             /** Outputs */
@@ -1016,6 +1018,8 @@ export interface components {
             audio: string;
             /** Vad Engine Id */
             vad_engine_id: string;
+            /** Vad Postprocessing Json */
+            vad_postprocessing_json?: string | null;
         };
         /** Body_register_audio_api_v1_vector_spaces__collection_name__points_audio_post */
         Body_register_audio_api_v1_vector_spaces__collection_name__points_audio_post: {
@@ -1038,8 +1042,6 @@ export interface components {
             captured_at?: number | null;
             /** Quality Score */
             quality_score?: number | null;
-            /** Cluster Id */
-            cluster_id?: number | null;
         };
         /** Body_search_audio_api_v1_vector_spaces__collection_name__search_audio_post */
         Body_search_audio_api_v1_vector_spaces__collection_name__search_audio_post: {
@@ -1178,7 +1180,7 @@ export interface components {
          * EngineApi
          * @enum {string}
          */
-        EngineApi: "ux_speech" | "ux_vad" | "responses" | "qwen_tts_duplex" | "engine_feature";
+        EngineApi: "ux_speech" | "ux_vad" | "responses" | "qwen_tts_duplex" | "engine_feature" | "ux_speaker_diarization";
         /** EngineCreate */
         EngineCreate: {
             /** Slug */
@@ -1228,7 +1230,7 @@ export interface components {
          * EngineKind
          * @enum {string}
          */
-        EngineKind: "asr" | "vad" | "llm" | "tts" | "embedding";
+        EngineKind: "asr" | "vad" | "llm" | "tts" | "embedding" | "diarization";
         /** EngineList */
         EngineList: {
             /** Items */
@@ -1582,6 +1584,8 @@ export interface components {
             name: string;
             /** Kind */
             kind: string;
+            /** Accepted Kinds */
+            accepted_kinds?: string[];
         };
         /** NodePosition */
         NodePosition: {
@@ -1853,6 +1857,84 @@ export interface components {
             config?: components["schemas"]["SemanticVadConfig"];
             /** @default fail_open */
             failure_policy: components["schemas"]["FailurePolicy"];
+        };
+        /** SpeakerClusteringNode */
+        SpeakerClusteringNode: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "speaker_clustering";
+            /** Engine Id */
+            engine_id?: string | null;
+            config?: components["schemas"]["SpeakerClusteringNodeConfig"];
+            /** @default fail_open */
+            failure_policy: components["schemas"]["FailurePolicy"];
+        };
+        /** SpeakerClusteringNodeConfig */
+        SpeakerClusteringNodeConfig: {
+            /**
+             * Embedding Algorithm
+             * @default eres2netv2
+             */
+            embedding_algorithm: string;
+            /**
+             * Expected Dimension
+             * @default 192
+             */
+            expected_dimension: number;
+            /**
+             * Normalize
+             * @default true
+             */
+            normalize: boolean;
+            /**
+             * Max Embedding Seconds
+             * @default 60
+             */
+            max_embedding_seconds: number;
+            /**
+             * Clustering Algorithm
+             * @default hdbscan
+             */
+            clustering_algorithm: string;
+            /** Parameters */
+            parameters?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Max Vectors
+             * @default 10000
+             */
+            max_vectors: number;
+        };
+        /** SpeakerDiarizationNode */
+        SpeakerDiarizationNode: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "speaker_diarization";
+            /** Engine Id */
+            engine_id?: string | null;
+            config?: components["schemas"]["SpeakerDiarizationNodeConfig"];
+        };
+        /** SpeakerDiarizationNodeConfig */
+        SpeakerDiarizationNodeConfig: {
+            /**
+             * Min Batch Seconds
+             * @default 60
+             */
+            min_batch_seconds: number;
+            /**
+             * Max Batch Seconds
+             * @default 120
+             */
+            max_batch_seconds: number;
         };
         /** SpeakerMatchRead */
         SpeakerMatchRead: {

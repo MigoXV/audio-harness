@@ -28,13 +28,16 @@ gRPC / Realtime / WebRTC 数据面 ─────┘
 
 ## 类型化语音 DAG
 
-第一版内置三个静态节点类型：
+内置节点类型包括：
 
 | 节点 | 输入 | 输出 | 引擎 API |
 | --- | --- | --- | --- |
 | Physical VAD | `pcm_chunk` | `audio_segment`、`speech_started`、`speech_stopped` | `ux_vad` |
 | Semantic VAD | `audio_segment` | `audio_segment`、`speech_stopped`、`transcription` | `ux_vad` |
 | ASR | `audio_segment` | `transcription` | `ux_speech` |
+| Speaker Diarization | `audio_segment` | `audio_segment`、`diarization_local_result` | `ux_speaker_diarization` |
+| Audio Embedding | `audio_segment` | `embedding` | `engine_feature` |
+| Vector Search | `embedding` | `vector_search_result` | 无 |
 
 节点类型不是动态插件。编译器会统一检查：
 
@@ -44,7 +47,7 @@ gRPC / Realtime / WebRTC 数据面 ─────┘
 - 是否存在环、不可达节点或断开的输出路径；
 - 引擎是否存在、启用且 API 能力匹配；
 - `primary_transcript`、`speech_started`、`speech_stopped` 三个稳定出口是否完整且类型正确；
-- 可选的 `interim_transcript` 是否连接到 `transcription` 端口。
+- 可选的 `interim_transcript`、`vector_search` 和 `diarization_local` 是否连接到匹配端口。
 
 物理 VAD 节点可以按工作流配置 FireRed `firered.stream_vad` v1 后处理参数，
 包括概率平滑、判定阈值、起点前补以及语音/静音帧数限制。未启用自定义配置时，
@@ -59,10 +62,17 @@ VAD 带有一组偏敏感的初始参数，但所有参数和引擎绑定都可�
 和已发布修订不会被自动迁移。
 
 “会议系统完全体”模板建立在双路物理与语义 VAD 模板之上，并把正式语义 VAD 输出的
-音频片段并联到“语音特征向量提取 → 人物搜索”，增加 `vector_search` 命名出口。
+音频片段并联到“语音特征向量提取 → 人物搜索”，增加 `vector_search` 命名出口；
+主链路为“物理 VAD → 语义 VAD → 说话人分离 → ASR”，并增加
+`diarization_local` 与 `speaker_transcript` 命名出口。原低延迟 interim ASR 分支继续并行工作。
 模板优先选择带语音特征向量提取模板标记的 Qdrant Collection，并据其首个 Named
 Vector 初始化算法和维度；没有可用空间时使用 `voiceprints`、`eres2netv2`、192 维
 作为待确认配置。再次应用模板会保留已经选择的提取引擎、Collection 和检索参数。
+
+说话人分离节点按有效语音时长聚合 VAD 块，默认累计 60 秒后处理，单次最多 120 秒。
+`min_batch_seconds=0` 时每个 VAD 块立即处理；旧缓存加新块超过最大长度时先提交旧缓存，
+新块不会丢弃；单个超长块按最大长度硬切。会话结束时不足最小时长的尾块也会提交。
+不同 VAD 块之间不补静音，服务返回的相对时间会根据拼接映射还原为会话绝对时间。
 
 ASR 节点可以独立开启“移除转写标点”，在节点输出进入工作流出口前删除中英文及
 其他语言的 Unicode 标点，同时保留原有空白、符号和 emoji。该选项默认关闭；两个
@@ -249,6 +259,48 @@ WebSocket 建连时必须在 `intent=transcription` 和 `model=...` 中二选一
 `x_aha.*` 扩展事件。不支持的扩展版本会被拒绝。扩展只追加观测信息，
 不会替换、删减或改写 OpenAI Realtime 原生事件；未协商扩展时，服务端不会
 发送 `x_aha.*`、`audio_harness.*` 或其他私有事件。
+
+当说话人分离位于主 ASR 上游时，无论是否协商 AHA 都会执行；`x_aha=v1` 只控制扩展事件输出。
+每个 gRPC 流响应立即发送 `x_aha.diarization.local.delta`，同一批次结束后发送携带
+完整结果的 `x_aha.diarization.local.completed`；RPC 失败发送
+`x_aha.diarization.local.failed`，但不会中断 ASR。批次可能跨越多个 Realtime item，
+因此使用 `batch_id` 和会话绝对时间，不绑定单个 `item_id`：
+
+```json
+{
+  "type": "x_aha.diarization.local.completed",
+  "event_id": "event_xxx",
+  "batch_id": "batch_xxx",
+  "batch_audio_start_ms": 1000,
+  "batch_audio_end_ms": 65000,
+  "speech_duration_ms": 60000,
+  "segments": [
+    {"segment_id": "dseg_a", "audio_start_ms": 1000, "audio_end_ms": 5200, "speaker": 1, "local_speaker_id": "batch_demo:1"},
+    {"segment_id": "dseg_b", "audio_start_ms": 7200, "audio_end_ms": 11800, "speaker": 2, "local_speaker_id": "batch_demo:2"}
+  ],
+  "latency_ms": 972.84
+}
+```
+
+`speaker` 只在当前 `batch_id` 内有效，跨批次应使用带批次命名空间的
+`local_speaker_id`；`segment_id` 在一次会话及后续聚类 revision 内稳定。
+
+ASR 对每个说话人片段发送
+`x_aha.input_audio_transcription.speaker.delta/completed/failed`，包含 `segment_id`、
+`local_speaker_id`、绝对音频时间和文本。标准 OpenAI 转写事件仍按来源 VAD turn 聚合。
+说话人分离失败时，本批原始 VAD 音频以未知说话人身份直通 ASR。
+
+说话人聚类节点接在说话人分离的 `segments` 出口之后。每次局部分离批次完成时，节点会把
+同一 `local_speaker_id` 的片段音频拼接后提取一个 embedding，并调用流式聚类服务。
+单个向量尚不能聚类时会直接标记为整数 `speaker_id: -1`；从第二个向量开始建立流，之后
+服务端每次响应都可能重新分配全部历史标签。
+
+聚类使用非增量的 `x_aha.diarization.cluster.completed` 完整快照：事件包含递增
+`revision`、`replaces_revision`、`full_snapshot: true` 和全部
+`segment_id → speaker_id` assignments。`x_aha.diarization.cluster.failed` 表示刷新失败；
+客户端应保留上一成功 revision，并在 completed 到达时整体覆盖，不能把 assignments 当作
+增量合并。流失败后节点会保留上一版结果，并在下一次局部分离触发时重连、重放全部历史
+embedding。聚类不定义 delta 事件。
 
 当物理 VAD 已结束、语义 VAD 仍认为用户轮次未完成时，服务端发送：
 

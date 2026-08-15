@@ -12,6 +12,7 @@ class EngineKind(str, Enum):
     LLM = "llm"
     TTS = "tts"
     EMBEDDING = "embedding"
+    DIARIZATION = "diarization"
 
 
 class EngineApi(str, Enum):
@@ -20,6 +21,7 @@ class EngineApi(str, Enum):
     RESPONSES = "responses"
     QWEN_TTS_DUPLEX = "qwen_tts_duplex"
     ENGINE_FEATURE = "engine_feature"
+    UX_SPEAKER_DIARIZATION = "ux_speaker_diarization"
 
 
 class EngineProtocol(str, Enum):

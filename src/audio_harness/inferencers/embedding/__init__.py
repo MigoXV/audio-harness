@@ -1,3 +1,6 @@
-from audio_harness.inferencers.embedding.grpc import AudioEmbeddingInferencer
+from audio_harness.inferencers.embedding.grpc import (
+    AudioEmbeddingInferencer,
+    StreamingClusteringSession,
+)
 
-__all__ = ["AudioEmbeddingInferencer"]
+__all__ = ["AudioEmbeddingInferencer", "StreamingClusteringSession"]

@@ -22,6 +22,10 @@ from audio_harness.workflows.models import (
     PhysicalVadNode,
     SemanticVadConfig,
     SemanticVadNode,
+    SpeakerDiarizationNode,
+    SpeakerDiarizationNodeConfig,
+    SpeakerClusteringNode,
+    SpeakerClusteringNodeConfig,
     default_audio_workflow,
 )
 from audio_harness.workflows.runtime import (
@@ -59,6 +63,10 @@ __all__ = [
     "PhysicalVadNode",
     "SemanticVadConfig",
     "SemanticVadNode",
+    "SpeakerDiarizationNode",
+    "SpeakerDiarizationNodeConfig",
+    "SpeakerClusteringNode",
+    "SpeakerClusteringNodeConfig",
     "audio_node_catalog",
     "compile_audio_graph",
     "compiled_audio_graph_document",

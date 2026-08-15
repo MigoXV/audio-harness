@@ -83,8 +83,15 @@ def create_workflow_router(
                 kind=spec.kind,
                 display_name=spec.display_name,
                 required_api=spec.required_api,
+                required_capability=spec.required_capability,
                 inputs=[
-                    NodePortRead(name=name, kind=port.kind.value)
+                    NodePortRead(
+                        name=name,
+                        kind=port.kind.value,
+                        accepted_kinds=[
+                            kind.value for kind in port.accepted_kinds
+                        ],
+                    )
                     for name, port in spec.inputs.items()
                 ],
                 outputs=[

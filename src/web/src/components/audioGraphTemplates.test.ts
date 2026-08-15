@@ -142,6 +142,8 @@ describe("audio graph templates", () => {
       "interim-asr",
       "audio-embedding",
       "vector-search",
+      "speaker-diarization",
+      "speaker-clustering",
     ]);
     expect(result.edges).toContainEqual({
       id: "semantic-vad-to-audio-embedding",
@@ -152,6 +154,16 @@ describe("audio graph templates", () => {
       id: "audio-embedding-to-vector-search",
       source: { kind: "node", node_id: "audio-embedding", port: "embeddings" },
       target: { node_id: "vector-search", port: "embeddings" },
+    });
+    expect(result.edges).toContainEqual({
+      id: "semantic-vad-to-speaker-diarization",
+      source: { kind: "node", node_id: "semantic-vad", port: "segments" },
+      target: { node_id: "speaker-diarization", port: "segments" },
+    });
+    expect(result.edges).toContainEqual({
+      id: "speaker-diarization-to-asr",
+      source: { kind: "node", node_id: "speaker-diarization", port: "segments" },
+      target: { node_id: "asr", port: "segments" },
     });
     expect(result.nodes.find((node) => node.id === "audio-embedding")).toMatchObject({
       kind: "audio_embedding",
@@ -164,6 +176,22 @@ describe("audio graph templates", () => {
     expect(result.outputs).toContainEqual({
       name: "vector_search",
       source: { kind: "node", node_id: "vector-search", port: "results" },
+    });
+    expect(result.nodes.find((node) => node.id === "speaker-diarization")).toMatchObject({
+      kind: "speaker_diarization",
+      config: { min_batch_seconds: 60, max_batch_seconds: 120 },
+    });
+    expect(result.outputs).toContainEqual({
+      name: "diarization_local",
+      source: { kind: "node", node_id: "speaker-diarization", port: "local_results" },
+    });
+    expect(result.outputs).toContainEqual({
+      name: "diarization_cluster",
+      source: { kind: "node", node_id: "speaker-clustering", port: "results" },
+    });
+    expect(result.outputs).toContainEqual({
+      name: "speaker_transcript",
+      source: { kind: "node", node_id: "asr", port: "speaker_transcripts" },
     });
   });
 

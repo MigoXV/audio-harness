@@ -20,6 +20,8 @@ from audio_harness.workflows.models import (
     NodeOutputRef,
     PhysicalVadConfig,
     PhysicalVadNode,
+    SpeakerDiarizationNodeConfig,
+    SpeakerClusteringNodeConfig,
     SemanticVadNode,
     SemanticVadConfig,
 )
@@ -33,11 +35,19 @@ class PortKind(str, Enum):
     TRANSCRIPTION = "transcription"
     EMBEDDING = "embedding"
     VECTOR_SEARCH_RESULT = "vector_search_result"
+    DIARIZATION_LOCAL_RESULT = "diarization_local_result"
+    SPEAKER_TRANSCRIPTION = "speaker_transcription"
+    DIARIZATION_SEGMENT = "diarization_segment"
+    DIARIZATION_CLUSTER_RESULT = "diarization_cluster_result"
 
 
 @dataclass(frozen=True)
 class PortSpec:
     kind: PortKind
+    accepted_kinds: tuple[PortKind, ...] = ()
+
+    def accepts(self, source_kind: PortKind) -> bool:
+        return source_kind is self.kind or source_kind in self.accepted_kinds
 
 
 @dataclass(frozen=True)
@@ -48,6 +58,7 @@ class AudioNodeSpec:
     outputs: Mapping[str, PortSpec]
     required_api: EngineApi | None
     config_model: type[BaseModel]
+    required_capability: str | None = None
     version: int = 1
 
 
@@ -79,8 +90,16 @@ _NODE_SPECS: dict[str, AudioNodeSpec] = {
     "asr": AudioNodeSpec(
         kind="asr",
         display_name="语音识别",
-        inputs={"segments": PortSpec(PortKind.AUDIO_SEGMENT)},
-        outputs={"transcripts": PortSpec(PortKind.TRANSCRIPTION)},
+        inputs={
+            "segments": PortSpec(
+                PortKind.AUDIO_SEGMENT,
+                accepted_kinds=(PortKind.DIARIZATION_SEGMENT,),
+            )
+        },
+        outputs={
+            "transcripts": PortSpec(PortKind.TRANSCRIPTION),
+            "speaker_transcripts": PortSpec(PortKind.SPEAKER_TRANSCRIPTION),
+        },
         required_api=EngineApi.UX_SPEECH,
         config_model=AsrNodeConfig,
     ),
@@ -89,6 +108,28 @@ _NODE_SPECS: dict[str, AudioNodeSpec] = {
         inputs={"segments": PortSpec(PortKind.AUDIO_SEGMENT)},
         outputs={"embeddings": PortSpec(PortKind.EMBEDDING)},
         required_api=EngineApi.ENGINE_FEATURE, config_model=AudioEmbeddingNodeConfig,
+    ),
+    "speaker_diarization": AudioNodeSpec(
+        kind="speaker_diarization",
+        display_name="说话人分离",
+        inputs={"segments": PortSpec(PortKind.AUDIO_SEGMENT)},
+        outputs={
+            "segments": PortSpec(PortKind.DIARIZATION_SEGMENT),
+            "local_results": PortSpec(PortKind.DIARIZATION_LOCAL_RESULT),
+        },
+        required_api=EngineApi.UX_SPEAKER_DIARIZATION,
+        config_model=SpeakerDiarizationNodeConfig,
+    ),
+    "speaker_clustering": AudioNodeSpec(
+        kind="speaker_clustering",
+        display_name="说话人聚类",
+        inputs={"segments": PortSpec(PortKind.DIARIZATION_SEGMENT)},
+        outputs={
+            "results": PortSpec(PortKind.DIARIZATION_CLUSTER_RESULT),
+        },
+        required_api=EngineApi.ENGINE_FEATURE,
+        config_model=SpeakerClusteringNodeConfig,
+        required_capability="streaming_clustering",
     ),
     "vector_search": AudioNodeSpec(
         kind="vector_search", display_name="人物搜索",
@@ -109,6 +150,9 @@ _OPTIONAL_OUTPUTS = {
     "interim_transcript": PortKind.TRANSCRIPTION,
     "turn_progress": PortKind.TRANSCRIPTION,
     "vector_search": PortKind.VECTOR_SEARCH_RESULT,
+    "diarization_local": PortKind.DIARIZATION_LOCAL_RESULT,
+    "speaker_transcript": PortKind.SPEAKER_TRANSCRIPTION,
+    "diarization_cluster": PortKind.DIARIZATION_CLUSTER_RESULT,
 }
 
 _KNOWN_OUTPUTS = {**_REQUIRED_OUTPUTS, **_OPTIONAL_OUTPUTS}
@@ -262,6 +306,20 @@ def compile_audio_graph(
                     node_id=node.id,
                 )
             )
+        if spec.required_capability is not None:
+            capabilities = asset.details.get("capabilities", ())
+            if (
+                not isinstance(capabilities, (list, tuple, set))
+                or spec.required_capability not in capabilities
+            ):
+                diagnostics.append(
+                    AudioGraphDiagnostic(
+                        "engine_capability_mismatch",
+                        f"{spec.display_name}需要引擎能力 "
+                        f"{spec.required_capability}",
+                        node_id=node.id,
+                    )
+                )
         compiled[node.id] = CompiledAudioNode(
             definition=node,
             spec=spec,
@@ -333,7 +391,7 @@ def compile_audio_graph(
             source_port_name = edge.source.port
             source_kind = source_port.kind
 
-        if source_kind is not target_port.kind:
+        if not target_port.accepts(source_kind):
             diagnostics.append(
                 AudioGraphDiagnostic(
                     "port_type_mismatch",
@@ -534,6 +592,13 @@ def restore_audio_graph(
         )
         if snapshot.api is not spec.required_api:
             raise ValueError(f"节点引擎快照 API 不匹配: {node.id}")
+        if spec.required_capability is not None:
+            capabilities = snapshot.details.get("capabilities", ())
+            if (
+                not isinstance(capabilities, (list, tuple, set))
+                or spec.required_capability not in capabilities
+            ):
+                raise ValueError(f"节点引擎快照能力不匹配: {node.id}")
         compiled[node.id] = CompiledAudioNode(node, spec, snapshot)
     order = tuple(str(item) for item in raw_order)
     if set(order) != set(compiled):

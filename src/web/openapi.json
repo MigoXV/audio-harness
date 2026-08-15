@@ -2772,6 +2772,17 @@
               }
             ]
           },
+          "required_capability": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Capability"
+          },
           "inputs": {
             "items": {
               "$ref": "#/components/schemas/NodePortRead"
@@ -2898,6 +2909,12 @@
                   "$ref": "#/components/schemas/AudioEmbeddingNode"
                 },
                 {
+                  "$ref": "#/components/schemas/SpeakerDiarizationNode"
+                },
+                {
+                  "$ref": "#/components/schemas/SpeakerClusteringNode"
+                },
+                {
                   "$ref": "#/components/schemas/VectorSearchNode"
                 }
               ],
@@ -2908,6 +2925,8 @@
                   "audio_embedding": "#/components/schemas/AudioEmbeddingNode",
                   "physical_vad": "#/components/schemas/PhysicalVadNode",
                   "semantic_vad": "#/components/schemas/SemanticVadNode",
+                  "speaker_clustering": "#/components/schemas/SpeakerClusteringNode",
+                  "speaker_diarization": "#/components/schemas/SpeakerDiarizationNode",
                   "vector_search": "#/components/schemas/VectorSearchNode"
                 }
               }
@@ -3236,6 +3255,17 @@
           "vad_engine_id": {
             "type": "string",
             "title": "Vad Engine Id"
+          },
+          "vad_postprocessing_json": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vad Postprocessing Json"
           }
         },
         "type": "object",
@@ -3315,17 +3345,6 @@
               }
             ],
             "title": "Quality Score"
-          },
-          "cluster_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Cluster Id"
           }
         },
         "type": "object",
@@ -3588,7 +3607,8 @@
           "ux_vad",
           "responses",
           "qwen_tts_duplex",
-          "engine_feature"
+          "engine_feature",
+          "ux_speaker_diarization"
         ],
         "title": "EngineApi"
       },
@@ -3759,7 +3779,8 @@
           "vad",
           "llm",
           "tts",
-          "embedding"
+          "embedding",
+          "diarization"
         ],
         "title": "EngineKind"
       },
@@ -4878,6 +4899,13 @@
           "kind": {
             "type": "string",
             "title": "Kind"
+          },
+          "accepted_kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Accepted Kinds"
           }
         },
         "additionalProperties": false,
@@ -5481,6 +5509,155 @@
           "id"
         ],
         "title": "SemanticVadNode"
+      },
+      "SpeakerClusteringNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "speaker_clustering",
+            "title": "Kind",
+            "default": "speaker_clustering"
+          },
+          "engine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Id"
+          },
+          "config": {
+            "$ref": "#/components/schemas/SpeakerClusteringNodeConfig"
+          },
+          "failure_policy": {
+            "$ref": "#/components/schemas/FailurePolicy",
+            "default": "fail_open"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "SpeakerClusteringNode"
+      },
+      "SpeakerClusteringNodeConfig": {
+        "properties": {
+          "embedding_algorithm": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Embedding Algorithm",
+            "default": "eres2netv2"
+          },
+          "expected_dimension": {
+            "type": "integer",
+            "maximum": 65536.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Expected Dimension",
+            "default": 192
+          },
+          "normalize": {
+            "type": "boolean",
+            "title": "Normalize",
+            "default": true
+          },
+          "max_embedding_seconds": {
+            "type": "number",
+            "maximum": 600.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Embedding Seconds",
+            "default": 60.0
+          },
+          "clustering_algorithm": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Clustering Algorithm",
+            "default": "hdbscan"
+          },
+          "parameters": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Parameters"
+          },
+          "max_vectors": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Vectors",
+            "default": 10000
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SpeakerClusteringNodeConfig"
+      },
+      "SpeakerDiarizationNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "speaker_diarization",
+            "title": "Kind",
+            "default": "speaker_diarization"
+          },
+          "engine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Id"
+          },
+          "config": {
+            "$ref": "#/components/schemas/SpeakerDiarizationNodeConfig"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "SpeakerDiarizationNode"
+      },
+      "SpeakerDiarizationNodeConfig": {
+        "properties": {
+          "min_batch_seconds": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Min Batch Seconds",
+            "default": 60.0
+          },
+          "max_batch_seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Batch Seconds",
+            "default": 120.0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SpeakerDiarizationNodeConfig"
       },
       "SpeakerMatchRead": {
         "properties": {

@@ -59,7 +59,7 @@ function fakeApi() {
     listAudioNodeTypes: vi.fn().mockResolvedValue([
       { kind: "physical_vad", display_name: "物理 VAD", required_api: "ux_vad", inputs: [{ name: "audio", kind: "pcm_chunk" }], outputs: [{ name: "segments", kind: "audio_segment" }, { name: "speech_started", kind: "speech_started" }, { name: "speech_stopped", kind: "speech_stopped" }], config_schema: {} },
       { kind: "semantic_vad", display_name: "语义 VAD", required_api: "ux_vad", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "segments", kind: "audio_segment" }], config_schema: {} },
-      { kind: "asr", display_name: "语音识别", required_api: "ux_speech", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "transcripts", kind: "transcription" }], config_schema: {} },
+      { kind: "asr", display_name: "语音识别", required_api: "ux_speech", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "transcripts", kind: "transcription" }, { name: "speaker_transcripts", kind: "speaker_transcription" }], config_schema: {} },
       { kind: "audio_embedding", display_name: "语音特征向量提取", required_api: "engine_feature", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "embeddings", kind: "embedding" }], config_schema: {} },
       { kind: "vector_search", display_name: "人物搜索", required_api: null, inputs: [{ name: "embeddings", kind: "embedding" }], outputs: [{ name: "results", kind: "vector_search_result" }], config_schema: {} },
     ]),
@@ -341,13 +341,15 @@ describe("typed audio workflow control plane", () => {
     await waitFor(() => expect(saveAudioWorkflowDraft).toHaveBeenCalled(), { timeout: 2_000 });
     const savedDocument = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
     expect(savedDocument.nodes.map((node) => node.kind)).toEqual([
-      "physical_vad", "semantic_vad", "asr", "physical_vad", "asr", "audio_embedding", "vector_search",
+      "physical_vad", "semantic_vad", "asr", "physical_vad", "asr", "audio_embedding", "vector_search", "speaker_diarization", "speaker_clustering",
     ]);
     expect(savedDocument.nodes.find((node) => node.kind === "vector_search")?.config).toMatchObject({
       collection_name: "voiceprints",
       vector_name: "eres2netv2",
     });
     expect(savedDocument.outputs.map((output) => output.name)).toContain("vector_search");
+    expect(savedDocument.outputs.map((output) => output.name)).toContain("diarization_local");
+    expect(savedDocument.outputs.map((output) => output.name)).toContain("diarization_cluster");
   });
 
   it("shows live runtime capacity", async () => {

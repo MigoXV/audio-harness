@@ -13,6 +13,10 @@ from audio_harness.inferencers.tts.base import TtsInferencer
 from audio_harness.inferencers.tts.grpc import QwenDuplexTtsInferencer
 from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.inferencers.vad.grpc import UxVadInferencer
+from audio_harness.inferencers.diarization.base import DiarizationInferencer
+from audio_harness.inferencers.diarization.grpc import (
+    UxSpeakerDiarizationInferencer,
+)
 
 
 def snapshot(api: EngineApi, protocol: EngineProtocol) -> EngineSnapshot:
@@ -34,6 +38,11 @@ def snapshot(api: EngineApi, protocol: EngineProtocol) -> EngineSnapshot:
     [
         (EngineApi.UX_SPEECH, EngineProtocol.GRPC, UxSpeechAsrInferencer),
         (EngineApi.UX_VAD, EngineProtocol.GRPC, UxVadInferencer),
+        (
+            EngineApi.UX_SPEAKER_DIARIZATION,
+            EngineProtocol.GRPC,
+            UxSpeakerDiarizationInferencer,
+        ),
         (
             EngineApi.QWEN_TTS_DUPLEX,
             EngineProtocol.GRPC,
@@ -67,6 +76,7 @@ async def test_create_inferencer_routes_supported_api_protocol_pairs(
         (UxSpeechAsrInferencer, AsrInferencer),
         (UxVadInferencer, VadInferencer),
         (QwenDuplexTtsInferencer, TtsInferencer),
+        (UxSpeakerDiarizationInferencer, DiarizationInferencer),
     ],
 )
 def test_grpc_inferencers_inherit_capability_base_only(

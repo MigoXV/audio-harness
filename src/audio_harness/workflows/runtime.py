@@ -6,21 +6,36 @@ import unicodedata
 import time
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import Any, NamedTuple, cast
+from uuid import uuid4
 
 from audio_harness.errors import CapacityExceededError
 from audio_harness.inferencers import Inferencer
 from audio_harness.inferencers.asr.base import AsrInferencer
 from audio_harness.inferencers.vad.base import VadInferencer
-from audio_harness.inferencers.embedding import AudioEmbeddingInferencer
+from audio_harness.inferencers.embedding import (
+    AudioEmbeddingInferencer,
+    StreamingClusteringSession,
+)
+from audio_harness.inferencers.diarization import DiarizationInferencer
 from audio_harness.media.pcm import PcmChunk
 from audio_harness.workflows.compiler import (
     CompiledAudioGraph,
     CompiledAudioNode,
     PortKind,
 )
-from audio_harness.workflows.events import AudioEmbeddingResult, SpeechStarted, SpeechStopped, VectorSearchResult
+from audio_harness.workflows.events import (
+    AudioEmbeddingResult,
+    DiarizationClusterAssignment,
+    DiarizationClusterResult,
+    DiarizationLocalResult,
+    DiarizationSegment,
+    SpeakerTranscriptionResult,
+    SpeechStarted,
+    SpeechStopped,
+    VectorSearchResult,
+)
 from audio_harness.workflows.models import (
     AsrNode,
     FailurePolicy,
@@ -28,6 +43,9 @@ from audio_harness.workflows.models import (
     NodeOutputRef,
     PhysicalVadConfig,
     PhysicalVadNode,
+    SpeakerDiarizationNode,
+    SpeakerDiarizationNodeConfig,
+    SpeakerClusteringNode,
     SemanticVadConfig,
     SemanticVadNode,
     AudioEmbeddingNode,
@@ -49,7 +67,34 @@ def _remove_punctuation(text: str) -> str:
     )
 
 
-AudioOutputPayload = SpeechStarted | SpeechStopped | AsrInferencer.Result | VectorSearchResult
+def _join_transcript_parts(parts: list[str]) -> str:
+    result = ""
+    for raw in parts:
+        part = raw.strip()
+        if not part:
+            continue
+        separator = (
+            " "
+            if result
+            and result[-1].isascii()
+            and result[-1].isalnum()
+            and part[0].isascii()
+            and part[0].isalnum()
+            else ""
+        )
+        result += separator + part
+    return result
+
+
+AudioOutputPayload = (
+    SpeechStarted
+    | SpeechStopped
+    | AsrInferencer.Result
+    | VectorSearchResult
+    | DiarizationLocalResult
+    | SpeakerTranscriptionResult
+    | DiarizationClusterResult
+)
 
 
 @dataclass(frozen=True)
@@ -59,6 +104,7 @@ class AudioInferenceRequest:
     include_vad_progress: bool = False
     include_interim_transcripts: bool = False
     include_vector_search: bool = False
+    include_diarization: bool = False
 
 
 @dataclass(frozen=True)
@@ -91,6 +137,314 @@ class _SegmentCandidate(NamedTuple):
     end_sample: int
     turn_completed: bool = True
     evaluate_turn: bool = True
+    diarization: "_DiarizationContext | None" = None
+
+
+@dataclass(frozen=True)
+class _DiarizationContext:
+    item_source_id: str
+    source_start_sample: int
+    source_end_sample: int
+    source_completed: bool
+    segment_id: str
+    batch_id: str
+    speaker: int | None
+    local_speaker_id: str | None
+    batch_completed: bool = False
+
+
+@dataclass(frozen=True)
+class _DiarizationSourceSpan:
+    input_start_sample: int
+    input_end_sample: int
+    session_start_sample: int
+    source_id: str
+    source_start_sample: int
+    source_end_sample: int
+    source_completed: bool
+
+
+@dataclass(frozen=True)
+class _DiarizedPiece:
+    input_start_sample: int
+    input_end_sample: int
+    span_index: int
+    segment: DiarizationSegment
+
+
+@dataclass
+class _SourceTranscriptState:
+    start_sample: int
+    end_sample: int
+    turn_completed: bool
+    parts: list[tuple[int, str]] = field(default_factory=list)
+    language_code: str | None = None
+
+
+@dataclass(frozen=True)
+class _ClusterVector:
+    local_speaker_id: str
+    segment_ids: tuple[str, ...]
+    vector: bytes
+
+
+@dataclass(frozen=True)
+class _DiarizationBatch:
+    audio: bytes
+    spans: tuple[_DiarizationSourceSpan, ...]
+
+    @property
+    def samples(self) -> int:
+        return len(self.audio) // 2
+
+    @property
+    def start_sample(self) -> int:
+        return self.spans[0].session_start_sample
+
+    @property
+    def end_sample(self) -> int:
+        span = self.spans[-1]
+        return span.session_start_sample + (
+            span.input_end_sample - span.input_start_sample
+        )
+
+    def map_response(
+        self,
+        values: tuple[DiarizationInferencer.Segment, ...],
+        batch_id: str,
+    ) -> tuple[tuple[DiarizationSegment, ...], tuple[_DiarizedPiece, ...]]:
+        mapped: list[DiarizationSegment] = []
+        pieces: list[_DiarizedPiece] = []
+        for value in values:
+            start = max(0, min(value.start_sample, self.samples))
+            end = max(0, min(value.end_sample, self.samples))
+            if end <= start:
+                continue
+            for span_index, span in enumerate(self.spans):
+                overlap_start = max(start, span.input_start_sample)
+                overlap_end = min(end, span.input_end_sample)
+                if overlap_end <= overlap_start:
+                    continue
+                segment_id = f"dseg_{uuid4().hex}"
+                segment = DiarizationSegment(
+                    segment_id=segment_id,
+                    start_sample=span.session_start_sample
+                    + overlap_start
+                    - span.input_start_sample,
+                    end_sample=span.session_start_sample
+                    + overlap_end
+                    - span.input_start_sample,
+                    speaker=value.speaker,
+                    local_speaker_id=f"{batch_id}:{value.speaker}",
+                )
+                mapped.append(segment)
+                pieces.append(
+                    _DiarizedPiece(
+                        input_start_sample=overlap_start,
+                        input_end_sample=overlap_end,
+                        span_index=span_index,
+                        segment=segment,
+                    )
+                )
+        return tuple(mapped), tuple(pieces)
+
+    def map_segments(
+        self,
+        values: tuple[DiarizationInferencer.Segment, ...],
+    ) -> tuple[DiarizationSegment, ...]:
+        """保留给批处理与映射单测使用；正式执行使用 map_response。"""
+        mapped, _ = self.map_response(values, "batch_mapping")
+        return mapped
+
+    def output_candidates(
+        self,
+        pieces: tuple[_DiarizedPiece, ...],
+        batch_id: str,
+        *,
+        fallback: bool = False,
+    ) -> tuple[_SegmentCandidate, ...]:
+        result: list[_SegmentCandidate] = []
+        for span_index, span in enumerate(self.spans):
+            assigned = [] if fallback else sorted(
+                (piece for piece in pieces if piece.span_index == span_index),
+                key=lambda piece: (
+                    piece.input_start_sample,
+                    piece.input_end_sample,
+                    piece.segment.speaker,
+                ),
+            )
+            ranges: list[tuple[int, int, _DiarizedPiece | None]] = [
+                (piece.input_start_sample, piece.input_end_sample, piece)
+                for piece in assigned
+            ]
+            cursor = span.input_start_sample
+            for start, end, _ in sorted(ranges):
+                if start > cursor:
+                    ranges.append((cursor, start, None))
+                cursor = max(cursor, end)
+            if cursor < span.input_end_sample:
+                ranges.append((cursor, span.input_end_sample, None))
+            if not ranges:
+                ranges.append((span.input_start_sample, span.input_end_sample, None))
+            ordered = sorted(
+                ranges,
+                key=lambda value: (
+                    value[0],
+                    value[1],
+                    value[2].segment.speaker if value[2] is not None else -1,
+                ),
+            )
+            for index, (start, end, piece) in enumerate(ordered):
+                if end <= start:
+                    continue
+                segment_id = (
+                    piece.segment.segment_id
+                    if piece is not None
+                    else f"dseg_{uuid4().hex}"
+                )
+                speaker = piece.segment.speaker if piece is not None else None
+                local_speaker_id = (
+                    piece.segment.local_speaker_id if piece is not None else None
+                )
+                source_completed = (
+                    span.source_completed and index == len(ordered) - 1
+                )
+                result.append(
+                    _SegmentCandidate(
+                        audio=self.audio[start * 2 : end * 2],
+                        start_sample=span.session_start_sample
+                        + start
+                        - span.input_start_sample,
+                        end_sample=span.session_start_sample
+                        + end
+                        - span.input_start_sample,
+                        turn_completed=source_completed,
+                        evaluate_turn=False,
+                        diarization=_DiarizationContext(
+                            item_source_id=span.source_id,
+                            source_start_sample=span.source_start_sample,
+                            source_end_sample=span.source_end_sample,
+                            source_completed=source_completed,
+                            segment_id=segment_id,
+                            batch_id=batch_id,
+                            speaker=speaker,
+                            local_speaker_id=local_speaker_id,
+                        ),
+                    )
+                )
+        if result:
+            last = result[-1]
+            assert last.diarization is not None
+            result[-1] = last._replace(
+                diarization=replace(
+                    last.diarization,
+                    batch_completed=True,
+                )
+            )
+        return tuple(result)
+
+
+class DiarizationBatcher:
+    """按有效语音时长聚合 VAD 块，并保留会话时间轴映射。"""
+
+    def __init__(
+        self,
+        config: SpeakerDiarizationNodeConfig,
+        sample_rate: int,
+    ) -> None:
+        self._min_samples = int(round(config.min_batch_seconds * sample_rate))
+        self._max_samples = max(
+            1,
+            int(round(config.max_batch_seconds * sample_rate)),
+        )
+        self._audio = bytearray()
+        self._spans: list[_DiarizationSourceSpan] = []
+
+    @property
+    def pending_samples(self) -> int:
+        return len(self._audio) // 2
+
+    def _append(
+        self,
+        audio: bytes,
+        session_start_sample: int,
+        *,
+        source_id: str,
+        source_start_sample: int,
+        source_end_sample: int,
+        source_completed: bool,
+    ) -> None:
+        samples = len(audio) // 2
+        if samples <= 0:
+            return
+        input_start = self.pending_samples
+        self._audio.extend(audio)
+        self._spans.append(
+            _DiarizationSourceSpan(
+                input_start_sample=input_start,
+                input_end_sample=input_start + samples,
+                session_start_sample=session_start_sample,
+                source_id=source_id,
+                source_start_sample=source_start_sample,
+                source_end_sample=source_end_sample,
+                source_completed=source_completed,
+            )
+        )
+
+    def _flush(self) -> _DiarizationBatch | None:
+        if not self._audio:
+            return None
+        batch = _DiarizationBatch(
+            audio=bytes(self._audio),
+            spans=tuple(self._spans),
+        )
+        self._audio.clear()
+        self._spans.clear()
+        return batch
+
+    def accept(self, candidate: _SegmentCandidate) -> tuple[_DiarizationBatch, ...]:
+        if not candidate.audio:
+            return ()
+        emitted: list[_DiarizationBatch] = []
+        offset = 0
+        total = len(candidate.audio) // 2
+        source_id = f"source_{uuid4().hex}"
+        if self.pending_samples and self.pending_samples + total > self._max_samples:
+            previous = self._flush()
+            if previous is not None:
+                emitted.append(previous)
+        while total - offset > self._max_samples:
+            end = offset + self._max_samples
+            self._append(
+                candidate.audio[offset * 2 : end * 2],
+                candidate.start_sample + offset,
+                source_id=source_id,
+                source_start_sample=candidate.start_sample,
+                source_end_sample=candidate.end_sample,
+                source_completed=False,
+            )
+            batch = self._flush()
+            assert batch is not None
+            emitted.append(batch)
+            offset = end
+        if offset < total:
+            self._append(
+                candidate.audio[offset * 2 :],
+                candidate.start_sample + offset,
+                source_id=source_id,
+                source_start_sample=candidate.start_sample,
+                source_end_sample=candidate.end_sample,
+                source_completed=True,
+            )
+        if self.pending_samples >= self._min_samples:
+            batch = self._flush()
+            if batch is not None:
+                emitted.append(batch)
+        return tuple(emitted)
+
+    def finish(self) -> tuple[_DiarizationBatch, ...]:
+        batch = self._flush()
+        return (batch,) if batch is not None else ()
 
 
 class AudioGraphExecutionError(RuntimeError):
@@ -419,7 +773,12 @@ class _EdgeRouter:
                 kind = plan.nodes[edge.source.node_id].spec.outputs[edge.source.port].kind
             capacity = (
                 config.segment_queue_capacity
-                if kind in {PortKind.PCM_CHUNK, PortKind.AUDIO_SEGMENT}
+                if kind
+                in {
+                    PortKind.PCM_CHUNK,
+                    PortKind.AUDIO_SEGMENT,
+                    PortKind.DIARIZATION_SEGMENT,
+                }
                 else config.result_queue_capacity
             )
             queue: asyncio.Queue[object] = asyncio.Queue(maxsize=capacity)
@@ -445,7 +804,15 @@ class _EdgeRouter:
         for name in self._bindings.get((node_id, port), ()):
             if not isinstance(
                 payload,
-                (SpeechStarted, SpeechStopped, AsrInferencer.Result, VectorSearchResult),
+                (
+                    SpeechStarted,
+                    SpeechStopped,
+                    AsrInferencer.Result,
+                    VectorSearchResult,
+                    DiarizationLocalResult,
+                    SpeakerTranscriptionResult,
+                    DiarizationClusterResult,
+                ),
             ):
                 raise TypeError(f"出口 {name} 收到非法负载: {type(payload)!r}")
             await self._output.put(
@@ -557,6 +924,7 @@ class AudioWorkflowRuntime:
         self._vad_inferencers: dict[str, VadInferencer] = {}
         self._asr_inferencers: dict[str, AsrInferencer] = {}
         self._embedding_inferencers: dict[str, AudioEmbeddingInferencer] = {}
+        self._diarization_inferencers: dict[str, DiarizationInferencer] = {}
         for node_id, node in plan.nodes.items():
             if node.engine_snapshot is None:
                 continue
@@ -579,6 +947,18 @@ class AudioWorkflowRuntime:
                 if not isinstance(inferencer, AudioEmbeddingInferencer):
                     raise TypeError(f"节点 {node_id} 需要 AudioEmbeddingInferencer")
                 self._embedding_inferencers[node_id] = inferencer
+            elif node.spec.kind == "speaker_clustering":
+                if not isinstance(inferencer, AudioEmbeddingInferencer):
+                    raise TypeError(
+                        f"节点 {node_id} 需要 AudioEmbeddingInferencer"
+                    )
+                self._embedding_inferencers[node_id] = inferencer
+            elif node.spec.kind == "speaker_diarization":
+                if not isinstance(inferencer, DiarizationInferencer):
+                    raise TypeError(
+                        f"节点 {node_id} 需要 DiarizationInferencer"
+                    )
+                self._diarization_inferencers[node_id] = inferencer
         self._runtime_config = runtime_config
         self._asr_semaphore = asr_semaphore
         self._embedding_semaphore = embedding_semaphore
@@ -595,11 +975,23 @@ class AudioWorkflowRuntime:
         available_outputs = {
             binding.name for binding in self._plan.definition.outputs
         }
-        active_outputs = available_outputs.difference({"interim_transcript", "vector_search"})
+        active_outputs = available_outputs.difference(
+            {
+                "interim_transcript",
+                "vector_search",
+                "diarization_local",
+                "speaker_transcript",
+                "diarization_cluster",
+            }
+        )
         if request.include_interim_transcripts:
             active_outputs.add("interim_transcript")
         if request.include_vector_search:
             active_outputs.add("vector_search")
+        if request.include_diarization:
+            active_outputs.add("diarization_local")
+            active_outputs.add("speaker_transcript")
+            active_outputs.add("diarization_cluster")
         active_nodes = _output_ancestors(self._plan, active_outputs)
         protected_nodes = _output_ancestors(
             self._plan,
@@ -736,6 +1128,20 @@ class AudioWorkflowRuntime:
                 )
             elif node.spec.kind == "audio_embedding":
                 await self._audio_embedding(node_id, node, request, router)
+            elif node.spec.kind == "speaker_diarization":
+                await self._speaker_diarization(
+                    node_id,
+                    node,
+                    request,
+                    router,
+                )
+            elif node.spec.kind == "speaker_clustering":
+                await self._speaker_clustering(
+                    node_id,
+                    node,
+                    request,
+                    router,
+                )
             elif node.spec.kind == "vector_search":
                 await self._vector_search(node_id, node, router)
             else:
@@ -849,8 +1255,170 @@ class AudioWorkflowRuntime:
     ) -> None:
         definition = cast(AsrNode, node.definition)
         inferencer = self._asr_inferencers[node_id]
+        source_states: dict[str, _SourceTranscriptState] = {}
         async for item in _items(router.input(node_id, "segments")):
             candidate = cast(_SegmentCandidate, item)
+            context = candidate.diarization
+            if context is not None:
+                state = source_states.setdefault(
+                    context.item_source_id,
+                    _SourceTranscriptState(
+                        start_sample=context.source_start_sample,
+                        end_sample=context.source_end_sample,
+                        turn_completed=True,
+                    ),
+                )
+                state.start_sample = min(
+                    state.start_sample,
+                    context.source_start_sample,
+                )
+                state.end_sample = max(
+                    state.end_sample,
+                    context.source_end_sample,
+                )
+                sent_transcript = ""
+                final_transcript: str | None = None
+                try:
+                    async with self._asr_slot(best_effort=best_effort):
+                        async for result in inferencer.transcribe(
+                            candidate.audio,
+                            start_sample=candidate.start_sample,
+                            end_sample=candidate.end_sample,
+                            turn_completed=candidate.turn_completed,
+                            options=request.recognition,
+                        ):
+                            if definition.config.remove_punctuation:
+                                result = result._replace(
+                                    transcript=_remove_punctuation(
+                                        result.transcript
+                                    ),
+                                )
+                            state.language_code = (
+                                result.language_code or state.language_code
+                            )
+                            if result.is_final:
+                                final_transcript = result.transcript
+                                await router.emit(
+                                    node_id,
+                                    "speaker_transcripts",
+                                    SpeakerTranscriptionResult(
+                                        phase="completed",
+                                        item_source_id=context.item_source_id,
+                                        segment_id=context.segment_id,
+                                        batch_id=context.batch_id,
+                                        local_speaker_id=(
+                                            context.local_speaker_id
+                                        ),
+                                        speaker=context.speaker,
+                                        source_start_sample=(
+                                            context.source_start_sample
+                                        ),
+                                        source_end_sample=(
+                                            context.source_end_sample
+                                        ),
+                                        start_sample=candidate.start_sample,
+                                        end_sample=candidate.end_sample,
+                                        sample_rate=result.sample_rate,
+                                        text=result.transcript,
+                                        language_code=result.language_code,
+                                    ),
+                                )
+                            else:
+                                delta = (
+                                    result.transcript[len(sent_transcript) :]
+                                    if result.transcript.startswith(
+                                        sent_transcript
+                                    )
+                                    else ""
+                                )
+                                sent_transcript = result.transcript
+                                if delta:
+                                    await router.emit(
+                                        node_id,
+                                        "speaker_transcripts",
+                                        SpeakerTranscriptionResult(
+                                            phase="delta",
+                                            item_source_id=(
+                                                context.item_source_id
+                                            ),
+                                            segment_id=context.segment_id,
+                                            batch_id=context.batch_id,
+                                            local_speaker_id=(
+                                                context.local_speaker_id
+                                            ),
+                                            speaker=context.speaker,
+                                            source_start_sample=(
+                                                context.source_start_sample
+                                            ),
+                                            source_end_sample=(
+                                                context.source_end_sample
+                                            ),
+                                            start_sample=(
+                                                candidate.start_sample
+                                            ),
+                                            end_sample=candidate.end_sample,
+                                            sample_rate=result.sample_rate,
+                                            text=delta,
+                                            language_code=(
+                                                result.language_code
+                                            ),
+                                        ),
+                                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.warning(
+                        "说话人片段转写失败，继续处理后续片段: %s",
+                        exc,
+                    )
+                    await router.emit(
+                        node_id,
+                        "speaker_transcripts",
+                        SpeakerTranscriptionResult(
+                            phase="failed",
+                            item_source_id=context.item_source_id,
+                            segment_id=context.segment_id,
+                            batch_id=context.batch_id,
+                            local_speaker_id=context.local_speaker_id,
+                            speaker=context.speaker,
+                            source_start_sample=context.source_start_sample,
+                            source_end_sample=context.source_end_sample,
+                            start_sample=candidate.start_sample,
+                            end_sample=candidate.end_sample,
+                            sample_rate=request.recognition.sample_rate,
+                            text="",
+                            language_code=state.language_code,
+                            error_code="speaker_transcription_failed",
+                            error_message=str(exc),
+                        ),
+                    )
+                if final_transcript is not None:
+                    state.parts.append(
+                        (candidate.start_sample, final_transcript)
+                    )
+                if context.source_completed:
+                    ordered = [
+                        text
+                        for _, text in sorted(
+                            state.parts,
+                            key=lambda value: value[0],
+                        )
+                    ]
+                    await router.emit(
+                        node_id,
+                        "transcripts",
+                        AsrInferencer.Result(
+                            transcript=_join_transcript_parts(ordered),
+                            is_final=True,
+                            start_sample=state.start_sample,
+                            end_sample=state.end_sample,
+                            sample_rate=request.recognition.sample_rate,
+                            turn_completed=state.turn_completed,
+                            language_code=state.language_code,
+                        ),
+                    )
+                    del source_states[context.item_source_id]
+                continue
             try:
                 async with self._asr_slot(best_effort=best_effort):
                     async for result in inferencer.transcribe(
@@ -892,6 +1460,312 @@ class AudioWorkflowRuntime:
                     error_code="embedding_failed", error_message=str(exc),
                 )
             await router.emit(node_id, "embeddings", result)
+
+    async def _speaker_diarization(
+        self,
+        node_id: str,
+        node: CompiledAudioNode,
+        request: AudioInferenceRequest,
+        router: _EdgeRouter,
+    ) -> None:
+        definition = cast(SpeakerDiarizationNode, node.definition)
+        inferencer = self._diarization_inferencers[node_id]
+        batcher = DiarizationBatcher(
+            definition.config,
+            request.recognition.sample_rate,
+        )
+
+        async def process(batch: _DiarizationBatch) -> None:
+            batch_id = f"batch_{uuid4().hex}"
+            started = time.monotonic()
+            all_segments: list[DiarizationSegment] = []
+            all_pieces: list[_DiarizedPiece] = []
+            sequence = 0
+            try:
+                async for values in inferencer.stream_diarize(
+                    batch.audio,
+                    request.recognition.sample_rate,
+                ):
+                    mapped, pieces = batch.map_response(values, batch_id)
+                    all_segments.extend(mapped)
+                    all_pieces.extend(pieces)
+                    await router.emit(
+                        node_id,
+                        "local_results",
+                        DiarizationLocalResult(
+                            phase="delta",
+                            batch_id=batch_id,
+                            sequence=sequence,
+                            batch_start_sample=batch.start_sample,
+                            batch_end_sample=batch.end_sample,
+                            speech_samples=batch.samples,
+                            sample_rate=request.recognition.sample_rate,
+                            segments=mapped,
+                            latency_ms=(time.monotonic() - started) * 1000,
+                        ),
+                    )
+                    sequence += 1
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("说话人分离失败，主工作流继续: %s", exc)
+                await router.emit(
+                    node_id,
+                    "local_results",
+                    DiarizationLocalResult(
+                        phase="failed",
+                        batch_id=batch_id,
+                        sequence=None,
+                        batch_start_sample=batch.start_sample,
+                        batch_end_sample=batch.end_sample,
+                        speech_samples=batch.samples,
+                        sample_rate=request.recognition.sample_rate,
+                        segments=tuple(all_segments),
+                        latency_ms=(time.monotonic() - started) * 1000,
+                        error_code="diarization_failed",
+                        error_message=str(exc),
+                    ),
+                )
+                for candidate in batch.output_candidates(
+                    (),
+                    batch_id,
+                    fallback=True,
+                ):
+                    await router.emit(node_id, "segments", candidate)
+                return
+            await router.emit(
+                node_id,
+                "local_results",
+                DiarizationLocalResult(
+                    phase="completed",
+                    batch_id=batch_id,
+                    sequence=None,
+                    batch_start_sample=batch.start_sample,
+                    batch_end_sample=batch.end_sample,
+                    speech_samples=batch.samples,
+                    sample_rate=request.recognition.sample_rate,
+                    segments=tuple(all_segments),
+                    latency_ms=(time.monotonic() - started) * 1000,
+                ),
+            )
+            for candidate in batch.output_candidates(
+                tuple(all_pieces),
+                batch_id,
+            ):
+                await router.emit(node_id, "segments", candidate)
+
+        async for item in _items(router.input(node_id, "segments")):
+            candidate = cast(_SegmentCandidate, item)
+            for batch in batcher.accept(candidate):
+                await process(batch)
+        for batch in batcher.finish():
+            await process(batch)
+
+    async def _speaker_clustering(
+        self,
+        node_id: str,
+        node: CompiledAudioNode,
+        request: AudioInferenceRequest,
+        router: _EdgeRouter,
+    ) -> None:
+        definition = cast(SpeakerClusteringNode, node.definition)
+        config = definition.config
+        inferencer = self._embedding_inferencers[node_id]
+        sample_rate = request.recognition.sample_rate
+        max_embedding_samples = max(
+            1,
+            int(round(config.max_embedding_seconds * sample_rate)),
+        )
+        vectors: list[_ClusterVector] = []
+        failed_assignments: list[DiarizationClusterAssignment] = []
+        pending: list[_SegmentCandidate] = []
+        session: StreamingClusteringSession | None = None
+        revision = 0
+        last_completed_revision: int | None = None
+        last_labels: tuple[int, ...] = ()
+
+        def assignments(labels: tuple[int, ...]) -> tuple[DiarizationClusterAssignment, ...]:
+            if len(labels) != len(vectors):
+                raise ValueError(
+                    "流式聚类返回标签数量不符: "
+                    f"expected={len(vectors)}, actual={len(labels)}"
+                )
+            values = list(failed_assignments)
+            for record, label in zip(vectors, labels, strict=True):
+                values.extend(
+                    DiarizationClusterAssignment(
+                        segment_id=segment_id,
+                        local_speaker_id=record.local_speaker_id,
+                        speaker_id=label,
+                    )
+                    for segment_id in record.segment_ids
+                )
+            return tuple(values)
+
+        async def embed(audio: bytes) -> bytes:
+            kwargs = {
+                "algorithm": config.embedding_algorithm,
+                "expected_dimension": config.expected_dimension,
+                "normalize": config.normalize,
+            }
+            if self._embedding_semaphore is None:
+                return await inferencer.embed_bytes(audio, **kwargs)
+            async with self._embedding_semaphore:
+                return await inferencer.embed_bytes(audio, **kwargs)
+
+        async def process_batch(candidates: tuple[_SegmentCandidate, ...]) -> None:
+            nonlocal session, revision, last_completed_revision, last_labels
+            grouped: dict[str, list[_SegmentCandidate]] = {}
+            for candidate in candidates:
+                context = candidate.diarization
+                if context is None or context.local_speaker_id is None:
+                    continue
+                grouped.setdefault(context.local_speaker_id, []).append(candidate)
+            if not grouped:
+                return
+
+            revision += 1
+            new_vectors: list[_ClusterVector] = []
+            for local_speaker_id, pieces in grouped.items():
+                pieces.sort(key=lambda value: (value.start_sample, value.end_sample))
+                segment_ids = tuple(
+                    cast(_DiarizationContext, piece.diarization).segment_id
+                    for piece in pieces
+                )
+                audio = b"".join(piece.audio for piece in pieces)
+                audio = audio[: max_embedding_samples * 2]
+                try:
+                    vector = await embed(audio)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.warning(
+                        "说话人聚类向量提取失败，片段标记为噪声: %s",
+                        exc,
+                    )
+                    failed_assignments.extend(
+                        DiarizationClusterAssignment(
+                            segment_id=segment_id,
+                            local_speaker_id=local_speaker_id,
+                            speaker_id=-1,
+                        )
+                        for segment_id in segment_ids
+                    )
+                    continue
+                new_vectors.append(
+                    _ClusterVector(
+                        local_speaker_id=local_speaker_id,
+                        segment_ids=segment_ids,
+                        vector=vector,
+                    )
+                )
+
+            if len(vectors) + len(new_vectors) > config.max_vectors:
+                error = ValueError(
+                    f"说话人聚类向量数量超过上限 {config.max_vectors}"
+                )
+                await router.emit(
+                    node_id,
+                    "results",
+                    DiarizationClusterResult(
+                        phase="failed",
+                        revision=revision,
+                        replaces_revision=last_completed_revision,
+                        assignments=(),
+                        error_code="diarization_cluster_failed",
+                        error_message=str(error),
+                    ),
+                )
+                if definition.failure_policy is FailurePolicy.FAIL_PIPELINE:
+                    raise error
+                return
+
+            vectors.extend(new_vectors)
+            started = time.monotonic()
+            try:
+                if len(vectors) < 2:
+                    labels = tuple(-1 for _ in vectors)
+                elif session is None:
+                    session = inferencer.streaming_clustering()
+                    labels = await session.start(
+                        tuple(item.vector for item in vectors),
+                        algorithm=config.clustering_algorithm,
+                        parameters=config.parameters,
+                    )
+                elif new_vectors:
+                    labels = await session.add(
+                        tuple(item.vector for item in new_vectors)
+                    )
+                else:
+                    labels = last_labels
+                snapshot = assignments(labels)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("说话人流式聚类失败，保留上一版结果: %s", exc)
+                if session is not None:
+                    await session.close()
+                    session = None
+                await router.emit(
+                    node_id,
+                    "results",
+                    DiarizationClusterResult(
+                        phase="failed",
+                        revision=revision,
+                        replaces_revision=last_completed_revision,
+                        assignments=(),
+                        error_code="diarization_cluster_failed",
+                        error_message=str(exc),
+                    ),
+                )
+                if definition.failure_policy is FailurePolicy.FAIL_PIPELINE:
+                    raise
+                return
+
+            await router.emit(
+                node_id,
+                "results",
+                DiarizationClusterResult(
+                    phase="completed",
+                    revision=revision,
+                    replaces_revision=last_completed_revision,
+                    assignments=snapshot,
+                ),
+            )
+            last_completed_revision = revision
+            last_labels = labels
+            logger.debug(
+                "说话人聚类完成: revision=%s vectors=%s latency_ms=%.2f",
+                revision,
+                len(vectors),
+                (time.monotonic() - started) * 1000,
+            )
+
+        try:
+            async for item in _items(router.input(node_id, "segments")):
+                candidate = cast(_SegmentCandidate, item)
+                context = candidate.diarization
+                if context is None:
+                    raise ValueError("说话人聚类节点只能接收说话人分离片段")
+                pending.append(candidate)
+                if context.batch_completed:
+                    batch_id = context.batch_id
+                    batch = tuple(
+                        value
+                        for value in pending
+                        if cast(_DiarizationContext, value.diarization).batch_id
+                        == batch_id
+                    )
+                    pending = [
+                        value
+                        for value in pending
+                        if cast(_DiarizationContext, value.diarization).batch_id
+                        != batch_id
+                    ]
+                    await process_batch(batch)
+        finally:
+            if session is not None:
+                await session.close()
 
     async def _vector_search(self, node_id: str, node: CompiledAudioNode, router: _EdgeRouter) -> None:
         definition = cast(VectorSearchNode, node.definition)

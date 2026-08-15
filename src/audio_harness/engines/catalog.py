@@ -114,6 +114,7 @@ class EngineCatalog:
             EngineKind.LLM: EngineApi.RESPONSES,
             EngineKind.TTS: EngineApi.QWEN_TTS_DUPLEX,
             EngineKind.EMBEDDING: EngineApi.ENGINE_FEATURE,
+            EngineKind.DIARIZATION: EngineApi.UX_SPEAKER_DIARIZATION,
         }[asset.kind]
         if asset.api is not expected:
             raise CatalogConflictError(
