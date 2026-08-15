@@ -212,6 +212,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/vector-spaces/{collection_name}/search/audio/vad-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Vad Audio */
+        post: operations["preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/vector-spaces/{collection_name}/points/scroll": {
         parameters: {
             query?: never;
@@ -866,6 +883,13 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** AudioSpeakerSearchRead */
+        AudioSpeakerSearchRead: {
+            /** Embedding */
+            embedding: number[];
+            /** Groups */
+            groups: components["schemas"]["SpeakerMatchRead"][];
+        };
         /** AudioWorkflowCreate */
         AudioWorkflowCreate: {
             /** Slug */
@@ -985,6 +1009,13 @@ export interface components {
             ref_text?: string | null;
             /** File */
             file: string;
+        };
+        /** Body_preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post */
+        Body_preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post: {
+            /** Audio */
+            audio: string;
+            /** Vad Engine Id */
+            vad_engine_id: string;
         };
         /** Body_register_audio_api_v1_vector_spaces__collection_name__points_audio_post */
         Body_register_audio_api_v1_vector_spaces__collection_name__points_audio_post: {
@@ -1823,6 +1854,27 @@ export interface components {
             /** @default fail_open */
             failure_policy: components["schemas"]["FailurePolicy"];
         };
+        /** SpeakerMatchRead */
+        SpeakerMatchRead: {
+            /** Speaker Id */
+            speaker_id: string;
+            /** Score */
+            score: number;
+            observation: components["schemas"]["VectorObservationRead"];
+        };
+        /** VadAudioPreviewRead */
+        VadAudioPreviewRead: {
+            /** Audio Base64 */
+            audio_base64: string;
+            /**
+             * Content Type
+             * @default audio/wav
+             * @constant
+             */
+            content_type: "audio/wav";
+            /** Duration Ms */
+            duration_ms: number;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -1835,6 +1887,15 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** VectorObservationRead */
+        VectorObservationRead: {
+            /** Point Id */
+            point_id: string;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
         };
         /** VectorSearchNode */
         VectorSearchNode: {
@@ -2570,9 +2631,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AudioSpeakerSearchRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VadAudioPreviewRead"];
                 };
             };
             /** @description Validation Error */

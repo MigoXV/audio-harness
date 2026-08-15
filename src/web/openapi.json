@@ -694,9 +694,59 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Search Audio Api V1 Vector Spaces  Collection Name  Search Audio Post"
+                  "$ref": "#/components/schemas/AudioSpeakerSearchRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vector-spaces/{collection_name}/search/audio/vad-preview": {
+      "post": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Preview Vad Audio",
+        "operationId": "preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post",
+        "parameters": [
+          {
+            "name": "collection_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Collection Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VadAudioPreviewRead"
                 }
               }
             }
@@ -2754,6 +2804,31 @@
         ],
         "title": "AudioNodeTypeRead"
       },
+      "AudioSpeakerSearchRead": {
+        "properties": {
+          "embedding": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Embedding"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/SpeakerMatchRead"
+            },
+            "type": "array",
+            "title": "Groups"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "embedding",
+          "groups"
+        ],
+        "title": "AudioSpeakerSearchRead"
+      },
       "AudioWorkflowCreate": {
         "properties": {
           "slug": {
@@ -3150,6 +3225,25 @@
           "file"
         ],
         "title": "Body_create_voice_api_v1_voices_post"
+      },
+      "Body_preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post": {
+        "properties": {
+          "audio": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Audio"
+          },
+          "vad_engine_id": {
+            "type": "string",
+            "title": "Vad Engine Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "audio",
+          "vad_engine_id"
+        ],
+        "title": "Body_preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post"
       },
       "Body_register_audio_api_v1_vector_spaces__collection_name__points_audio_post": {
         "properties": {
@@ -5388,6 +5482,55 @@
         ],
         "title": "SemanticVadNode"
       },
+      "SpeakerMatchRead": {
+        "properties": {
+          "speaker_id": {
+            "type": "string",
+            "title": "Speaker Id"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "observation": {
+            "$ref": "#/components/schemas/VectorObservationRead"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "speaker_id",
+          "score",
+          "observation"
+        ],
+        "title": "SpeakerMatchRead"
+      },
+      "VadAudioPreviewRead": {
+        "properties": {
+          "audio_base64": {
+            "type": "string",
+            "title": "Audio Base64"
+          },
+          "content_type": {
+            "type": "string",
+            "const": "audio/wav",
+            "title": "Content Type",
+            "default": "audio/wav"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Duration Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "audio_base64",
+          "duration_ms"
+        ],
+        "title": "VadAudioPreviewRead"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -5427,6 +5570,26 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VectorObservationRead": {
+        "properties": {
+          "point_id": {
+            "type": "string",
+            "title": "Point Id"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "point_id",
+          "payload"
+        ],
+        "title": "VectorObservationRead"
       },
       "VectorSearchNode": {
         "properties": {

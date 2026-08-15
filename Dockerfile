@@ -40,4 +40,4 @@ RUN poetry install
 EXPOSE 50051 8000
 
 # 默认入口
-CMD ["poetry", "run", "audio-harness", "serve"]
+CMD ["poetry", "run", "audio-harness"]

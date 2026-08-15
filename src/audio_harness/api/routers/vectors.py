@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from typing import Annotated, Any
 
@@ -7,9 +8,11 @@ from fastapi import APIRouter, File, Form, Response, UploadFile, status
 
 from audio_harness.configs import QdrantConfig
 from audio_harness.schemas.vectors import (
-    DestroyRequest, InfrastructureRead, PayloadReplace, ScrollRequest,
-    VectorSpaceCreate, VectorSpaceList, VectorSpaceRead,
+    AudioSpeakerSearchRead, DestroyRequest, InfrastructureRead, PayloadReplace, ScrollRequest,
+    SpeakerMatchRead,
+    VadAudioPreviewRead, VectorSpaceCreate, VectorSpaceList, VectorSpaceRead,
 )
+from audio_harness.workflows.models import FireRedPostprocessingOptions
 from audio_harness.vectors.models import VectorSpaceData
 from audio_harness.vectors.service import VectorService
 
@@ -58,7 +61,6 @@ def create_vector_router(service: VectorService, config: QdrantConfig) -> APIRou
         channel_id: Annotated[str | None, Form()] = None,
         captured_at: Annotated[int | None, Form()] = None,
         quality_score: Annotated[float | None, Form()] = None,
-        cluster_id: Annotated[int | None, Form()] = None,
     ) -> dict[str, str]:
         configs = json.loads(embeddings_json)
         if not isinstance(configs, list): raise ValueError("embeddings_json 必须是数组")
@@ -66,21 +68,62 @@ def create_vector_router(service: VectorService, config: QdrantConfig) -> APIRou
             collection_name, await audio.read(), configs,
             _json_object(payload_json, "payload_json"), point_id,
             speaker_id=speaker_id, channel_id=channel_id, captured_at=captured_at,
-            quality_score=quality_score, cluster_id=cluster_id,
+            quality_score=quality_score,
         )
         return {"point_id": value}
 
-    @router.post("/vector-spaces/{collection_name}/search/audio")
+    @router.post("/vector-spaces/{collection_name}/search/audio", response_model=AudioSpeakerSearchRead)
     async def search_audio(
         collection_name: str, audio: Annotated[UploadFile, File()],
         vector_name: Annotated[str, Form()], engine_id: Annotated[str, Form()],
         algorithm: Annotated[str, Form()], normalize: Annotated[bool, Form()] = True,
         top_k: Annotated[int, Form()] = 10, score_threshold: Annotated[float | None, Form()] = None,
         filter_json: Annotated[str, Form()] = "{}",
-    ) -> dict[str, Any]:
+    ) -> AudioSpeakerSearchRead:
         if not 1 <= top_k <= 100: raise ValueError("top_k 必须位于 1 到 100")
-        vector, matches = await service.search_audio(collection_name, await audio.read(), vector_name=vector_name, engine_id=engine_id, algorithm=algorithm, normalize=normalize, top_k=top_k, score_threshold=score_threshold, filter_json=_json_object(filter_json, "filter_json"))
-        return {"embedding": list(vector), "matches": [item.__dict__ for item in matches]}
+        vector, groups = await service.search_audio(collection_name, await audio.read(), vector_name=vector_name, engine_id=engine_id, algorithm=algorithm, normalize=normalize, top_k=top_k, score_threshold=score_threshold, filter_json=_json_object(filter_json, "filter_json"))
+        return AudioSpeakerSearchRead(
+            embedding=list(vector),
+            groups=[SpeakerMatchRead.model_validate({
+                "speaker_id": item.speaker_id,
+                "score": item.score,
+                "observation": {
+                    "point_id": item.observation.point_id,
+                    "payload": item.observation.payload,
+                },
+            }) for item in groups],
+        )
+
+    @router.post(
+        "/vector-spaces/{collection_name}/search/audio/vad-preview",
+        response_model=VadAudioPreviewRead,
+    )
+    async def preview_vad_audio(
+        collection_name: str,
+        audio: Annotated[UploadFile, File()],
+        vad_engine_id: Annotated[str, Form()],
+        vad_postprocessing_json: Annotated[str | None, Form()] = None,
+    ) -> VadAudioPreviewRead:
+        postprocessing = None
+        if vad_postprocessing_json:
+            parsed = FireRedPostprocessingOptions.model_validate(
+                _json_object(vad_postprocessing_json, "vad_postprocessing_json")
+            )
+            postprocessing = {
+                "processor": parsed.processor,
+                "version": parsed.version,
+                "parameters": parsed.parameters.model_dump(),
+            }
+        arguments: dict[str, Any] = {"vad_engine_id": vad_engine_id}
+        if postprocessing is not None:
+            arguments["postprocessing"] = postprocessing
+        wav, duration_ms = await service.preview_vad_audio(
+            collection_name, await audio.read(), **arguments
+        )
+        return VadAudioPreviewRead(
+            audio_base64=base64.b64encode(wav).decode("ascii"),
+            duration_ms=duration_ms,
+        )
 
     @router.post("/vector-spaces/{collection_name}/points/scroll")
     async def scroll(collection_name: str, payload: ScrollRequest) -> dict[str, Any]:

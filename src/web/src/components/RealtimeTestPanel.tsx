@@ -28,22 +28,13 @@ interface Latencies {
 }
 
 interface VectorSearchMatchView {
-  pointId: string;
+  speakerId: string;
   score: number;
-  payload: unknown;
 }
 
 export interface VectorSearchEventView {
-  id: string;
   status: "completed" | "failed";
-  time: string;
-  itemId: string;
-  audioStartMs: number;
-  audioEndMs: number;
-  collectionName: string;
-  vectorName: string;
-  latencyMs: number | null;
-  matches: VectorSearchMatchView[];
+  groups: VectorSearchMatchView[];
   error: string | null;
 }
 
@@ -119,11 +110,11 @@ export function eventDetail(event: Record<string, unknown>): string {
     return `中间结果已清除：${String(event.reason ?? "unknown")}`;
   }
   if (event.type === "x_aha.vector.search.completed") {
-    const matches = Array.isArray(event.matches) ? event.matches.length : 0;
-    return `${String(event.collection_name ?? "")} / ${String(event.vector_name ?? "")} · ${matches} 个命中 · ${String(event.latency_ms ?? "—")} ms`;
+    const groups = Array.isArray(event.groups) ? event.groups.length : 0;
+    return `${groups} 个候选人 · ${String(event.latency_ms ?? "—")} ms`;
   }
   if (event.type === "x_aha.vector.search.failed") {
-    return `${String(event.collection_name ?? "")} / ${String(event.vector_name ?? "")} · ${String((event.error as { message?: string } | undefined)?.message ?? "向量搜索失败")}`;
+    return String((event.error as { message?: string } | undefined)?.message ?? "人物搜索失败");
   }
   return String(
     event.delta
@@ -137,34 +128,25 @@ export function vectorSearchEventView(
   event: Record<string, unknown>,
   time: string,
 ): VectorSearchEventView | null {
+  void time;
   const type = String(event.type ?? "");
   if (type !== "x_aha.vector.search.completed" && type !== "x_aha.vector.search.failed") return null;
-  const matches = Array.isArray(event.matches)
-    ? event.matches.flatMap((match) => {
-        if (typeof match !== "object" || match === null) return [];
-        const value = match as Record<string, unknown>;
+  const groups = Array.isArray(event.groups)
+    ? event.groups.flatMap((group) => {
+        if (typeof group !== "object" || group === null) return [];
+        const value = group as Record<string, unknown>;
         const score = Number(value.score);
         return [{
-          pointId: String(value.point_id ?? ""),
+          speakerId: String(value.speaker_id ?? ""),
           score: Number.isFinite(score) ? score : 0,
-          payload: value.payload ?? {},
         }];
       })
     : [];
-  const latency = Number(event.latency_ms);
   return {
-    id: String(event.event_id ?? `${type}-${time}`),
     status: type.endsWith(".completed") ? "completed" : "failed",
-    time,
-    itemId: String(event.item_id ?? ""),
-    audioStartMs: Number(event.audio_start_ms ?? 0),
-    audioEndMs: Number(event.audio_end_ms ?? 0),
-    collectionName: String(event.collection_name ?? ""),
-    vectorName: String(event.vector_name ?? ""),
-    latencyMs: Number.isFinite(latency) ? latency : null,
-    matches,
+    groups,
     error: type.endsWith(".failed")
-      ? String((event.error as { message?: string } | undefined)?.message ?? "向量搜索失败")
+      ? String((event.error as { message?: string } | undefined)?.message ?? "人物搜索失败")
       : null,
   };
 }
@@ -519,13 +501,10 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
         {workflowKind === "voice_agent" && <><div className="metric-card"><span>转写 → 模型首字</span><strong>{displayMs(latencies.model, "等待模型首字")}</strong></div><div className="metric-card"><span>模型首字 → TTS 首个音频块</span><strong>{displayMs(latencies.audio, "等待 TTS 音频")}</strong></div></>}
       </section>
 
-      {vectorSearch && <details className="panel realtime-vector-results">
-        <summary><span>向量搜索结果</span><code>{vectorSearch.collectionName} / {vectorSearch.vectorName}</code><b className={`status-chip ${vectorSearch.status === "failed" ? "status-published_degraded" : "status-published_healthy"}`}>{vectorSearch.status === "failed" ? "失败" : `${vectorSearch.matches.length} 个命中`}</b><i aria-hidden="true">⌄</i></summary>
-        <article className={vectorSearch.status === "failed" ? "failed" : ""}>
-          <small>{vectorSearch.time} · 音频 {vectorSearch.audioStartMs}–{vectorSearch.audioEndMs} ms{vectorSearch.latencyMs !== null ? ` · ${vectorSearch.latencyMs} ms` : ""}{vectorSearch.itemId ? ` · ${vectorSearch.itemId}` : ""}</small>
-          {vectorSearch.error ? <div className="inline-error">{vectorSearch.error}</div> : vectorSearch.matches.length > 0 ? <div className="realtime-vector-matches">{vectorSearch.matches.map((match, index) => <div key={`${match.pointId}-${index}`}><span><code>{match.pointId || "未提供 Point ID"}</code><b>{match.score.toFixed(4)}</b></span><pre>{JSON.stringify(match.payload, null, 2)}</pre></div>)}</div> : <p className="empty-copy">本次搜索没有命中。</p>}
-        </article>
-      </details>}
+      {vectorSearch && <section className="panel realtime-vector-results" aria-label="人物搜索结果">
+        <header><span>人物搜索结果</span></header>
+        {vectorSearch.error ? <div className="inline-error">{vectorSearch.error}</div> : vectorSearch.groups.length > 0 ? <div className="realtime-vector-matches">{vectorSearch.groups.map((group, index) => <div key={`${group.speakerId}-${index}`}><code>{group.speakerId || "未提供 Speaker ID"}</code><b>分数 {group.score.toFixed(4)}</b></div>)}</div> : <p className="empty-copy">本次搜索没有候选人。</p>}
+      </section>}
 
       <details className="panel event-log"><summary>协议事件 <span>{eventTotal}</span></summary><div>{events.map((event) => <div className="event-row" key={event.id}><time>{event.time}</time><code>{event.type}</code>{event.count > 1 && <b>×{event.count}</b>}<span>{event.detail}</span></div>)}</div></details>
     </div>

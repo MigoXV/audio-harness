@@ -122,19 +122,19 @@ describe("eventDetail", () => {
       collection_name: "voiceprints",
       vector_name: "eres2netv2",
       latency_ms: 12.5,
-      matches: [{ point_id: "point-1" }, { point_id: "point-2" }],
-    })).toBe("voiceprints / eres2netv2 · 2 个命中 · 12.5 ms");
+      groups: [{ speaker_id: "speaker-1" }, { speaker_id: "speaker-2" }],
+    })).toBe("2 个候选人 · 12.5 ms");
     expect(eventDetail({
       type: "x_aha.vector.search.failed",
       collection_name: "voiceprints",
       vector_name: "eres2netv2",
       error: { code: "vector_search_failed", message: "Qdrant 不可用" },
-    })).toBe("voiceprints / eres2netv2 · Qdrant 不可用");
+    })).toBe("Qdrant 不可用");
   });
 });
 
 describe("vectorSearchEventView", () => {
-  it("parses a completed push into displayable matches", () => {
+  it("parses a completed push into displayable speaker groups", () => {
     expect(vectorSearchEventView({
       type: "x_aha.vector.search.completed",
       event_id: "event-1",
@@ -144,18 +144,14 @@ describe("vectorSearchEventView", () => {
       collection_name: "voiceprints",
       vector_name: "eres2netv2",
       latency_ms: 18.25,
-      matches: [{ point_id: "point-1", score: 0.9321, payload: { speaker_id: "speaker-1" } }],
+      groups: [{
+        speaker_id: "speaker-1",
+        score: 0.9321,
+        observation: { point_id: "point-1", payload: { speaker_id: "speaker-1" } },
+      }],
     }, "12:30:00")).toEqual({
-      id: "event-1",
       status: "completed",
-      time: "12:30:00",
-      itemId: "item-1",
-      audioStartMs: 100,
-      audioEndMs: 2300,
-      collectionName: "voiceprints",
-      vectorName: "eres2netv2",
-      latencyMs: 18.25,
-      matches: [{ pointId: "point-1", score: 0.9321, payload: { speaker_id: "speaker-1" } }],
+      groups: [{ speakerId: "speaker-1", score: 0.9321 }],
       error: null,
     });
   });
@@ -170,8 +166,7 @@ describe("vectorSearchEventView", () => {
       error: { message: "Qdrant 不可用" },
     }, "12:31:00")).toMatchObject({
       status: "failed",
-      time: "12:31:00",
-      matches: [],
+      groups: [],
       error: "Qdrant 不可用",
     });
   });

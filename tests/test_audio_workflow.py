@@ -46,7 +46,7 @@ from audio_harness.workflows.models import (
     VectorSearchNode,
     VectorSearchNodeConfig,
 )
-from audio_harness.vectors.models import VectorMatch
+from audio_harness.vectors.models import SpeakerMatch, VectorObservation
 
 
 def _asset(asset_id: str, kind: EngineKind, api: EngineApi) -> EngineAssetData:
@@ -333,28 +333,32 @@ class _Embedding(AudioEmbeddingInferencer):
         return (1.0, 0.0)
 
 
-class _Qdrant:
+class _Vectors:
     def __init__(self, *, failure: Exception | None = None) -> None:
         self.failure = failure
 
-    async def search(
+    async def search_embedding(
         self,
         collection: str,
-        vector_name: str,
         vector: tuple[float, ...],
         *,
-        limit: int,
+        vector_name: str,
+        top_k: int,
         score_threshold: float | None = None,
         filter_json: dict | None = None,
-    ) -> tuple[VectorMatch, ...]:
+    ) -> tuple[SpeakerMatch, ...]:
         if self.failure is not None:
             raise self.failure
-        assert (collection, vector_name, vector, limit) == (
+        assert (collection, vector_name, vector, top_k) == (
             "voiceprints", "eres2netv2", (1.0, 0.0), 10,
         )
         assert score_threshold is None
         assert filter_json == {}
-        return (VectorMatch("point-1", 0.95, {"speaker_id": "speaker-1"}),)
+        return (SpeakerMatch(
+            "speaker-1",
+            0.95,
+            VectorObservation("point-1", {"speaker_id": "speaker-1"}),
+        ),)
 
 
 class _FailingVad(_Vad):
@@ -450,7 +454,7 @@ async def test_vector_search_result_reaches_named_output_without_breaking_asr(
         },
         runtime_config=AudioRuntimeConfig(2, 8),
         asr_semaphore=asyncio.Semaphore(1),
-        qdrant=_Qdrant(failure=search_failure),  # type: ignore[arg-type]
+        vectors=_Vectors(failure=search_failure),  # type: ignore[arg-type]
     )
 
     outputs = [
@@ -472,15 +476,18 @@ async def test_vector_search_result_reaches_named_output_without_breaking_asr(
     assert isinstance(vector_output.payload, VectorSearchResult)
     if search_failure is None:
         assert vector_output.payload.error_code is None
-        assert vector_output.payload.matches == ({
-            "point_id": "point-1",
+        assert vector_output.payload.groups == ({
+            "speaker_id": "speaker-1",
             "score": 0.95,
-            "payload": {"speaker_id": "speaker-1"},
+            "observation": {
+                "point_id": "point-1",
+                "payload": {"speaker_id": "speaker-1"},
+            },
         },)
     else:
         assert vector_output.payload.error_code == "vector_search_failed"
         assert vector_output.payload.error_message == "qdrant unavailable"
-        assert vector_output.payload.matches == ()
+        assert vector_output.payload.groups == ()
 
 
 def _dual_definition() -> AudioWorkflowDocument:

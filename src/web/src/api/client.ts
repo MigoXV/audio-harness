@@ -20,8 +20,9 @@ import type {
   WorkflowSettings,
   VectorInfrastructure,
   VectorSpace,
-  VectorMatch,
+  VectorSpeakerMatch,
   VectorPoint,
+  VadAudioPreview,
 } from "./types";
 
 interface ErrorEnvelope {
@@ -145,7 +146,8 @@ export const apiClient: AudioHarnessApi = {
   createVectorSpace(payload) { return request<VectorSpace>("/api/v1/vector-spaces", { method: "POST", body: JSON.stringify(payload) }); },
   async destroyVectorSpace(collectionName, confirmation) { await request(`/api/v1/vector-spaces/${encodeURIComponent(collectionName)}/destroy`, { method: "POST", body: JSON.stringify({ confirmation }) }); },
   registerVectorAudio(id, form) { return request<{ point_id: string }>(`/api/v1/vector-spaces/${encodeURIComponent(id)}/points/audio`, { method: "POST", body: form }); },
-  searchVectorAudio(id, form) { return request<{ embedding: number[]; matches: VectorMatch[] }>(`/api/v1/vector-spaces/${encodeURIComponent(id)}/search/audio`, { method: "POST", body: form }); },
+  previewVectorSearchVad(id, form) { return request<VadAudioPreview>(`/api/v1/vector-spaces/${encodeURIComponent(id)}/search/audio/vad-preview`, { method: "POST", body: form }); },
+  searchVectorAudio(id, form) { return request<{ embedding: number[]; groups: VectorSpeakerMatch[] }>(`/api/v1/vector-spaces/${encodeURIComponent(id)}/search/audio`, { method: "POST", body: form }); },
   scrollVectorPoints(id, payload) { return request<{ items: VectorPoint[]; next_offset: string | null }>(`/api/v1/vector-spaces/${encodeURIComponent(id)}/points/scroll`, { method: "POST", body: JSON.stringify(payload) }); },
   async replaceVectorPayload(id, pointId, payload) { await request(`/api/v1/vector-spaces/${encodeURIComponent(id)}/points/${encodeURIComponent(pointId)}/payload`, { method: "PUT", body: JSON.stringify({ payload }) }); },
   async deleteVectorPoint(id, pointId) { await request(`/api/v1/vector-spaces/${encodeURIComponent(id)}/points/${encodeURIComponent(pointId)}`, { method: "DELETE" }); },

@@ -224,9 +224,7 @@ export function applyAudioGraphTemplate(
   if (template === "dual_physical_semantic_asr" || template === "meeting_complete") {
     const previewRecognition = interimAsr(document, recognition);
     const previewPhysical = interimPhysicalVad(document, physical);
-    const preferredVectorSpace = vectorSpaces.find((space) => space.template === "voiceprint")
-      ?? vectorSpaces.find((space) => space.collection_name === "voiceprints")
-      ?? vectorSpaces.find((space) => space.vectors.length > 0);
+    const preferredVectorSpace = vectorSpaces.find((space) => space.template === "voiceprint");
     const embedding = audioEmbedding(document, preferredVectorSpace);
     const search = vectorSearch(document, preferredVectorSpace);
     const completeMeeting = template === "meeting_complete";

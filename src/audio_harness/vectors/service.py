@@ -10,18 +10,27 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from audio_harness.database.models import AudioWorkflow, AudioWorkflowRevision
 from audio_harness.engines.catalog import EngineCatalog
-from audio_harness.engines.models import EngineApi
+from audio_harness.engines.models import EngineApi, EngineKind
 from audio_harness.engines.pool import InferencerPool
 from audio_harness.inferencers.embedding import AudioEmbeddingInferencer
 from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
+from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.media.decode import decode_audio
 from audio_harness.vectors.models import (
     VOICEPRINT_PAYLOAD_SCHEMA,
     NamedVector,
-    VectorMatch,
+    SpeakerMatch,
     VectorSpaceData,
 )
 from audio_harness.vectors.qdrant import QdrantCollectionNotFoundError, QdrantGateway
+from audio_harness.vectors.vad_preview import (
+    SAMPLE_RATE,
+    SAMPLE_WIDTH_BYTES,
+    VadBoundaryCollector,
+    concatenate_intervals,
+    encode_wav,
+    pcm_chunks,
+)
 
 
 class VectorNotFoundError(LookupError): pass
@@ -48,9 +57,6 @@ def _validate_voiceprint_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if not math.isfinite(quality) or not 0 <= quality <= 1:
         raise ValueError("quality_score 必须是 0 到 1 的有限数值")
     result["quality_score"] = quality
-    cluster_id = result.get("cluster_id")
-    if isinstance(cluster_id, bool) or not isinstance(cluster_id, int):
-        raise ValueError("cluster_id 必须是整数")
     return result
 
 
@@ -132,6 +138,58 @@ class VectorService:
             async with self._embedding_limiter:
                 return await inferencer.embed(pcm, algorithm=algorithm, expected_dimension=dimension, normalize=normalize)
 
+    async def preview_vad_audio(
+        self,
+        collection_name: str,
+        audio: bytes,
+        *,
+        vad_engine_id: str,
+        postprocessing: VadInferencer.Postprocessing | None = None,
+    ) -> tuple[bytes, int]:
+        space = await self.get_space(collection_name)
+        if space.template != "voiceprint":
+            raise ValueError("VAD 预览仅支持 voiceprint Collection")
+        asset = await self._catalog.get_asset(vad_engine_id)
+        if (
+            asset.kind is not EngineKind.VAD
+            or asset.api is not EngineApi.UX_VAD
+            or not asset.enabled
+        ):
+            raise ValueError("所选引擎不是已启用的 VAD 引擎")
+        pcm = await decode_audio(audio)
+
+        async def detect() -> bytes:
+            async with self._pool.lease([asset.snapshot()]) as inferencers:
+                inferencer = cast(
+                    VadInferencer,
+                    inferencers[(asset.id, asset.revision)],
+                )
+                collector = VadBoundaryCollector(
+                    len(pcm) // SAMPLE_WIDTH_BYTES
+                )
+                async for update in inferencer.stream_detect(
+                    pcm_chunks(pcm),
+                    SAMPLE_RATE,
+                postprocessing=postprocessing,
+                ):
+                    if not isinstance(update, VadInferencer.Update):
+                        raise TypeError(f"非法 VAD 更新类型: {type(update)!r}")
+                    collector.accept(update)
+                return concatenate_intervals(pcm, collector.finish())
+
+        if self._embedding_limiter is None:
+            trimmed = await detect()
+        else:
+            async with self._embedding_limiter:
+                trimmed = await detect()
+        if not trimmed:
+            raise ValueError("VAD 未检测到有效语音")
+        duration_ms = max(
+            1,
+            round(len(trimmed) / SAMPLE_WIDTH_BYTES * 1000 / SAMPLE_RATE),
+        )
+        return encode_wav(trimmed), duration_ms
+
     async def register_audio(
         self,
         collection_name: str,
@@ -144,7 +202,6 @@ class VectorService:
         channel_id: str | None = None,
         captured_at: int | None = None,
         quality_score: float | None = None,
-        cluster_id: int | None = None,
     ) -> str:
         space = await self.get_space(collection_name); definitions = {item.name: item for item in space.vectors}
         metadata = {
@@ -154,7 +211,6 @@ class VectorService:
                 "channel_id": channel_id,
                 "captured_at": captured_at,
                 "quality_score": quality_score,
-                "cluster_id": cluster_id,
             }.items()
             if value is not None
         }
@@ -167,7 +223,6 @@ class VectorService:
                 **metadata,
                 "captured_at": captured_at if captured_at is not None else time.time_ns() // 1_000_000,
                 "quality_score": quality_score if quality_score is not None else 0.0,
-                "cluster_id": cluster_id if cluster_id is not None else -1,
             })
         else:
             payload = {**payload, **metadata}
@@ -192,13 +247,26 @@ class VectorService:
             payload = _validate_voiceprint_payload(payload)
         await self.gateway.replace_payload(collection_name, point_id, payload)
 
-    async def search_audio(self, collection_name: str, audio: bytes, *, vector_name: str, engine_id: str, algorithm: str, normalize: bool, top_k: int, score_threshold: float | None, filter_json: dict[str, Any] | None) -> tuple[tuple[float, ...], tuple[VectorMatch, ...]]:
-        space = await self.get_space(collection_name); target = next((item for item in space.vectors if item.name == vector_name), None)
+    async def search_embedding(self, collection_name: str, vector: tuple[float, ...], *, vector_name: str, top_k: int, score_threshold: float | None, filter_json: dict[str, Any] | None) -> tuple[SpeakerMatch, ...]:
+        return await self._search_embedding(
+            await self.get_space(collection_name), vector, vector_name=vector_name,
+            top_k=top_k, score_threshold=score_threshold, filter_json=filter_json,
+        )
+
+    async def _search_embedding(self, space: VectorSpaceData, vector: tuple[float, ...], *, vector_name: str, top_k: int, score_threshold: float | None, filter_json: dict[str, Any] | None) -> tuple[SpeakerMatch, ...]:
+        target = next((item for item in space.vectors if item.name == vector_name), None)
+        if space.template != "voiceprint": raise ValueError("音频人物搜索仅支持 voiceprint Collection")
         if target is None: raise ValueError("Named Vector 不存在")
-        vector = await self.embed_audio(audio, engine_id=engine_id, algorithm=algorithm, dimension=target.size, normalize=normalize)
+        if len(vector) != target.size: raise ValueError(f"查询向量维度不匹配: expected={target.size}, actual={len(vector)}")
         if self._qdrant_limiter is None:
-            matches = await self.gateway.search(space.collection_name, vector_name, vector, limit=top_k, score_threshold=score_threshold, filter_json=filter_json)
+            return await self.gateway.search_speakers(space.collection_name, vector_name, vector, limit=top_k, score_threshold=score_threshold, filter_json=filter_json)
         else:
             async with self._qdrant_limiter:
-                matches = await self.gateway.search(space.collection_name, vector_name, vector, limit=top_k, score_threshold=score_threshold, filter_json=filter_json)
-        return vector, matches
+                return await self.gateway.search_speakers(space.collection_name, vector_name, vector, limit=top_k, score_threshold=score_threshold, filter_json=filter_json)
+
+    async def search_audio(self, collection_name: str, audio: bytes, *, vector_name: str, engine_id: str, algorithm: str, normalize: bool, top_k: int, score_threshold: float | None, filter_json: dict[str, Any] | None) -> tuple[tuple[float, ...], tuple[SpeakerMatch, ...]]:
+        space = await self.get_space(collection_name); target = next((item for item in space.vectors if item.name == vector_name), None)
+        if space.template != "voiceprint": raise ValueError("音频人物搜索仅支持 voiceprint Collection")
+        if target is None: raise ValueError("Named Vector 不存在")
+        vector = await self.embed_audio(audio, engine_id=engine_id, algorithm=algorithm, dimension=target.size, normalize=normalize)
+        return vector, await self._search_embedding(space, vector, vector_name=vector_name, top_k=top_k, score_threshold=score_threshold, filter_json=filter_json)

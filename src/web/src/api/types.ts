@@ -73,7 +73,8 @@ export interface NamedVector { name: string; size: number; distance: "cosine" | 
 export interface VectorSpace { collection_name: string; vectors: NamedVector[]; template: "voiceprint" | null; }
 export interface VectorInfrastructure { configured: boolean; ready: boolean; grpc_target: string | null; http_url: string | null; }
 export interface VectorPoint { point_id: string; payload: Record<string, unknown>; }
-export interface VectorMatch extends VectorPoint { score: number; }
+export type VectorSpeakerMatch = Schemas["SpeakerMatchRead"];
+export type VadAudioPreview = Schemas["VadAudioPreviewRead"];
 
 export interface AudioHarnessApi {
   listEngines(filters?: EngineFilters, signal?: AbortSignal): Promise<EngineListResponse>;
@@ -124,7 +125,8 @@ export interface AudioHarnessApi {
   createVectorSpace(payload: Record<string, unknown>): Promise<VectorSpace>;
   destroyVectorSpace(collectionName: string, confirmation: string): Promise<void>;
   registerVectorAudio(id: string, form: FormData): Promise<{ point_id: string }>;
-  searchVectorAudio(id: string, form: FormData): Promise<{ embedding: number[]; matches: VectorMatch[] }>;
+  previewVectorSearchVad(id: string, form: FormData): Promise<VadAudioPreview>;
+  searchVectorAudio(id: string, form: FormData): Promise<Schemas["AudioSpeakerSearchRead"]>;
   scrollVectorPoints(id: string, payload: Record<string, unknown>): Promise<{ items: VectorPoint[]; next_offset: string | null }>;
   replaceVectorPayload(id: string, pointId: string, payload: Record<string, unknown>): Promise<void>;
   deleteVectorPoint(id: string, pointId: string): Promise<void>;

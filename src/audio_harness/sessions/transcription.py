@@ -19,7 +19,7 @@ from audio_harness.workflows.runtime import (
 )
 from audio_harness.workflows.service import ActiveAudioWorkflow, AudioWorkflowService
 from audio_harness.workflows.settings import WorkflowSettingsStore
-from audio_harness.vectors.qdrant import QdrantGateway
+from audio_harness.vectors.service import VectorService
 
 _AUDIO_END = object()
 _OUTPUT_END = object()
@@ -42,20 +42,18 @@ class AudioWorkflowSession:
         audio_queue_capacity: int,
         asr_limiter: ResizableConcurrencyLimiter,
         embedding_limiter: ResizableConcurrencyLimiter | None = None,
-        qdrant_limiter: ResizableConcurrencyLimiter | None = None,
         options: AsrInferencer.Options,
         include_vad_events: bool,
         include_vad_progress: bool,
         include_interim_transcripts: bool,
         include_vector_search: bool = False,
-        qdrant: QdrantGateway | None = None,
+        vectors: VectorService | None = None,
     ) -> None:
         self._inferencers = dict(inferencers)
         self._workflow = workflow
         self._runtime_config = runtime_config
         self._asr_limiter = asr_limiter
         self._embedding_limiter = embedding_limiter
-        self._qdrant_limiter = qdrant_limiter
         self._request = AudioInferenceRequest(
             recognition=options,
             include_vad_events=include_vad_events,
@@ -71,7 +69,7 @@ class AudioWorkflowSession:
         )
         self._finished = False
         self._closed = False
-        self._qdrant = qdrant
+        self._vectors = vectors
         self._task: asyncio.Task[None] | None = None
 
     @property
@@ -89,8 +87,7 @@ class AudioWorkflowSession:
             runtime_config=self._runtime_config,
             asr_semaphore=self._asr_limiter,
             embedding_semaphore=self._embedding_limiter,
-            qdrant_semaphore=self._qdrant_limiter,
-            qdrant=self._qdrant,
+            vectors=self._vectors,
         )
         self._task = asyncio.create_task(
             self._run(runtime),
@@ -183,8 +180,7 @@ class AudioWorkflowSessionService:
         session_limiter: ResizableSessionLimiter,
         asr_limiter: ResizableConcurrencyLimiter,
         embedding_limiter: ResizableConcurrencyLimiter | None = None,
-        qdrant_limiter: ResizableConcurrencyLimiter | None = None,
-        qdrant: QdrantGateway | None = None,
+        vectors: VectorService | None = None,
     ) -> None:
         self.inferencer_pool = inferencer_pool
         self.workflows = workflows
@@ -192,8 +188,7 @@ class AudioWorkflowSessionService:
         self.session_limiter = session_limiter
         self.asr_limiter = asr_limiter
         self.embedding_limiter = embedding_limiter
-        self.qdrant_limiter = qdrant_limiter
-        self.qdrant = qdrant
+        self.vectors = vectors
 
     def default_workflow(self) -> ActiveAudioWorkflow:
         workflow_id = self.workflow_settings.current().grpc_audio_workflow_id
@@ -285,13 +280,12 @@ class AudioWorkflowSessionReservation:
                 audio_queue_capacity=settings.audio_queue_capacity,
                 asr_limiter=self._service.asr_limiter,
                 embedding_limiter=self._service.embedding_limiter,
-                qdrant_limiter=self._service.qdrant_limiter,
                 options=options,
                 include_vad_events=include_vad_events,
                 include_vad_progress=include_vad_progress,
                 include_interim_transcripts=include_interim_transcripts,
                 include_vector_search=include_vector_search,
-                qdrant=self._service.qdrant,
+                vectors=self._service.vectors,
             )
             await session.start()
         except BaseException:

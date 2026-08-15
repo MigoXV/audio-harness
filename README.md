@@ -59,7 +59,7 @@ VAD 带有一组偏敏感的初始参数，但所有参数和引擎绑定都可�
 和已发布修订不会被自动迁移。
 
 “会议系统完全体”模板建立在双路物理与语义 VAD 模板之上，并把正式语义 VAD 输出的
-音频片段并联到“语音特征向量提取 → 向量搜索”，增加 `vector_search` 命名出口。
+音频片段并联到“语音特征向量提取 → 人物搜索”，增加 `vector_search` 命名出口。
 模板优先选择带语音特征向量提取模板标记的 Qdrant Collection，并据其首个 Named
 Vector 初始化算法和维度；没有可用空间时使用 `voiceprints`、`eres2netv2`、192 维
 作为待确认配置。再次应用模板会保留已经选择的提取引擎、Collection 和检索参数。
@@ -149,9 +149,8 @@ poetry run audio-harness serve
 | `channel_id` | keyword | 必填，非空，最长 128 个字符 |
 | `captured_at` | integer | Unix 毫秒；未填写时使用服务端当前时间 |
 | `quality_score` | float | 0 到 1；默认 `0.0` |
-| `cluster_id` | integer | 默认 `-1`，表示尚未分配 |
 
-模板身份不写入 SQLite。服务每次读取 Collection 时，根据 Qdrant 中这五个字段的
+模板身份不写入 SQLite。服务每次读取 Collection 时，根据 Qdrant 中这四个字段的
 索引类型识别模板，因此 Qdrant 仍是空间配置的唯一事实来源。普通 Collection 不套用
 这些字段约束，仍可登记任意 payload JSON。
 
@@ -159,9 +158,42 @@ poetry run audio-harness serve
 `192.168.0.213:51008`。当前兼容协议固定发送 16 kHz、单声道、PCM S16LE，算法填写
 `eres2netv2`，并按目标 Named Vector 维度校验服务返回的 float32 embedding。
 
-工作流可以将“音频向量化”接到 VAD 的音频片段，再连接“向量搜索”。向量搜索出口
+音频相似搜索仅支持带 `voiceprint` 模板的 Collection。服务使用 Qdrant `QueryGroups`
+按 `speaker_id` 分组，`top_k` 表示候选人数；每个人返回一条代表观测和一个 `score`。
+当前采用简单聚合策略：选择组内相似度最高的观测作为代表，界面与协议统一将该值称为
+“分数”。普通 Collection 仍可登记、滚动查询和维护 Point，但不提供音频人物搜索。
+
+向量检索页的登记和人物搜索会默认选择第一个已启用的 VAD 引擎，也可以切换为“不使用 VAD”。选择 VAD
+后，文件上传完成或现场录音结束会立即触发裁剪：服务把音频解码为 16 kHz 单声道 PCM，严格按 VAD
+边界合并重叠区间并顺序拼接全部语音段。浏览器将同一次处理所得 WAV 直接上传给正式登记或人物搜索，
+因此不会重复执行 VAD，也不需要服务端临时文件、预览令牌或裁剪音频试听组件。
+音频来源通过“上传音频 / 现场录音”标签切换，录制中会显示时长，并将浏览器提供的麦克风
+设备名自动填入登记的 `channel_id`（未手动填写时）。这条预处理能力仅属于
+向量检索页面，不改变工作流中的物理或语义 VAD 行为。人物搜索
+结果界面只展示 Speaker ID 和分数；代表观测仍保留在 API 响应中供后续聚合演进使用。
+
+工作流可以将“音频向量化”接到 VAD 的音频片段，再连接“人物搜索”。人物搜索出口
 只在 OpenAI Realtime 客户端协商 `x_aha=v1` 时执行，结果通过
 `x_aha.vector.search.completed` 或 `x_aha.vector.search.failed` 返回；失败不会中断 ASR。
+成功事件使用 `groups`，不再返回观测级 `matches`：
+
+```json
+{
+  "type": "x_aha.vector.search.completed",
+  "collection_name": "voiceprints",
+  "vector_name": "eres2netv2",
+  "groups": [
+    {
+      "speaker_id": "speaker-001",
+      "score": 0.95,
+      "observation": {
+        "point_id": "f4b75fb5-4c8e-4af3-9c07-aa0ba8b9084a",
+        "payload": {"speaker_id": "speaker-001"}
+      }
+    }
+  ]
+}
+```
 
 控制台按“语音工作流、语音智能体、推理引擎、接入与运行”四个任务域组织。首次启动后的推荐顺序：
 

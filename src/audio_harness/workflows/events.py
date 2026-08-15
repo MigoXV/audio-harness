@@ -34,7 +34,7 @@ class VectorSearchResult:
     sample_rate: int
     collection_name: str
     vector_name: str
-    matches: tuple[dict[str, Any], ...]
+    groups: tuple[dict[str, Any], ...]
     latency_ms: float
     embedding: tuple[float, ...] | None = None
     error_code: str | None = None

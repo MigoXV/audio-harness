@@ -904,7 +904,7 @@ class RealtimeTranscriptionSession:
             if current_item_id is None and self._pending_items:
                 current_item_id = self._pending_items[0].item_id
             if current_item_id is None:
-                logger.warning("向量搜索结果缺少关联 Realtime item")
+                logger.warning("人物搜索结果缺少关联 Realtime item")
                 return
             common = {
                 "event_id": event_id(), "item_id": current_item_id,
@@ -914,9 +914,9 @@ class RealtimeTranscriptionSession:
                 "vector_name": event.vector_name,
             }
             if event.error_code is not None:
-                await self._send_event({"type": "x_aha.vector.search.failed", **common, "error": {"code": event.error_code, "message": event.error_message or "向量搜索失败"}})
+                await self._send_event({"type": "x_aha.vector.search.failed", **common, "error": {"code": event.error_code, "message": event.error_message or "人物搜索失败"}})
             else:
-                payload = {"type": "x_aha.vector.search.completed", **common, "matches": list(event.matches), "latency_ms": round(event.latency_ms, 3)}
+                payload = {"type": "x_aha.vector.search.completed", **common, "groups": list(event.groups), "latency_ms": round(event.latency_ms, 3)}
                 if event.embedding is not None:
                     payload["embedding"] = list(event.embedding)
                 await self._send_event(payload)

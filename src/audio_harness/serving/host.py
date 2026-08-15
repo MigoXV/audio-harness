@@ -162,8 +162,7 @@ class AudioHarnessHost:
             session_limiter=session_limiter,
             asr_limiter=self.capacity.asr,
             embedding_limiter=self.capacity.embedding,
-            qdrant_limiter=self.capacity.qdrant,
-            qdrant=self.qdrant,
+            vectors=self.vectors,
         )
 
     async def start(self) -> None:

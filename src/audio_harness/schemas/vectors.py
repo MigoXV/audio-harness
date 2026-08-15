@@ -56,3 +56,25 @@ class ScrollRequest(StrictSchema):
 
 class PayloadReplace(StrictSchema):
     payload: dict[str, Any]
+
+
+class VectorObservationRead(StrictSchema):
+    point_id: str
+    payload: dict[str, Any]
+
+
+class SpeakerMatchRead(StrictSchema):
+    speaker_id: str
+    score: float
+    observation: VectorObservationRead
+
+
+class AudioSpeakerSearchRead(StrictSchema):
+    embedding: list[float]
+    groups: list[SpeakerMatchRead]
+
+
+class VadAudioPreviewRead(StrictSchema):
+    audio_base64: str
+    content_type: Literal["audio/wav"] = "audio/wav"
+    duration_ms: int = Field(gt=0)

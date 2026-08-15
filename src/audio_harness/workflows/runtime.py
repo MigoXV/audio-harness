@@ -33,7 +33,7 @@ from audio_harness.workflows.models import (
     AudioEmbeddingNode,
     VectorSearchNode,
 )
-from audio_harness.vectors.qdrant import QdrantGateway
+from audio_harness.vectors.service import VectorService
 
 logger = logging.getLogger(__name__)
 
@@ -542,8 +542,7 @@ class AudioWorkflowRuntime:
         runtime_config: AudioRuntimeConfig,
         asr_semaphore: asyncio.Semaphore,
         embedding_semaphore: asyncio.Semaphore | None = None,
-        qdrant_semaphore: asyncio.Semaphore | None = None,
-        qdrant: QdrantGateway | None = None,
+        vectors: VectorService | None = None,
     ) -> None:
         self._plan = plan
         expected = {node_id for node_id, node in plan.nodes.items() if node.engine_snapshot is not None}
@@ -583,8 +582,7 @@ class AudioWorkflowRuntime:
         self._runtime_config = runtime_config
         self._asr_semaphore = asr_semaphore
         self._embedding_semaphore = embedding_semaphore
-        self._qdrant_semaphore = qdrant_semaphore
-        self._qdrant = qdrant
+        self._vectors = vectors
 
     async def stream(
         self,
@@ -900,25 +898,35 @@ class AudioWorkflowRuntime:
         async for item in _items(router.input(node_id, "embeddings")):
             embedded = cast(AudioEmbeddingResult, item)
             started = time.monotonic()
-            matches: tuple[dict[str, Any], ...] = ()
+            groups: tuple[dict[str, Any], ...] = ()
             code = embedded.error_code
             message = embedded.error_message
             if code is None:
                 try:
-                    if self._qdrant is None: raise RuntimeError("Qdrant 尚未配置")
-                    if self._qdrant_semaphore is None:
-                        found = await self._qdrant.search(definition.config.collection_name, definition.config.vector_name, cast(tuple[float, ...], embedded.embedding), limit=definition.config.top_k, score_threshold=definition.config.score_threshold, filter_json=definition.config.filter)
-                    else:
-                        async with self._qdrant_semaphore:
-                            found = await self._qdrant.search(definition.config.collection_name, definition.config.vector_name, cast(tuple[float, ...], embedded.embedding), limit=definition.config.top_k, score_threshold=definition.config.score_threshold, filter_json=definition.config.filter)
-                    matches = tuple({"point_id": value.point_id, "score": value.score, "payload": value.payload} for value in found)
+                    if self._vectors is None: raise RuntimeError("Qdrant 尚未配置")
+                    found = await self._vectors.search_embedding(
+                        definition.config.collection_name,
+                        cast(tuple[float, ...], embedded.embedding),
+                        vector_name=definition.config.vector_name,
+                        top_k=definition.config.top_k,
+                        score_threshold=definition.config.score_threshold,
+                        filter_json=definition.config.filter,
+                    )
+                    groups = tuple({
+                        "speaker_id": value.speaker_id,
+                        "score": value.score,
+                        "observation": {
+                            "point_id": value.observation.point_id,
+                            "payload": value.observation.payload,
+                        },
+                    } for value in found)
                 except Exception as exc:
-                    logger.warning("向量搜索失败，ASR 继续: %s", exc)
+                    logger.warning("人物搜索失败，ASR 继续: %s", exc)
                     code, message = "vector_search_failed", str(exc)
             await router.emit(node_id, "results", VectorSearchResult(
                 start_sample=embedded.start_sample, end_sample=embedded.end_sample, sample_rate=embedded.sample_rate,
                 collection_name=definition.config.collection_name,
-                vector_name=definition.config.vector_name, matches=matches,
+                vector_name=definition.config.vector_name, groups=groups,
                 latency_ms=embedded.latency_ms + (time.monotonic() - started) * 1000,
                 embedding=embedded.embedding if definition.config.include_embedding and code is None else None,
                 error_code=code, error_message=message,

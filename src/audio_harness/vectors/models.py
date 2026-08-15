@@ -9,7 +9,6 @@ VOICEPRINT_PAYLOAD_SCHEMA: dict[str, str] = {
     "channel_id": "keyword",
     "captured_at": "integer",
     "quality_score": "float",
-    "cluster_id": "integer",
 }
 
 
@@ -34,7 +33,13 @@ class VectorSpaceData:
 
 
 @dataclass(frozen=True)
-class VectorMatch:
+class VectorObservation:
     point_id: str
-    score: float
     payload: dict[str, object]
+
+
+@dataclass(frozen=True)
+class SpeakerMatch:
+    speaker_id: str
+    score: float
+    observation: VectorObservation

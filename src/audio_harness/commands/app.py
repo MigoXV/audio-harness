@@ -14,11 +14,6 @@ logging.basicConfig(
 app = typer.Typer(add_completion=False, help="Audio Harness 服务管理命令。")
 
 
-@app.callback()
-def root() -> None:
-    """Audio Harness 服务管理命令。"""
-
-
 app.command("serve")(serve)
 
 

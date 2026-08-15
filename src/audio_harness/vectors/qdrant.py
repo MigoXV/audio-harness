@@ -14,7 +14,12 @@ from audio_harness.protos.qdrant import (
     points_service_pb2_grpc,
     qdrant_common_pb2,
 )
-from audio_harness.vectors.models import CollectionSchema, NamedVector, VectorMatch
+from audio_harness.vectors.models import (
+    CollectionSchema,
+    NamedVector,
+    SpeakerMatch,
+    VectorObservation,
+)
 
 
 class QdrantUnavailableError(RuntimeError):
@@ -240,14 +245,39 @@ class QdrantGateway:
             points=[points_pb2.PointStruct(id=point_id(value), payload={key: _value(item) for key, item in payload.items()}, vectors=points_pb2.Vectors(vectors=named))],
         ))
 
-    async def search(self, collection: str, vector_name: str, vector: tuple[float, ...], *, limit: int, score_threshold: float | None = None, filter_json: dict[str, Any] | None = None) -> tuple[VectorMatch, ...]:
+    async def search_speakers(self, collection: str, vector_name: str, vector: tuple[float, ...], *, limit: int, score_threshold: float | None = None, filter_json: dict[str, Any] | None = None) -> tuple[SpeakerMatch, ...]:
         self._require()
-        request = points_pb2.SearchPoints(collection_name=collection, vector=list(vector), vector_name=vector_name, limit=limit, with_payload=points_pb2.WithPayloadSelector(enable=True))
+        request = points_pb2.QueryPointGroups(
+            collection_name=collection,
+            query=points_pb2.Query(
+                nearest=points_pb2.VectorInput(
+                    dense=points_pb2.DenseVector(data=list(vector))
+                )
+            ),
+            using=vector_name,
+            limit=limit,
+            group_size=1,
+            group_by="speaker_id",
+            with_payload=points_pb2.WithPayloadSelector(enable=True),
+        )
         condition = filter_message(filter_json)
         if condition is not None: request.filter.CopyFrom(condition)
         if score_threshold is not None: request.score_threshold = score_threshold
-        response = await self._points.Search(request)
-        return tuple(VectorMatch(point_id_text(item.id), float(item.score), {key: _python(value) for key, value in item.payload.items()}) for item in response.result)
+        response = await self._points.QueryGroups(request)
+        groups: list[SpeakerMatch] = []
+        for group in response.result.groups:
+            if group.id.WhichOneof("kind") != "string_value" or not group.hits:
+                continue
+            hit = group.hits[0]
+            groups.append(SpeakerMatch(
+                speaker_id=group.id.string_value,
+                score=float(hit.score),
+                observation=VectorObservation(
+                    point_id=point_id_text(hit.id),
+                    payload={key: _python(value) for key, value in hit.payload.items()},
+                ),
+            ))
+        return tuple(groups)
 
     async def scroll(self, collection: str, *, limit: int, offset: str | None, filter_json: dict[str, Any] | None, with_vectors: bool) -> tuple[list[dict[str, Any]], str | None]:
         self._require()
