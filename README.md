@@ -144,66 +144,11 @@ poetry run audio-harness serve
 
 ## 音频向量检索
 
-控制台的“向量检索”页面将 Qdrant 定位为通用向量基础设施。Qdrant 是 Collection
-和 Named Vector 配置的唯一事实来源，Audio Harness 不在 SQLite 中保存空间注册表，
-而是通过 gRPC 实时读取 Qdrant。一个 Point 对应一次音频采集；同一 Point 可以包含
-多个 Named Vector，payload 接受任意 JSON。
-
-创建 Collection 时可以选择“语音特征向量提取”模板。模板默认创建
-`voiceprints` Collection，以及 `eres2netv2`、192 维、Cosine 距离的 Named Vector；
-同时直接在 Qdrant 中为以下 payload 字段建立索引：
-
-| 字段 | Qdrant 类型 | 约束与默认值 |
-| --- | --- | --- |
-| `speaker_id` | keyword | 必填，非空，最长 128 个字符 |
-| `channel_id` | keyword | 必填，非空，最长 128 个字符 |
-| `captured_at` | integer | Unix 毫秒；未填写时使用服务端当前时间 |
-| `quality_score` | float | 0 到 1；默认 `0.0` |
-
-模板身份不写入 SQLite。服务每次读取 Collection 时，根据 Qdrant 中这四个字段的
-索引类型识别模板，因此 Qdrant 仍是空间配置的唯一事实来源。普通 Collection 不套用
-这些字段约束，仍可登记任意 payload JSON。
-
-音频向量引擎需要在“推理引擎”中手工注册，能力选择“音频向量”，例如填写
-`192.168.0.213:51008`。当前兼容协议固定发送 16 kHz、单声道、PCM S16LE，算法填写
-`eres2netv2`，并按目标 Named Vector 维度校验服务返回的 float32 embedding。
-
-音频相似搜索仅支持带 `voiceprint` 模板的 Collection。服务使用 Qdrant `QueryGroups`
-按 `speaker_id` 分组，`top_k` 表示候选人数；每个人返回一条代表观测和一个 `score`。
-当前采用简单聚合策略：选择组内相似度最高的观测作为代表，界面与协议统一将该值称为
-“分数”。普通 Collection 仍可登记、滚动查询和维护 Point，但不提供音频人物搜索。
-
-向量检索页的登记和人物搜索会默认选择第一个已启用的 VAD 引擎，也可以切换为“不使用 VAD”。选择 VAD
-后，文件上传完成或现场录音结束会立即触发裁剪：服务把音频解码为 16 kHz 单声道 PCM，严格按 VAD
-边界合并重叠区间并顺序拼接全部语音段。浏览器将同一次处理所得 WAV 直接上传给正式登记或人物搜索，
-因此不会重复执行 VAD，也不需要服务端临时文件、预览令牌或裁剪音频试听组件。
-音频来源通过“上传音频 / 现场录音”标签切换，录制中会显示时长，并将浏览器提供的麦克风
-设备名自动填入登记的 `channel_id`（未手动填写时）。这条预处理能力仅属于
-向量检索页面，不改变工作流中的物理或语义 VAD 行为。人物搜索
-结果界面只展示 Speaker ID 和分数；代表观测仍保留在 API 响应中供后续聚合演进使用。
-
-工作流可以将“音频向量化”接到 VAD 的音频片段，再连接“人物搜索”。人物搜索出口
-只在 OpenAI Realtime 客户端协商 `x_aha=v1` 时执行，结果通过
-`x_aha.vector.search.completed` 或 `x_aha.vector.search.failed` 返回；失败不会中断 ASR。
-成功事件使用 `groups`，不再返回观测级 `matches`：
-
-```json
-{
-  "type": "x_aha.vector.search.completed",
-  "collection_name": "voiceprints",
-  "vector_name": "eres2netv2",
-  "groups": [
-    {
-      "speaker_id": "speaker-001",
-      "score": 0.95,
-      "observation": {
-        "point_id": "f4b75fb5-4c8e-4af3-9c07-aa0ba8b9084a",
-        "payload": {"speaker_id": "speaker-001"}
-      }
-    }
-  ]
-}
-```
+Qdrant 是 Collection、Named Vector、Point 和 payload 的唯一事实来源；Audio Harness
+不在 SQLite 中复制向量空间注册表。系统支持通用 Collection、voiceprint 模板、音频
+登记、VAD 预处理、按人物分组搜索，以及工作流内的 Embedding → Vector Search 分支。
+完整字段、curl 示例和 `x_aha.vector.*` 事件分别见[向量检索接口](docs/control-plane/vectors.md)
+与 [AHA v1 协议](docs/realtime-api/aha-v1.md)。
 
 控制台按“语音工作流、语音智能体、推理引擎、接入与运行”四个任务域组织。首次启动后的推荐顺序：
 
@@ -217,147 +162,22 @@ poetry run audio-harness serve
 
 `GET /api/v1/runtime/overview` 始终返回 `200`，用于控制台展示“待配置”和可操作诊断；`/health/ready` 仍是部署探针，在 gRPC 默认工作流未就绪时返回 `503`。因此浏览器界面不再轮询 503 探针来判断管理服务是否在线。
 
-## 控制面接口
+## 接口文档
 
-主要资源路径如下：
+完整对接规范已经拆分到 [`docs/`](docs/README.md)，以避免 README 与接口契约形成两套事实来源：
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| `GET/POST` | `/api/v1/engines` | 引擎列表与创建 |
-| `POST` | `/api/v1/engines/{id}/validate` | 单引擎真实探测 |
-| `GET` | `/api/v1/audio-node-types` | 节点、端口与配置 Schema |
-| `GET/POST` | `/api/v1/audio-workflows` | 语音工作流列表与创建 |
-| `GET/PUT` | `/api/v1/audio-workflows/{id}/draft` | 乐观锁读取和保存草稿 |
-| `POST` | `/api/v1/audio-workflows/{id}/validate` | 编译校验草稿 |
-| `POST` | `/api/v1/audio-workflows/{id}/publish` | 原子发布不可变 revision |
-| `GET` | `/api/v1/audio-workflows/{id}/revisions` | 发布历史 |
-| `GET/POST` | `/api/v1/voice-agents` | 语音智能体配置 |
-| `POST` | `/api/v1/voice-agents/{id}/validate` | 校验语音智能体草稿及其依赖 |
-| `GET` | `/api/v1/realtime-routes/{model}` | 读取并预检单个 Realtime 路由 |
-| `PUT` | `/api/v1/realtime-routes/{model}` | 显式创建或确认替换 Realtime 路由 |
-| `GET` | `/api/v1/runtime/overview` | 控制面与协议接入状态总览 |
-| `GET/PUT` | `/api/v1/settings/workflow` | 流式队列设置 |
-| `GET/PUT` | `/api/v1/settings/capacity` | 会话与推理并发设置 |
-
-数据面路径保持为：
-
-- gRPC `UxSpeech.StreamingRecognize`
-- 纯转写 WebSocket `/v1/realtime?intent=transcription`；转写模型在后续
-  `session.update.audio.input.transcription.model` 中指定，可显式协商 `x_aha=v1`
-- 语音智能体 WebSocket `/v1/realtime?model=<public-active-route>`；`model`
-  必须是指向已激活语音智能体的公开 Realtime Route，也可显式协商
-  `x_aha=v1`
-- WebRTC `POST /v1/realtime/calls?model=...`
-
-WebSocket 建连时必须在 `intent=transcription` 和 `model=...` 中二选一；
-缺失、并用或传入未发布的路由都会在建连阶段被拒绝。
-
-### x_aha Realtime 扩展
-
-默认情况下，WebSocket 与 WebRTC 只发送 OpenAI Realtime 原生事件。
-纯转写和语音智能体会话都可以在建连时显式传入 `x_aha=v1`，启用版本化的
-`x_aha.*` 扩展事件。不支持的扩展版本会被拒绝。扩展只追加观测信息，
-不会替换、删减或改写 OpenAI Realtime 原生事件；未协商扩展时，服务端不会
-发送 `x_aha.*`、`audio_harness.*` 或其他私有事件。
-
-当说话人分离位于主 ASR 上游时，无论是否协商 AHA 都会执行；`x_aha=v1` 只控制扩展事件输出。
-每个 gRPC 流响应立即发送 `x_aha.diarization.local.delta`，同一批次结束后发送携带
-完整结果的 `x_aha.diarization.local.completed`；RPC 失败发送
-`x_aha.diarization.local.failed`，但不会中断 ASR。批次可能跨越多个 Realtime item，
-因此使用 `batch_id` 和会话绝对时间，不绑定单个 `item_id`：
-
-```json
-{
-  "type": "x_aha.diarization.local.completed",
-  "event_id": "event_xxx",
-  "batch_id": "batch_xxx",
-  "batch_audio_start_ms": 1000,
-  "batch_audio_end_ms": 65000,
-  "speech_duration_ms": 60000,
-  "segments": [
-    {"segment_id": "dseg_a", "audio_start_ms": 1000, "audio_end_ms": 5200, "speaker": 1, "local_speaker_id": "batch_demo:1"},
-    {"segment_id": "dseg_b", "audio_start_ms": 7200, "audio_end_ms": 11800, "speaker": 2, "local_speaker_id": "batch_demo:2"}
-  ],
-  "latency_ms": 972.84
-}
-```
-
-`speaker` 只在当前 `batch_id` 内有效，跨批次应使用带批次命名空间的
-`local_speaker_id`；`segment_id` 在一次会话及后续聚类 revision 内稳定。
-
-ASR 对每个说话人片段发送
-`x_aha.input_audio_transcription.speaker.delta/completed/failed`，包含 `segment_id`、
-`local_speaker_id`、绝对音频时间和文本。标准 OpenAI 转写事件仍按来源 VAD turn 聚合。
-说话人分离失败时，本批原始 VAD 音频以未知说话人身份直通 ASR。
-
-说话人聚类节点接在说话人分离的 `segments` 出口之后。每次局部分离批次完成时，节点会把
-同一 `local_speaker_id` 的片段音频拼接后提取一个 embedding，并调用流式聚类服务。
-单个向量尚不能聚类时会直接标记为整数 `speaker_id: -1`；从第二个向量开始建立流，之后
-服务端每次响应都可能重新分配全部历史标签。
-
-聚类使用非增量的 `x_aha.diarization.cluster.completed` 完整快照：事件包含递增
-`revision`、`replaces_revision`、`full_snapshot: true` 和全部
-`segment_id → speaker_id` assignments。`x_aha.diarization.cluster.failed` 表示刷新失败；
-客户端应保留上一成功 revision，并在 completed 到达时整体覆盖，不能把 assignments 当作
-增量合并。流失败后节点会保留上一版结果，并在下一次局部分离触发时重连、重放全部历史
-embedding。聚类不定义 delta 事件。
-
-当物理 VAD 已结束、语义 VAD 仍认为用户轮次未完成时，服务端发送：
-
-```json
-{
-  "type": "x_aha.vad.physical_speech_stopped",
-  "event_id": "event_xxx",
-  "item_id": "item_xxx",
-  "audio_start_ms": 1200,
-  "audio_end_ms": 2380,
-  "turn_completed": false
-}
-```
-
-当工作流声明了 `interim_transcript` 出口时，协商扩展的自动 VAD 会话还会按轮次发送
-累计中间转写快照：
-
-```json
-{
-  "type": "x_aha.input_audio_transcription.interim",
-  "event_id": "event_xxx",
-  "item_id": "item_xxx",
-  "content_index": 0,
-  "revision": 2,
-  "transcript": "这是当前累计的临时文本",
-  "audio_start_ms": 120,
-  "audio_end_ms": 2120
-}
-```
-
-客户端应按相同 `item_id` 下单调递增的 `revision` 覆盖旧文本。正式转写开始前服务端
-会先发送清除事件，随后继续发送标准 OpenAI Realtime delta/completed：
-
-```json
-{
-  "type": "x_aha.input_audio_transcription.interim_cleared",
-  "event_id": "event_xxx",
-  "item_id": "item_xxx",
-  "reason": "primary_transcript_started"
-}
-```
-
-中间结果只用于界面预览，不提交 conversation item、不触发语音智能体回复，也不替代
-最终标准事件。未协商 `x_aha=v1` 或使用手动 commit 时不会执行预览分支；ASR 容量
-繁忙时可能跳过预览块。预览分支失败不会中断正式转写，gRPC 服务仍只执行正式出口。
-
-上述扩展事件的 `item_id` 与本轮标准 `input_audio_buffer.speech_started` 及最终的
-`input_audio_buffer.speech_stopped` 相同。Python SDK 客户端可使用
-`extra_query={"intent": "transcription", "x_aha": "v1"}` 协商转写扩展，
-或使用 `extra_query={"model": "<route>", "x_aha": "v1"}` 协商语音智能体
-扩展。启用后应按原始 JSON 分派 `x_aha.*`，再使用 SDK 类型处理原生事件。
-完整转写示例见 `examples/openai_realtime_python_demo`；语音智能体 Demo 刻意不
-协商扩展，用于验证默认原生协议兼容性。
+- [通用 API 约定](docs/api-conventions.md)
+- [控制面：引擎、向量、工作流、Agent 与运行设置](docs/README.md#调用-audio-harness)
+- [OpenAI Realtime 兼容子集](docs/realtime-api/openai-realtime.md)
+- [AHA Realtime 扩展协议 v1](docs/realtime-api/aha-v1.md)
+- [WebRTC 接入](docs/realtime-api/webrtc.md)
+- [gRPC ASR 数据面](docs/data-plane/grpc-asr.md)
+- [下游推理引擎协议](docs/engine-integration/README.md)
+- [机器可读 OpenAPI](docs/reference/openapi.json)
 
 ## OpenAPI 与前端类型
 
-前端不手写后端 DTO。修改接口后执行：
+前端不手写后端 DTO，`docs/reference/openapi.json` 也由同一脚本生成。修改接口后执行：
 
 ```bash
 poetry run python scripts/export_openapi.py
@@ -365,12 +185,13 @@ cd src/web
 pnpm generate:api
 ```
 
+默认导出会同时更新前端与文档契约；`--output <path>` 可只导出单个文件。
 `pnpm build` 会自动重新生成 `src/api/generated.ts`，从而在后端字段变化时让 TypeScript 构建直接失败。
 
 ## 验证
 
 ```bash
-poetry run pytest -q
+poetry run pytest -q tests
 
 cd src/web
 pnpm lint

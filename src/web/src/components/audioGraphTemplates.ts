@@ -190,9 +190,7 @@ function speakerClustering(
   if (existing) return { ...existing, id: "speaker-clustering" };
   const engine = engines.find((item) =>
     item.enabled
-    && item.api === "engine_feature"
-    && Array.isArray(item.details?.capabilities)
-    && item.details.capabilities.includes("streaming_clustering"),
+    && item.api === "engine_feature",
   );
   return {
     id: "speaker-clustering",

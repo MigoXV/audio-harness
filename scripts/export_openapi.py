@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""导出控制面 OpenAPI，供前端生成唯一可信的接口类型。"""
+"""导出 OpenAPI，供前端和接口文档共享同一份机器契约。"""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from audio_harness.serving.host import AudioHarnessHost
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = REPOSITORY_ROOT / "src/web/openapi.json"
+DOCUMENTATION_OUTPUT = REPOSITORY_ROOT / "docs/reference/openapi.json"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -20,24 +21,44 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output",
         type=Path,
-        default=DEFAULT_OUTPUT,
-        help="OpenAPI JSON 输出路径。",
+        default=None,
+        help=(
+            "OpenAPI JSON 输出路径。未指定时同时更新前端契约和 docs 契约。"
+        ),
     )
     return parser
 
 
-def main() -> int:
-    args = build_parser().parse_args()
+def build_openapi_json() -> str:
+    """从真实组合根生成格式稳定的 OpenAPI JSON。"""
+
     config = AppConfig.from_environment().model_copy(
         update={"database": DatabaseConfig(url="sqlite+aiosqlite:///:memory:")}
     )
     server = AudioHarnessHost(config)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(
-        json.dumps(server.http_app.openapi(), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+    return json.dumps(
+        server.http_app.openapi(),
+        ensure_ascii=False,
+        indent=2,
+    ) + "\n"
+
+
+def write_openapi(output: Path, content: str) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(content, encoding="utf-8")
+    print(f"已导出 OpenAPI: {output}")
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    content = build_openapi_json()
+    outputs = (
+        (args.output,)
+        if args.output is not None
+        else (DEFAULT_OUTPUT, DOCUMENTATION_OUTPUT)
     )
-    print(f"已导出 OpenAPI: {args.output}")
+    for output in outputs:
+        write_openapi(output, content)
     return 0
 
 

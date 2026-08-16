@@ -129,7 +129,6 @@ _NODE_SPECS: dict[str, AudioNodeSpec] = {
         },
         required_api=EngineApi.ENGINE_FEATURE,
         config_model=SpeakerClusteringNodeConfig,
-        required_capability="streaming_clustering",
     ),
     "vector_search": AudioNodeSpec(
         kind="vector_search", display_name="人物搜索",

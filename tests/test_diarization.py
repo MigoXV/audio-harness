@@ -565,12 +565,6 @@ async def _run_cluster_chain(
         EngineKind.EMBEDDING,
         EngineApi.ENGINE_FEATURE,
     )
-    clustering_asset = clustering_asset.__class__(
-        **{
-            **clustering_asset.__dict__,
-            "details": {"capabilities": ["feature", "streaming_clustering"]},
-        }
-    )
     assets = {
         "vad-engine": _asset("vad-engine", EngineKind.VAD, EngineApi.UX_VAD),
         "asr-engine": _asset("asr-engine", EngineKind.ASR, EngineApi.UX_SPEECH),

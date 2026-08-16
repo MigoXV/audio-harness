@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { AudioWorkflowDocument } from "../api/types";
+import type { AudioWorkflowDocument, EngineAsset } from "../api/types";
 import { applyAudioGraphTemplate } from "./audioGraphTemplates";
 
 const existing: AudioWorkflowDocument = {
@@ -193,6 +193,25 @@ describe("audio graph templates", () => {
       name: "speaker_transcript",
       source: { kind: "node", node_id: "asr", port: "speaker_transcripts" },
     });
+  });
+
+  it("uses any enabled embedding engine for speaker clustering", () => {
+    const embeddingEngine = {
+      id: "embedding-without-capabilities",
+      enabled: true,
+      api: "engine_feature",
+      details: {},
+    } as EngineAsset;
+
+    const result = applyAudioGraphTemplate(
+      existing,
+      "meeting_complete",
+      [],
+      [embeddingEngine],
+    );
+
+    expect(result.nodes.find((node) => node.kind === "speaker_clustering"))
+      .toMatchObject({ engine_id: embeddingEngine.id });
   });
 
   it("preserves configured vector nodes when reapplying the complete meeting template", () => {
