@@ -119,6 +119,19 @@ const FIRERED_PARAMETER_META = [
   ["min_silence_frame", "结束所需静音", "帧", 1],
 ] as const;
 
+const HDBSCAN_PARAMETER_DEFAULTS = {
+  min_cluster_size: 2,
+  min_samples: 2,
+  cluster_selection_epsilon: 0,
+  allow_single_cluster: false,
+};
+
+const HDBSCAN_NUMBER_PARAMETER_META = [
+  ["min_cluster_size", "最小簇大小", "至少需要形成一个簇的向量数", 2, 1],
+  ["min_samples", "最小样本数", "数值越高，噪声判定越保守", 1, 1],
+  ["cluster_selection_epsilon", "簇选择距离容差", "增大可能合并距离较近的簇", 0, 0.01],
+] as const;
+
 function horizontalAnchor(
   positions: NodePosition[],
   side: "left" | "right",
@@ -220,7 +233,7 @@ function nodeConfig(kind: string): AudioNode {
         normalize: true,
         max_embedding_seconds: 60,
         clustering_algorithm: "hdbscan",
-        parameters: { min_cluster_size: 2, min_samples: 2, allow_single_cluster: true },
+        parameters: structuredClone(HDBSCAN_PARAMETER_DEFAULTS),
         max_vectors: 10000,
       },
       failure_policy: "fail_open",
@@ -393,6 +406,18 @@ function AudioGraphEditorInner({
       ...FIRERED_POSTPROCESSING_DEFAULTS.parameters,
       ...(selectedPhysicalConfig.postprocessing.parameters ?? {}),
     },
+  } : null;
+  const selectedClusteringConfig = selected?.kind === "speaker_clustering" ? {
+    embedding_algorithm: selected.config?.embedding_algorithm ?? "eres2netv2",
+    expected_dimension: selected.config?.expected_dimension ?? 192,
+    normalize: selected.config?.normalize ?? true,
+    max_embedding_seconds: selected.config?.max_embedding_seconds ?? 60,
+    clustering_algorithm: selected.config?.clustering_algorithm ?? "hdbscan",
+    parameters: {
+      ...HDBSCAN_PARAMETER_DEFAULTS,
+      ...(selected.config?.parameters ?? {}),
+    },
+    max_vectors: selected.config?.max_vectors ?? 10000,
   } : null;
 
   const arrangeGraph = useCallback(() => {
@@ -623,7 +648,7 @@ function AudioGraphEditorInner({
           <div className={`inspector-state ${selected.engine_id || selectedSpec.required_api == null ? "configured" : "unconfigured"}`}><strong>{selectedSpec.display_name}</strong><span>{selectedSpec.required_api == null ? "基础设施节点" : selected.engine_id ? "已绑定执行引擎" : "待绑定执行引擎"}</span></div>
           <label><span>节点 ID</span><input value={selected.id} disabled /></label>
           {selectedSpec.required_api != null && <label><span>执行引擎</span><select value={selected.engine_id ?? ""} onChange={(event) => updateNode({ ...selected, engine_id: event.target.value || null } as AudioNode)}><option value="">未绑定</option>{engines.filter((engine) => engine.enabled && engine.api === selectedSpec.required_api && (!selectedSpec.required_capability || (Array.isArray(engine.details?.capabilities) && engine.details.capabilities.includes(selectedSpec.required_capability)))).map((engine) => <option key={engine.id} value={engine.id}>{engine.name} · {engine.status}</option>)}</select><small>需要 {selectedSpec.required_api}{selectedSpec.required_capability ? ` / ${selectedSpec.required_capability}` : ""} 能力</small></label>}
-          {Object.entries(selected.config ?? {}).filter(([key]) => !["postprocessing", "parameters", "remove_punctuation", "normalize", "include_embedding", "filter", "collection_name", "vector_name"].includes(key)).map(([key, value]) => <label key={key}><span>{key}</span><input type={typeof value === "number" || value === null ? "number" : "text"} step="0.1" value={value == null ? "" : String(value)} onChange={(event) => updateNode({ ...selected, config: { ...(selected.config ?? {}), [key]: typeof value === "number" || value === null ? (event.target.value ? Number(event.target.value) : null) : event.target.value } } as AudioNode)} /></label>)}
+          {Object.entries(selected.config ?? {}).filter(([key]) => !["postprocessing", "parameters", "clustering_algorithm", "remove_punctuation", "normalize", "include_embedding", "filter", "collection_name", "vector_name"].includes(key)).map(([key, value]) => <label key={key}><span>{key}</span><input type={typeof value === "number" || value === null ? "number" : "text"} step="0.1" value={value == null ? "" : String(value)} onChange={(event) => updateNode({ ...selected, config: { ...(selected.config ?? {}), [key]: typeof value === "number" || value === null ? (event.target.value ? Number(event.target.value) : null) : event.target.value } } as AudioNode)} /></label>)}
           {selected.kind === "audio_embedding" && <label className="switch-control"><input type="checkbox" checked={selected.config?.normalize ?? true} onChange={(event) => updateNode({ ...selected, config: { algorithm: selected.config?.algorithm ?? "eres2netv2", expected_dimension: selected.config?.expected_dimension ?? 192, normalize: event.target.checked } })} /><span>L2 归一化</span></label>}
           {selected.kind === "vector_search" && <><label><span>Voiceprint Collection</span><select value={selected.config.collection_name} onChange={(event) => { const space = vectorSpaces.find((item) => item.collection_name === event.target.value); if (space) updateNode({ ...selected, config: { ...selected.config, collection_name: space.collection_name, vector_name: space.vectors[0]?.name ?? "" } }); }}><option value="">请选择 voiceprint Collection</option>{vectorSpaces.filter((space) => space.template === "voiceprint").map((space) => <option value={space.collection_name} key={space.collection_name}>{space.collection_name}</option>)}</select></label><label><span>Named Vector</span><select value={selected.config.vector_name} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, vector_name: event.target.value } })}>{vectorSpaces.find((item) => item.collection_name === selected.config.collection_name)?.vectors.map((vector) => <option key={vector.name}>{vector.name}</option>)}</select></label><label><span>Filter JSON</span><textarea value={JSON.stringify(selected.config.filter ?? {}, null, 2)} onChange={(event) => { try { updateNode({ ...selected, config: { ...selected.config, filter: JSON.parse(event.target.value) } }); } catch { /* 保存前由校验提示 */ } }} /></label><label className="switch-control"><input type="checkbox" checked={selected.config.include_embedding} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, include_embedding: event.target.checked } })} /><span>在 AHA 事件中返回查询向量</span></label></>}
           {selected.kind === "asr" && <label className="switch-control"><input type="checkbox" checked={selected.config?.remove_punctuation ?? false} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, remove_punctuation: event.target.checked } })} /><span>移除转写标点</span></label>}
@@ -633,6 +658,12 @@ function AudioGraphEditorInner({
               <div className="inspector-state configured"><strong>firered.stream_vad</strong><span>协议版本 v1 · 1 帧 = 10 ms</span></div>
               {FIRERED_PARAMETER_META.map(([key, label, unit, step]) => <label key={key}><span>{label}</span><input type="number" min={key === "speech_threshold" ? 0 : 1} max={key === "speech_threshold" ? 1 : undefined} step={step} value={selectedPostprocessing.parameters[key]} onChange={(event) => updateNode({ ...selected, config: { ...selectedPhysicalConfig, postprocessing: { ...selectedPostprocessing, parameters: { ...selectedPostprocessing.parameters, [key]: Number(event.target.value) } } } })} /><small>{unit}</small></label>)}
             </>}
+          </section>}
+          {selected.kind === "speaker_clustering" && selectedClusteringConfig && <section className="clustering-parameters-settings">
+            <label><span>聚类算法</span><select value={selectedClusteringConfig.clustering_algorithm} onChange={(event) => updateNode({ ...selected, config: { ...selectedClusteringConfig, clustering_algorithm: event.target.value as "hdbscan" } })}><option value="hdbscan">HDBSCAN</option></select></label>
+            <div className="inspector-state configured"><strong>HDBSCAN 参数模板</strong><span>固定字段 · 严格校验</span></div>
+            {HDBSCAN_NUMBER_PARAMETER_META.map(([key, label, help, min, step]) => <label key={key}><span>{label}</span><input type="number" min={min} step={step} value={selectedClusteringConfig.parameters[key]} onChange={(event) => updateNode({ ...selected, config: { ...selectedClusteringConfig, parameters: { ...selectedClusteringConfig.parameters, [key]: Number(event.target.value) } } })} /><small>{help}</small></label>)}
+            <label className="switch-control"><input type="checkbox" checked={selectedClusteringConfig.parameters.allow_single_cluster} onChange={(event) => updateNode({ ...selected, config: { ...selectedClusteringConfig, parameters: { ...selectedClusteringConfig.parameters, allow_single_cluster: event.target.checked } } })} /><span>允许所有向量形成单一簇</span><small>开启后更容易把不同说话人融合到同一个簇。</small></label>
           </section>}
           {selected.kind === "semantic_vad" && <label><span>失败策略</span><select value={selected.failure_policy} onChange={(event) => updateNode({ ...selected, failure_policy: event.target.value as "fail_open" | "fail_pipeline" })}><option value="fail_open">fail_open</option><option value="fail_pipeline">fail_pipeline</option></select></label>}
           {selected.kind === "speaker_clustering" && <label><span>失败策略</span><select value={selected.failure_policy} onChange={(event) => updateNode({ ...selected, failure_policy: event.target.value as "fail_open" | "fail_pipeline" })}><option value="fail_open">fail_open</option><option value="fail_pipeline">fail_pipeline</option></select></label>}

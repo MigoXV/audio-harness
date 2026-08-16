@@ -43,6 +43,8 @@ from audio_harness.workflows.events import VectorSearchResult
 from audio_harness.workflows.models import (
     AudioEmbeddingNode,
     AudioEmbeddingNodeConfig,
+    HdbscanClusteringParameters,
+    SpeakerClusteringNodeConfig,
     VectorSearchNode,
     VectorSearchNodeConfig,
 )
@@ -173,6 +175,39 @@ def test_physical_vad_rejects_invalid_postprocessing(parameters: dict) -> None:
                 }
             }
         )
+
+
+def test_speaker_clustering_uses_safe_hdbscan_defaults() -> None:
+    config = SpeakerClusteringNodeConfig()
+
+    assert config.clustering_algorithm == "hdbscan"
+    assert config.parameters == HdbscanClusteringParameters(
+        min_cluster_size=2,
+        min_samples=2,
+        cluster_selection_epsilon=0,
+        allow_single_cluster=False,
+    )
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"clustering_algorithm": "dbscan"},
+        {"parameters": {"min_cluster_size": 1}},
+        {"parameters": {"min_samples": 0}},
+        {"parameters": {"min_samples": True}},
+        {"parameters": {"cluster_selection_epsilon": -0.01}},
+        {"parameters": {"cluster_selection_epsilon": float("inf")}},
+        {"parameters": {"cluster_selection_epsilon": "0.1"}},
+        {"parameters": {"allow_single_cluster": "false"}},
+        {"parameters": {"unknown": 1}},
+    ],
+)
+def test_speaker_clustering_rejects_unsupported_hdbscan_config(
+    config: dict,
+) -> None:
+    with pytest.raises(ValidationError):
+        SpeakerClusteringNodeConfig.model_validate(config)
 
 
 def test_compiler_builds_typed_plan(assets: dict[str, EngineAssetData]) -> None:

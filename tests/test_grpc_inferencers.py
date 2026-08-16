@@ -202,7 +202,12 @@ async def test_embedding_streaming_clustering_returns_full_revisions() -> None:
         first = await session.start(
             (vector, vector),
             algorithm="hdbscan",
-            parameters={"min_cluster_size": 2, "allow_single_cluster": True},
+            parameters={
+                "min_cluster_size": 2,
+                "min_samples": 2,
+                "cluster_selection_epsilon": 0,
+                "allow_single_cluster": False,
+            },
         )
         second = await session.add((vector,))
     finally:
@@ -215,6 +220,9 @@ async def test_embedding_streaming_clustering_returns_full_revisions() -> None:
     assert second == (0, 1, 2)
     assert fake.requests[0].config.algorithm == "hdbscan"
     assert fake.requests[0].config.parameters["min_cluster_size"] == 2
+    assert fake.requests[0].config.parameters["min_samples"] == 2
+    assert fake.requests[0].config.parameters["cluster_selection_epsilon"] == 0
+    assert fake.requests[0].config.parameters["allow_single_cluster"] is False
     assert fake.requests[1].batch.sequence == 1
 
 

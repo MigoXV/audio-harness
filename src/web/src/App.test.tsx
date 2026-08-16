@@ -62,6 +62,8 @@ function fakeApi() {
       { kind: "asr", display_name: "语音识别", required_api: "ux_speech", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "transcripts", kind: "transcription" }, { name: "speaker_transcripts", kind: "speaker_transcription" }], config_schema: {} },
       { kind: "audio_embedding", display_name: "语音特征向量提取", required_api: "engine_feature", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "embeddings", kind: "embedding" }], config_schema: {} },
       { kind: "vector_search", display_name: "人物搜索", required_api: null, inputs: [{ name: "embeddings", kind: "embedding" }], outputs: [{ name: "results", kind: "vector_search_result" }], config_schema: {} },
+      { kind: "speaker_diarization", display_name: "说话人分离", required_api: "ux_speaker_diarization", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "segments", kind: "diarization_segment" }, { name: "local_results", kind: "diarization_local_result" }], config_schema: {} },
+      { kind: "speaker_clustering", display_name: "说话人聚类", required_api: "engine_feature", inputs: [{ name: "segments", kind: "diarization_segment" }], outputs: [{ name: "results", kind: "diarization_cluster_result" }], config_schema: {} },
     ]),
     listAudioWorkflowRevisions: vi.fn().mockResolvedValue([]),
     listEngines: vi.fn().mockResolvedValue({ items: [engine("vad-1", "vad", "ux_vad"), engine("asr-1", "asr", "ux_speech"), engine("llm-1", "llm", "responses"), engine("tts-1", "tts", "qwen_tts_duplex"), engine("embedding-1", "embedding", "engine_feature")], total: 5, limit: 200, offset: 0 }),
@@ -207,6 +209,38 @@ describe("typed audio workflow control plane", () => {
     const saved = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
     const asr = saved.nodes.find((node) => node.kind === "asr");
     expect(asr?.config?.remove_punctuation).toBe(true);
+  });
+
+  it("configures HDBSCAN speaker clustering with a fixed parameter template", async () => {
+    const { api, saveAudioWorkflowDraft } = fakeApi();
+    renderApp(api, "/audio-workflows/wf-1/build");
+    fireEvent.click(await screen.findByRole("button", { name: /^会议系统完全体/ }));
+    fireEvent.click(screen.getByRole("button", { name: "确认应用" }));
+    fireEvent.click(await screen.findByLabelText("节点 speaker-clustering"));
+
+    const algorithm = screen.getByRole("combobox", { name: "聚类算法" }) as HTMLSelectElement;
+    expect(algorithm).toHaveValue("hdbscan");
+    expect(algorithm.options).toHaveLength(1);
+    expect(screen.getByText("HDBSCAN 参数模板")).toBeVisible();
+    expect(screen.getByLabelText(/最小簇大小/)).toHaveValue(2);
+    expect(screen.getByLabelText(/最小样本数/)).toHaveValue(2);
+    expect(screen.getByLabelText(/簇选择距离容差/)).toHaveValue(0);
+    const singleCluster = screen.getByRole("checkbox", { name: /允许所有向量形成单一簇/ });
+    expect(singleCluster).not.toBeChecked();
+
+    fireEvent.change(screen.getByLabelText(/最小簇大小/), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText(/簇选择距离容差/), { target: { value: "0.2" } });
+    fireEvent.click(singleCluster);
+
+    await waitFor(() => {
+      const saved = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
+      expect(saved.nodes.find((node) => node.kind === "speaker_clustering")?.config?.parameters).toEqual({
+        min_cluster_size: 3,
+        min_samples: 2,
+        cluster_selection_epsilon: 0.2,
+        allow_single_cluster: true,
+      });
+    });
   });
 
   it("keeps one left sidebar across workflow pages", async () => {

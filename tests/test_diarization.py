@@ -257,6 +257,9 @@ class _ClusteringSession:
     async def start(self, vectors, *, algorithm, parameters):
         assert algorithm == "hdbscan"
         assert parameters["min_cluster_size"] == 2
+        assert parameters["min_samples"] == 2
+        assert parameters["cluster_selection_epsilon"] == 0
+        assert parameters["allow_single_cluster"] is False
         self.started.append(vectors)
         return tuple(range(len(vectors)))
 
