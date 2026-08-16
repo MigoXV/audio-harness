@@ -181,6 +181,18 @@ describe("audio graph templates", () => {
       kind: "speaker_diarization",
       config: { min_batch_seconds: 60, max_batch_seconds: 120 },
     });
+    expect(result.nodes.find((node) => node.id === "speaker-clustering")).toMatchObject({
+      kind: "speaker_clustering",
+      config: {
+        clustering_algorithm: "hdbscan",
+        parameters: {
+          min_cluster_size: 2,
+          min_samples: 2,
+          cluster_selection_epsilon: 0,
+          allow_single_cluster: false,
+        },
+      },
+    });
     expect(result.outputs).toContainEqual({
       name: "diarization_local",
       source: { kind: "node", node_id: "speaker-diarization", port: "local_results" },

@@ -1489,6 +1489,29 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** HdbscanClusteringParameters */
+        HdbscanClusteringParameters: {
+            /**
+             * Min Cluster Size
+             * @default 2
+             */
+            min_cluster_size: number;
+            /**
+             * Min Samples
+             * @default 2
+             */
+            min_samples: number;
+            /**
+             * Cluster Selection Epsilon
+             * @default 0
+             */
+            cluster_selection_epsilon: number;
+            /**
+             * Allow Single Cluster
+             * @default false
+             */
+            allow_single_cluster: boolean;
+        };
         /** HealthResponse */
         HealthResponse: {
             /** Status */
@@ -1898,12 +1921,10 @@ export interface components {
             /**
              * Clustering Algorithm
              * @default hdbscan
+             * @constant
              */
-            clustering_algorithm: string;
-            /** Parameters */
-            parameters?: {
-                [key: string]: unknown;
-            };
+            clustering_algorithm: "hdbscan";
+            parameters?: components["schemas"]["HdbscanClusteringParameters"];
             /**
              * Max Vectors
              * @default 10000

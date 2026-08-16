@@ -1690,7 +1690,7 @@ class AudioWorkflowRuntime:
                     labels = await session.start(
                         tuple(item.vector for item in vectors),
                         algorithm=config.clustering_algorithm,
-                        parameters=config.parameters,
+                        parameters=config.parameters.model_dump(mode="json"),
                     )
                 elif new_vectors:
                     labels = await session.add(

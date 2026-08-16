@@ -4612,6 +4612,36 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "HdbscanClusteringParameters": {
+        "properties": {
+          "min_cluster_size": {
+            "type": "integer",
+            "minimum": 2.0,
+            "title": "Min Cluster Size",
+            "default": 2
+          },
+          "min_samples": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Min Samples",
+            "default": 2
+          },
+          "cluster_selection_epsilon": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Cluster Selection Epsilon",
+            "default": 0
+          },
+          "allow_single_cluster": {
+            "type": "boolean",
+            "title": "Allow Single Cluster",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "HdbscanClusteringParameters"
+      },
       "HealthResponse": {
         "properties": {
           "status": {
@@ -5581,15 +5611,12 @@
           },
           "clustering_algorithm": {
             "type": "string",
-            "maxLength": 100,
-            "minLength": 1,
+            "const": "hdbscan",
             "title": "Clustering Algorithm",
             "default": "hdbscan"
           },
           "parameters": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Parameters"
+            "$ref": "#/components/schemas/HdbscanClusteringParameters"
           },
           "max_vectors": {
             "type": "integer",

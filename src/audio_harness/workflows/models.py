@@ -128,6 +128,18 @@ class SpeakerDiarizationNode(StrictModel):
     )
 
 
+class HdbscanClusteringParameters(StrictModel):
+    min_cluster_size: int = Field(default=2, ge=2, strict=True)
+    min_samples: int = Field(default=2, ge=1, strict=True)
+    cluster_selection_epsilon: float = Field(
+        default=0,
+        ge=0,
+        allow_inf_nan=False,
+        strict=True,
+    )
+    allow_single_cluster: bool = Field(default=False, strict=True)
+
+
 class SpeakerClusteringNodeConfig(StrictModel):
     embedding_algorithm: str = Field(
         default="eres2netv2",
@@ -137,17 +149,9 @@ class SpeakerClusteringNodeConfig(StrictModel):
     expected_dimension: int = Field(default=192, gt=0, le=65536)
     normalize: bool = True
     max_embedding_seconds: float = Field(default=60.0, gt=0, le=600)
-    clustering_algorithm: str = Field(
-        default="hdbscan",
-        min_length=1,
-        max_length=100,
-    )
-    parameters: dict[str, object] = Field(
-        default_factory=lambda: {
-            "min_cluster_size": 2,
-            "min_samples": 2,
-            "allow_single_cluster": True,
-        }
+    clustering_algorithm: Literal["hdbscan"] = "hdbscan"
+    parameters: HdbscanClusteringParameters = Field(
+        default_factory=HdbscanClusteringParameters
     )
     max_vectors: int = Field(default=10000, gt=0, le=1000000)
 
