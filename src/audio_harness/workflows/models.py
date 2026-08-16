@@ -85,7 +85,7 @@ class SemanticVadNode(StrictModel):
 
 
 class AsrNodeConfig(StrictModel):
-    pass
+    remove_punctuation: bool = False
 
 
 class AsrNode(StrictModel):
@@ -95,8 +95,97 @@ class AsrNode(StrictModel):
     config: AsrNodeConfig = Field(default_factory=AsrNodeConfig)
 
 
+class AudioEmbeddingNodeConfig(StrictModel):
+    algorithm: str = Field(default="eres2netv2", min_length=1, max_length=100)
+    expected_dimension: int = Field(default=192, gt=0, le=65536)
+    normalize: bool = True
+
+
+class AudioEmbeddingNode(StrictModel):
+    id: str = Field(min_length=1, max_length=100, pattern=_IDENTIFIER)
+    kind: Literal["audio_embedding"] = "audio_embedding"
+    engine_id: str | None = None
+    config: AudioEmbeddingNodeConfig = Field(default_factory=AudioEmbeddingNodeConfig)
+
+
+class SpeakerDiarizationNodeConfig(StrictModel):
+    min_batch_seconds: float = Field(default=60.0, ge=0)
+    max_batch_seconds: float = Field(default=120.0, gt=0)
+
+    @model_validator(mode="after")
+    def validate_batch_range(self) -> "SpeakerDiarizationNodeConfig":
+        if self.min_batch_seconds > self.max_batch_seconds:
+            raise ValueError("min_batch_seconds 不能大于 max_batch_seconds")
+        return self
+
+
+class SpeakerDiarizationNode(StrictModel):
+    id: str = Field(min_length=1, max_length=100, pattern=_IDENTIFIER)
+    kind: Literal["speaker_diarization"] = "speaker_diarization"
+    engine_id: str | None = None
+    config: SpeakerDiarizationNodeConfig = Field(
+        default_factory=SpeakerDiarizationNodeConfig
+    )
+
+
+class SpeakerClusteringNodeConfig(StrictModel):
+    embedding_algorithm: str = Field(
+        default="eres2netv2",
+        min_length=1,
+        max_length=100,
+    )
+    expected_dimension: int = Field(default=192, gt=0, le=65536)
+    normalize: bool = True
+    max_embedding_seconds: float = Field(default=60.0, gt=0, le=600)
+    clustering_algorithm: str = Field(
+        default="hdbscan",
+        min_length=1,
+        max_length=100,
+    )
+    parameters: dict[str, object] = Field(
+        default_factory=lambda: {
+            "min_cluster_size": 2,
+            "min_samples": 2,
+            "allow_single_cluster": True,
+        }
+    )
+    max_vectors: int = Field(default=10000, gt=0, le=1000000)
+
+
+class SpeakerClusteringNode(StrictModel):
+    id: str = Field(min_length=1, max_length=100, pattern=_IDENTIFIER)
+    kind: Literal["speaker_clustering"] = "speaker_clustering"
+    engine_id: str | None = None
+    config: SpeakerClusteringNodeConfig = Field(
+        default_factory=SpeakerClusteringNodeConfig
+    )
+    failure_policy: FailurePolicy = FailurePolicy.FAIL_OPEN
+
+
+class VectorSearchNodeConfig(StrictModel):
+    collection_name: str = Field(min_length=1, max_length=255)
+    vector_name: str = Field(min_length=1, max_length=100)
+    top_k: int = Field(default=10, ge=1, le=100)
+    score_threshold: float | None = None
+    filter: dict = Field(default_factory=dict)
+    include_embedding: bool = False
+
+
+class VectorSearchNode(StrictModel):
+    id: str = Field(min_length=1, max_length=100, pattern=_IDENTIFIER)
+    kind: Literal["vector_search"] = "vector_search"
+    engine_id: None = None
+    config: VectorSearchNodeConfig
+
+
 AudioNode = Annotated[
-    PhysicalVadNode | SemanticVadNode | AsrNode,
+    PhysicalVadNode
+    | SemanticVadNode
+    | AsrNode
+    | AudioEmbeddingNode
+    | SpeakerDiarizationNode
+    | SpeakerClusteringNode
+    | VectorSearchNode,
     Field(discriminator="kind"),
 ]
 

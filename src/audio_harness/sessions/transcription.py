@@ -2,20 +2,24 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 
-from audio_harness.capacity import ResizableConcurrencyLimiter, ResizableSessionLimiter
-from audio_harness.domain import PcmChunk, RecognitionOptions
 from audio_harness.engines.pool import InferencerPool
+from audio_harness.inferencers import Inferencer
+from audio_harness.inferencers.asr.base import AsrInferencer
+from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
+from audio_harness.media.pcm import PcmChunk
+from audio_harness.sessions.limits import ResizableSessionLimiter
 from audio_harness.workflows.runtime import (
     AudioInferenceRequest,
     AudioRuntimeConfig,
-    AudioWorkflowInferencer,
+    AudioWorkflowRuntime,
     AudioWorkflowOutput,
 )
 from audio_harness.workflows.service import ActiveAudioWorkflow, AudioWorkflowService
-from audio_harness.workflow_settings import WorkflowSettingsStore
+from audio_harness.workflows.settings import WorkflowSettingsStore
+from audio_harness.vectors.service import VectorService
 
 _AUDIO_END = object()
 _OUTPUT_END = object()
@@ -32,23 +36,32 @@ class AudioWorkflowSession:
     def __init__(
         self,
         *,
-        inferencer_pool: InferencerPool,
+        inferencers: dict[str, Inferencer],
         workflow: ActiveAudioWorkflow,
         runtime_config: AudioRuntimeConfig,
         audio_queue_capacity: int,
         asr_limiter: ResizableConcurrencyLimiter,
-        options: RecognitionOptions,
+        embedding_limiter: ResizableConcurrencyLimiter | None = None,
+        options: AsrInferencer.Options,
         include_vad_events: bool,
         include_vad_progress: bool,
+        include_interim_transcripts: bool,
+        include_vector_search: bool = False,
+        include_diarization: bool = False,
+        vectors: VectorService | None = None,
     ) -> None:
-        self._inferencer_pool = inferencer_pool
+        self._inferencers = dict(inferencers)
         self._workflow = workflow
         self._runtime_config = runtime_config
         self._asr_limiter = asr_limiter
+        self._embedding_limiter = embedding_limiter
         self._request = AudioInferenceRequest(
             recognition=options,
             include_vad_events=include_vad_events,
             include_vad_progress=include_vad_progress,
+            include_interim_transcripts=include_interim_transcripts,
+            include_vector_search=include_vector_search,
+            include_diarization=include_diarization,
         )
         self._audio: asyncio.Queue[bytes | object] = asyncio.Queue(
             maxsize=audio_queue_capacity
@@ -58,16 +71,34 @@ class AudioWorkflowSession:
         )
         self._finished = False
         self._closed = False
-        self._task = asyncio.create_task(
-            self._run(),
-            name="audio-workflow-session",
-        )
+        self._vectors = vectors
+        self._task: asyncio.Task[None] | None = None
 
     @property
     def workflow(self) -> ActiveAudioWorkflow:
         return self._workflow
 
+    async def start(self) -> None:
+        if self._closed:
+            raise RuntimeError("语音工作流会话已经关闭")
+        if self._task is not None:
+            raise RuntimeError("语音工作流会话已经启动")
+        runtime = AudioWorkflowRuntime(
+            plan=self._workflow.plan,
+            inferencers=self._inferencers,
+            runtime_config=self._runtime_config,
+            asr_semaphore=self._asr_limiter,
+            embedding_semaphore=self._embedding_limiter,
+            vectors=self._vectors,
+        )
+        self._task = asyncio.create_task(
+            self._run(runtime),
+            name="audio-workflow-session",
+        )
+
     async def append(self, audio: bytes) -> None:
+        if self._task is None:
+            raise RuntimeError("语音工作流会话尚未启动")
         if self._finished or self._closed:
             raise RuntimeError("语音工作流会话已经结束")
         if len(audio) % 2:
@@ -76,12 +107,16 @@ class AudioWorkflowSession:
             await self._audio.put(audio)
 
     async def finish(self) -> None:
+        if self._task is None:
+            raise RuntimeError("语音工作流会话尚未启动")
         if self._finished or self._closed:
             return
         self._finished = True
         await self._audio.put(_AUDIO_END)
 
     async def outputs(self) -> AsyncIterator[AudioWorkflowOutput]:
+        if self._task is None:
+            raise RuntimeError("语音工作流会话尚未启动")
         while True:
             item = await self._outputs.get()
             if item is _OUTPUT_END:
@@ -95,9 +130,11 @@ class AudioWorkflowSession:
         if self._closed:
             return
         self._closed = True
-        if not self._task.done():
-            self._task.cancel()
-        await asyncio.gather(self._task, return_exceptions=True)
+        task = self._task
+        if task is not None:
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
     async def _audio_chunks(self) -> AsyncIterator[PcmChunk]:
         start_sample = 0
@@ -114,29 +151,15 @@ class AudioWorkflowSession:
             start_sample = chunk.end_sample
             yield chunk
 
-    async def _run(self) -> None:
+    async def _run(self, runtime: AudioWorkflowRuntime) -> None:
         failure: BaseException | None = None
         cancelled = False
         try:
-            plan = self._workflow.plan
-            async with self._inferencer_pool.lease(plan.engine_snapshots) as leased:
-                engines = {
-                    node_id: leased[
-                        (node.engine_snapshot.id, node.engine_snapshot.revision)
-                    ]
-                    for node_id, node in plan.nodes.items()
-                }
-                inferencer = AudioWorkflowInferencer(
-                    plan=plan,
-                    engines=engines,
-                    runtime_config=self._runtime_config,
-                    asr_semaphore=self._asr_limiter,
-                )
-                async for output in inferencer.stream(
-                    self._audio_chunks(),
-                    self._request,
-                ):
-                    await self._outputs.put(output)
+            async for output in runtime.stream(
+                self._audio_chunks(),
+                self._request,
+            ):
+                await self._outputs.put(output)
         except asyncio.CancelledError:
             cancelled = True
             raise
@@ -158,12 +181,16 @@ class AudioWorkflowSessionService:
         workflow_settings: WorkflowSettingsStore,
         session_limiter: ResizableSessionLimiter,
         asr_limiter: ResizableConcurrencyLimiter,
+        embedding_limiter: ResizableConcurrencyLimiter | None = None,
+        vectors: VectorService | None = None,
     ) -> None:
         self.inferencer_pool = inferencer_pool
         self.workflows = workflows
         self.workflow_settings = workflow_settings
         self.session_limiter = session_limiter
         self.asr_limiter = asr_limiter
+        self.embedding_limiter = embedding_limiter
+        self.vectors = vectors
 
     def default_workflow(self) -> ActiveAudioWorkflow:
         workflow_id = self.workflow_settings.current().grpc_audio_workflow_id
@@ -183,17 +210,23 @@ class AudioWorkflowSessionService:
     @asynccontextmanager
     async def open(
         self,
-        options: RecognitionOptions,
+        options: AsrInferencer.Options,
         *,
         include_vad_events: bool = False,
         include_vad_progress: bool = False,
+        include_interim_transcripts: bool = False,
+        include_vector_search: bool = False,
+        include_diarization: bool = False,
         workflow: ActiveAudioWorkflow | None = None,
     ):
         async with self.reserve() as reservation:
-            session = reservation.create(
+            session = await reservation.create(
                 options=options,
                 include_vad_events=include_vad_events,
                 include_vad_progress=include_vad_progress,
+                include_interim_transcripts=include_interim_transcripts,
+                include_vector_search=include_vector_search,
+                include_diarization=include_diarization,
                 workflow=workflow,
             )
             try:
@@ -208,14 +241,20 @@ class AudioWorkflowSessionReservation:
     def __init__(self, service: AudioWorkflowSessionService) -> None:
         self._service = service
         self._session: AudioWorkflowSession | None = None
+        self._lease: AbstractAsyncContextManager[
+            dict[tuple[str, int], Inferencer]
+        ] | None = None
         self._closed = False
 
-    def create(
+    async def create(
         self,
         *,
-        options: RecognitionOptions,
+        options: AsrInferencer.Options,
         include_vad_events: bool = False,
         include_vad_progress: bool = False,
+        include_interim_transcripts: bool = False,
+        include_vector_search: bool = False,
+        include_diarization: bool = False,
         workflow: ActiveAudioWorkflow | None = None,
     ) -> AudioWorkflowSession:
         if self._closed:
@@ -223,26 +262,58 @@ class AudioWorkflowSessionReservation:
         if self._session is not None:
             raise RuntimeError("当前预留中已经存在语音工作流会话")
         settings = self._service.workflow_settings.current().config
-        self._session = AudioWorkflowSession(
-            inferencer_pool=self._service.inferencer_pool,
-            workflow=workflow or self._service.default_workflow(),
-            runtime_config=AudioRuntimeConfig(
-                segment_queue_capacity=settings.segment_queue_capacity,
-                result_queue_capacity=settings.result_queue_capacity,
-            ),
-            audio_queue_capacity=settings.audio_queue_capacity,
-            asr_limiter=self._service.asr_limiter,
-            options=options,
-            include_vad_events=include_vad_events,
-            include_vad_progress=include_vad_progress,
-        )
-        return self._session
+        active_workflow = workflow or self._service.default_workflow()
+        plan = active_workflow.plan
+        lease = self._service.inferencer_pool.lease(plan.engine_snapshots)
+        leased = await lease.__aenter__()
+        session: AudioWorkflowSession | None = None
+        try:
+            inferencers = {
+                node_id: leased[
+                    (node.engine_snapshot.id, node.engine_snapshot.revision)
+                ]
+                for node_id, node in plan.nodes.items()
+                if node.engine_snapshot is not None
+            }
+            session = AudioWorkflowSession(
+                inferencers=inferencers,
+                workflow=active_workflow,
+                runtime_config=AudioRuntimeConfig(
+                    segment_queue_capacity=settings.segment_queue_capacity,
+                    result_queue_capacity=settings.result_queue_capacity,
+                ),
+                audio_queue_capacity=settings.audio_queue_capacity,
+                asr_limiter=self._service.asr_limiter,
+                embedding_limiter=self._service.embedding_limiter,
+                options=options,
+                include_vad_events=include_vad_events,
+                include_vad_progress=include_vad_progress,
+                include_interim_transcripts=include_interim_transcripts,
+                include_vector_search=include_vector_search,
+                include_diarization=include_diarization,
+                vectors=self._service.vectors,
+            )
+            await session.start()
+        except BaseException:
+            if session is not None:
+                await session.close()
+            await lease.__aexit__(None, None, None)
+            raise
+        self._lease = lease
+        self._session = session
+        return session
 
     async def close_session(self) -> None:
         session = self._session
+        lease = self._lease
         self._session = None
-        if session is not None:
-            await session.close()
+        self._lease = None
+        try:
+            if session is not None:
+                await session.close()
+        finally:
+            if lease is not None:
+                await lease.__aexit__(None, None, None)
 
     async def close(self) -> None:
         if self._closed:

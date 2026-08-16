@@ -2,35 +2,33 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import pytest
 from pydantic import ValidationError
 
-from audio_harness.assets import (
+from audio_harness.engines.models import (
     EngineApi,
     EngineAssetData,
     EngineKind,
     EngineProtocol,
     EngineStatus,
 )
-from audio_harness.domain import (
-    AudioSegment,
-    PcmChunk,
-    RecognitionOptions,
-    TranscriptionResult,
-    VadBoundary,
-    VadPostprocessingOptions,
-    VadUpdate,
-)
+from audio_harness.errors import CapacityExceededError
+from audio_harness.inferencers.asr.base import AsrInferencer
+from audio_harness.inferencers.embedding import AudioEmbeddingInferencer
+from audio_harness.inferencers.vad.base import VadInferencer
+from audio_harness.media.pcm import PcmChunk
 from audio_harness.workflows import (
     AsrNode,
+    AsrNodeConfig,
     AudioEdge,
     AudioGraphValidationError,
     AudioInferenceRequest,
     AudioRuntimeConfig,
     AudioWorkflowDocument,
-    AudioWorkflowInferencer,
+    AudioWorkflowRuntime,
     FailurePolicy,
     GraphInputRef,
     NamedOutputBinding,
@@ -41,6 +39,14 @@ from audio_harness.workflows import (
     SemanticVadNode,
     compile_audio_graph,
 )
+from audio_harness.workflows.events import VectorSearchResult
+from audio_harness.workflows.models import (
+    AudioEmbeddingNode,
+    AudioEmbeddingNodeConfig,
+    VectorSearchNode,
+    VectorSearchNodeConfig,
+)
+from audio_harness.vectors.models import SpeakerMatch, VectorObservation
 
 
 def _asset(asset_id: str, kind: EngineKind, api: EngineApi) -> EngineAssetData:
@@ -213,19 +219,56 @@ def test_compiler_rejects_wrong_output_type(assets: dict[str, EngineAssetData]) 
     assert any(item.code == "output_type_mismatch" for item in captured.value.diagnostics)
 
 
-class _Vad:
-    def __init__(self, updates: list[VadUpdate], turns: list[bool] | None = None) -> None:
+def test_runtime_rejects_wrong_node_capability_immediately(
+    assets: dict[str, EngineAssetData],
+) -> None:
+    with pytest.raises(TypeError, match="physical.*VadInferencer"):
+        AudioWorkflowRuntime(
+            plan=compile_audio_graph(_definition(semantic=False), assets=assets),
+            inferencers={"physical": _Asr(), "asr": _Asr()},
+            runtime_config=AudioRuntimeConfig(1, 1),
+            asr_semaphore=asyncio.Semaphore(1),
+        )
+
+
+def test_runtime_allows_nodes_to_share_one_stateless_inferencer(
+    assets: dict[str, EngineAssetData],
+) -> None:
+    shared_vad = _Vad([])
+    runtime = AudioWorkflowRuntime(
+        plan=compile_audio_graph(_definition(), assets=assets),
+        inferencers={
+            "physical": shared_vad,
+            "semantic": shared_vad,
+            "asr": _Asr(),
+        },
+        runtime_config=AudioRuntimeConfig(1, 1),
+        asr_semaphore=asyncio.Semaphore(1),
+    )
+
+    assert runtime._inferencers["physical"] is shared_vad
+    assert runtime._inferencers["semantic"] is shared_vad
+
+
+class _Vad(VadInferencer):
+    def __init__(
+        self,
+        updates: list[VadInferencer.Update],
+        turns: list[bool] | None = None,
+    ) -> None:
         self.updates = updates
         self.turns = list(turns or [])
-        self.postprocessing: VadPostprocessingOptions | None = None
+        self.postprocessing: VadInferencer.Postprocessing | None = None
+        self.stream_calls = 0
 
     async def stream_detect(
         self,
         audio_chunks: AsyncIterator[bytes],
         sample_rate: int,
         *,
-        postprocessing: VadPostprocessingOptions | None = None,
-    ) -> AsyncIterator[VadUpdate]:
+        postprocessing: VadInferencer.Postprocessing | None = None,
+    ) -> AsyncIterator[VadInferencer.Update]:
+        self.stream_calls += 1
         self.postprocessing = postprocessing
         async for _ in audio_chunks:
             pass
@@ -235,30 +278,448 @@ class _Vad:
     async def detect_turn(self, audio: bytes, sample_rate: int) -> bool:
         return self.turns.pop(0)
 
+    async def ready(self) -> None: pass
+    async def probe(self) -> None: pass
+    async def close(self) -> None: pass
 
-class _Asr:
-    def __init__(self) -> None:
-        self.calls: list[AudioSegment] = []
+
+class _Asr(AsrInferencer):
+    def __init__(self, transcript: str = "结果") -> None:
+        self.calls: list[tuple[bytes, int, int, bool]] = []
+        self.transcript = transcript
 
     async def transcribe(
         self,
-        segment: AudioSegment,
-        options: RecognitionOptions,
-    ) -> AsyncIterator[TranscriptionResult]:
-        self.calls.append(segment)
-        yield TranscriptionResult(
-            transcript="结果",
+        audio: bytes,
+        *,
+        start_sample: int,
+        end_sample: int,
+        turn_completed: bool,
+        options: AsrInferencer.Options,
+    ) -> AsyncIterator[AsrInferencer.Result]:
+        self.calls.append((audio, start_sample, end_sample, turn_completed))
+        yield AsrInferencer.Result(
+            transcript=self.transcript,
             is_final=True,
-            start_sample=segment.start_sample,
-            end_sample=segment.end_sample,
+            start_sample=start_sample,
+            end_sample=end_sample,
             sample_rate=options.sample_rate,
-            turn_completed=segment.turn_completed,
+            turn_completed=turn_completed,
             language_code=options.language_code,
+            metadata={"source": "fake"},
         )
+
+    async def ready(self) -> None: pass
+    async def probe(self) -> None: pass
+    async def close(self) -> None: pass
+
+
+class _Embedding(AudioEmbeddingInferencer):
+    def __init__(self) -> None:
+        pass
+
+    async def embed(
+        self,
+        pcm_s16le: bytes,
+        *,
+        algorithm: str,
+        expected_dimension: int,
+        normalize: bool = True,
+    ) -> tuple[float, ...]:
+        assert pcm_s16le
+        assert algorithm == "eres2netv2"
+        assert expected_dimension == 2
+        assert normalize is True
+        return (1.0, 0.0)
+
+
+class _Vectors:
+    def __init__(self, *, failure: Exception | None = None) -> None:
+        self.failure = failure
+
+    async def search_embedding(
+        self,
+        collection: str,
+        vector: tuple[float, ...],
+        *,
+        vector_name: str,
+        top_k: int,
+        score_threshold: float | None = None,
+        filter_json: dict | None = None,
+    ) -> tuple[SpeakerMatch, ...]:
+        if self.failure is not None:
+            raise self.failure
+        assert (collection, vector_name, vector, top_k) == (
+            "voiceprints", "eres2netv2", (1.0, 0.0), 10,
+        )
+        assert score_threshold is None
+        assert filter_json == {}
+        return (SpeakerMatch(
+            "speaker-1",
+            0.95,
+            VectorObservation("point-1", {"speaker_id": "speaker-1"}),
+        ),)
+
+
+class _FailingVad(_Vad):
+    async def stream_detect(
+        self,
+        audio_chunks: AsyncIterator[bytes],
+        sample_rate: int,
+        *,
+        postprocessing: VadInferencer.Postprocessing | None = None,
+    ) -> AsyncIterator[VadInferencer.Update]:
+        async for _ in audio_chunks:
+            pass
+        raise RuntimeError("preview vad failed")
+        yield  # pragma: no cover
+
+
+class _PreviewCapacityLimiter:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, _exc_type, _exc, _traceback) -> None:
+        return None
+
+    @asynccontextmanager
+    async def try_slot(self):
+        raise CapacityExceededError("full")
+        yield  # pragma: no cover
 
 
 async def _chunks() -> AsyncIterator[PcmChunk]:
     yield PcmChunk(pcm_s16le=bytes(16), sample_rate=4, start_sample=0)
+
+
+def _vector_definition() -> AudioWorkflowDocument:
+    definition = _definition()
+    definition.nodes.extend([
+        AudioEmbeddingNode(
+            id="embedding",
+            engine_id="embedding-engine",
+            config=AudioEmbeddingNodeConfig(
+                algorithm="eres2netv2",
+                expected_dimension=2,
+                normalize=True,
+            ),
+        ),
+        VectorSearchNode(
+            id="vector-search",
+            config=VectorSearchNodeConfig(
+                collection_name="voiceprints",
+                vector_name="eres2netv2",
+            ),
+        ),
+    ])
+    definition.edges.extend([
+        AudioEdge(
+            id="semantic-embedding",
+            source=NodeOutputRef(node_id="semantic", port="segments"),
+            target=NodeInputRef(node_id="embedding", port="segments"),
+        ),
+        AudioEdge(
+            id="embedding-vector-search",
+            source=NodeOutputRef(node_id="embedding", port="embeddings"),
+            target=NodeInputRef(node_id="vector-search", port="embeddings"),
+        ),
+    ])
+    definition.outputs.append(NamedOutputBinding(
+        name="vector_search",
+        source=NodeOutputRef(node_id="vector-search", port="results"),
+    ))
+    return definition
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("search_failure", [None, RuntimeError("qdrant unavailable")])
+async def test_vector_search_result_reaches_named_output_without_breaking_asr(
+    assets: dict[str, EngineAssetData],
+    search_failure: Exception | None,
+) -> None:
+    update = VadInferencer.Update(boundaries=((0, 8),), processed_samples=8)
+    plan_assets = {
+        **assets,
+        "embedding-engine": _asset(
+            "embedding-engine", EngineKind.EMBEDDING, EngineApi.ENGINE_FEATURE,
+        ),
+    }
+    runtime = AudioWorkflowRuntime(
+        plan=compile_audio_graph(_vector_definition(), assets=plan_assets),
+        inferencers={
+            "physical": _Vad([update]),
+            "semantic": _Vad([], turns=[True]),
+            "asr": _Asr(),
+            "embedding": _Embedding(),
+        },
+        runtime_config=AudioRuntimeConfig(2, 8),
+        asr_semaphore=asyncio.Semaphore(1),
+        vectors=_Vectors(failure=search_failure),  # type: ignore[arg-type]
+    )
+
+    outputs = [
+        output
+        async for output in runtime.stream(
+            _chunks(),
+            AudioInferenceRequest(
+                recognition=AsrInferencer.Options(
+                    sample_rate=4,
+                    language_code="zh-CN",
+                ),
+                include_vector_search=True,
+            ),
+        )
+    ]
+
+    assert {output.name for output in outputs} == {"primary_transcript", "vector_search"}
+    vector_output = next(output for output in outputs if output.name == "vector_search")
+    assert isinstance(vector_output.payload, VectorSearchResult)
+    if search_failure is None:
+        assert vector_output.payload.error_code is None
+        assert vector_output.payload.groups == ({
+            "speaker_id": "speaker-1",
+            "score": 0.95,
+            "observation": {
+                "point_id": "point-1",
+                "payload": {"speaker_id": "speaker-1"},
+            },
+        },)
+    else:
+        assert vector_output.payload.error_code == "vector_search_failed"
+        assert vector_output.payload.error_message == "qdrant unavailable"
+        assert vector_output.payload.groups == ()
+
+
+def _dual_definition() -> AudioWorkflowDocument:
+    physical_config = PhysicalVadConfig(
+        min_segment_seconds=0,
+        max_segment_seconds=60,
+        audio_buffer_seconds=61,
+        speech_pre_roll_seconds=0,
+    )
+    return AudioWorkflowDocument(
+        nodes=[
+            PhysicalVadNode(
+                id="physical",
+                engine_id="vad-engine",
+                config=physical_config,
+            ),
+            AsrNode(id="asr", engine_id="asr-engine"),
+            PhysicalVadNode(
+                id="interim-physical",
+                engine_id="vad-engine",
+                config=physical_config,
+            ),
+            AsrNode(id="interim-asr", engine_id="asr-engine"),
+        ],
+        edges=[
+            AudioEdge(
+                id="input-physical",
+                source=GraphInputRef(),
+                target=NodeInputRef(node_id="physical", port="audio"),
+            ),
+            AudioEdge(
+                id="physical-asr",
+                source=NodeOutputRef(node_id="physical", port="segments"),
+                target=NodeInputRef(node_id="asr", port="segments"),
+            ),
+            AudioEdge(
+                id="input-interim-physical",
+                source=GraphInputRef(),
+                target=NodeInputRef(node_id="interim-physical", port="audio"),
+            ),
+            AudioEdge(
+                id="interim-physical-asr",
+                source=NodeOutputRef(
+                    node_id="interim-physical",
+                    port="segments",
+                ),
+                target=NodeInputRef(node_id="interim-asr", port="segments"),
+            ),
+        ],
+        outputs=[
+            NamedOutputBinding(
+                name="primary_transcript",
+                source=NodeOutputRef(node_id="asr", port="transcripts"),
+            ),
+            NamedOutputBinding(
+                name="interim_transcript",
+                source=NodeOutputRef(
+                    node_id="interim-asr",
+                    port="transcripts",
+                ),
+            ),
+            NamedOutputBinding(
+                name="speech_started",
+                source=NodeOutputRef(node_id="physical", port="speech_started"),
+            ),
+            NamedOutputBinding(
+                name="speech_stopped",
+                source=NodeOutputRef(node_id="physical", port="speech_stopped"),
+            ),
+        ],
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("include_interim", "expected_names", "expected_preview_calls"),
+    [
+        (False, ["primary_transcript"], 0),
+        (True, ["interim_transcript", "primary_transcript"], 1),
+    ],
+)
+async def test_dual_graph_only_runs_interim_branch_when_requested(
+    assets: dict[str, EngineAssetData],
+    include_interim: bool,
+    expected_names: list[str],
+    expected_preview_calls: int,
+) -> None:
+    update = VadInferencer.Update(
+        boundaries=((0, 8),),
+        processed_samples=8,
+    )
+    physical = _Vad([update])
+    preview_physical = _Vad([update])
+    inferencer = AudioWorkflowRuntime(
+        plan=compile_audio_graph(_dual_definition(), assets=assets),
+        inferencers={
+            "physical": physical,
+            "asr": _Asr(),
+            "interim-physical": preview_physical,
+            "interim-asr": _Asr(),
+        },
+        runtime_config=AudioRuntimeConfig(2, 8),
+        asr_semaphore=asyncio.Semaphore(2),
+    )
+
+    outputs = [
+        output
+        async for output in inferencer.stream(
+            _chunks(),
+            AudioInferenceRequest(
+                recognition=AsrInferencer.Options(
+                    sample_rate=4,
+                    language_code="zh-CN",
+                ),
+                include_interim_transcripts=include_interim,
+            ),
+        )
+    ]
+
+    assert sorted(output.name for output in outputs) == sorted(expected_names)
+    assert preview_physical.stream_calls == expected_preview_calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("remove_punctuation", "transcript", "expected"),
+    [
+        (
+            False,
+            "你好， world! “test”—OK… $5 + 🙂",
+            "你好， world! “test”—OK… $5 + 🙂",
+        ),
+        (
+            True,
+            "你好， world! “test”—OK… $5 + 🙂",
+            "你好 world testOK $5 + 🙂",
+        ),
+        (True, "？！…", ""),
+    ],
+)
+async def test_asr_node_option_removes_unicode_punctuation(
+    assets: dict[str, EngineAssetData],
+    remove_punctuation: bool,
+    transcript: str,
+    expected: str,
+) -> None:
+    definition = _definition(semantic=False)
+    asr_node = definition.nodes[-1]
+    assert isinstance(asr_node, AsrNode)
+    asr_node.config = AsrNodeConfig(remove_punctuation=remove_punctuation)
+    update = VadInferencer.Update(
+        boundaries=((0, 8),),
+        processed_samples=8,
+    )
+    inferencer = AudioWorkflowRuntime(
+        plan=compile_audio_graph(definition, assets=assets),
+        inferencers={
+            "physical": _Vad([update]),
+            "asr": _Asr(transcript),
+        },
+        runtime_config=AudioRuntimeConfig(2, 8),
+        asr_semaphore=asyncio.Semaphore(1),
+    )
+
+    outputs = [
+        output
+        async for output in inferencer.stream(
+            _chunks(),
+            AudioInferenceRequest(
+                recognition=AsrInferencer.Options(
+                    sample_rate=4,
+                    language_code="zh-CN",
+                )
+            ),
+        )
+    ]
+
+    assert [output.name for output in outputs] == ["primary_transcript"]
+    result = outputs[0].payload
+    assert isinstance(result, AsrInferencer.Result)
+    assert result.transcript == expected
+    assert result.is_final is True
+    assert (result.start_sample, result.end_sample) == (0, 8)
+    assert result.language_code == "zh-CN"
+    assert result.metadata == {"source": "fake"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("preview_failure", ["capacity", "vad"])
+async def test_dual_graph_preview_failure_does_not_break_primary(
+    assets: dict[str, EngineAssetData],
+    preview_failure: str,
+) -> None:
+    update = VadInferencer.Update(
+        boundaries=((0, 8),),
+        processed_samples=8,
+    )
+    preview_asr = _Asr()
+    inferencer = AudioWorkflowRuntime(
+        plan=compile_audio_graph(_dual_definition(), assets=assets),
+        inferencers={
+            "physical": _Vad([update]),
+            "asr": _Asr(),
+            "interim-physical": (
+                _FailingVad([]) if preview_failure == "vad" else _Vad([update])
+            ),
+            "interim-asr": preview_asr,
+        },
+        runtime_config=AudioRuntimeConfig(2, 8),
+        asr_semaphore=(
+            _PreviewCapacityLimiter()
+            if preview_failure == "capacity"
+            else asyncio.Semaphore(2)
+        ),  # type: ignore[arg-type]
+    )
+
+    outputs = [
+        output
+        async for output in inferencer.stream(
+            _chunks(),
+            AudioInferenceRequest(
+                recognition=AsrInferencer.Options(
+                    sample_rate=4,
+                    language_code="zh-CN",
+                ),
+                include_interim_transcripts=True,
+            ),
+        )
+    ]
+
+    assert [output.name for output in outputs] == ["primary_transcript"]
+    assert preview_asr.calls == []
 
 
 @pytest.mark.asyncio
@@ -267,17 +728,17 @@ async def test_inferencer_merges_semantic_turn_and_emits_named_outputs(
 ) -> None:
     physical = _Vad(
         [
-            VadUpdate(
-                boundaries=(VadBoundary(0, 4), VadBoundary(4, 8)),
+            VadInferencer.Update(
+                boundaries=((0, 4), (4, 8)),
                 processed_samples=8,
             )
         ]
     )
     semantic = _Vad([], turns=[False, True])
     asr = _Asr()
-    inferencer = AudioWorkflowInferencer(
+    inferencer = AudioWorkflowRuntime(
         plan=compile_audio_graph(_definition(), assets=assets),
-        engines={"physical": physical, "semantic": semantic, "asr": asr},
+        inferencers={"physical": physical, "semantic": semantic, "asr": asr},
         runtime_config=AudioRuntimeConfig(
             segment_queue_capacity=1,
             result_queue_capacity=1,
@@ -290,7 +751,10 @@ async def test_inferencer_merges_semantic_turn_and_emits_named_outputs(
         async for output in inferencer.stream(
             _chunks(),
             AudioInferenceRequest(
-                recognition=RecognitionOptions(sample_rate=4, language_code="zh-CN"),
+                recognition=AsrInferencer.Options(
+                    sample_rate=4,
+                    language_code="zh-CN",
+                ),
                 include_vad_events=True,
             ),
         )
@@ -304,23 +768,26 @@ async def test_inferencer_merges_semantic_turn_and_emits_named_outputs(
         "primary_transcript",
     ]
     assert len(asr.calls) == 1
-    assert (asr.calls[0].start_sample, asr.calls[0].end_sample) == (0, 8)
+    assert asr.calls[0][1:3] == (0, 8)
 
 
 @pytest.mark.asyncio
 async def test_inferencer_cancels_all_node_tasks_on_consumer_cancel(
     assets: dict[str, EngineAssetData],
 ) -> None:
-    inferencer = AudioWorkflowInferencer(
+    inferencer = AudioWorkflowRuntime(
         plan=compile_audio_graph(_definition(semantic=False), assets=assets),
-        engines={"physical": _Vad([]), "asr": _Asr()},
+        inferencers={"physical": _Vad([]), "asr": _Asr()},
         runtime_config=AudioRuntimeConfig(1, 1),
         asr_semaphore=asyncio.Semaphore(1),
     )
     stream = inferencer.stream(
         _chunks(),
         AudioInferenceRequest(
-            recognition=RecognitionOptions(sample_rate=4, language_code="zh-CN")
+            recognition=AsrInferencer.Options(
+                sample_rate=4,
+                language_code="zh-CN",
+            )
         ),
     )
     task = asyncio.create_task(anext(stream))
@@ -354,9 +821,9 @@ async def test_physical_vad_passes_node_postprocessing_to_engine(
         }
     )
     vad = _Vad([])
-    inferencer = AudioWorkflowInferencer(
+    inferencer = AudioWorkflowRuntime(
         plan=compile_audio_graph(definition, assets=assets),
-        engines={"physical": vad, "asr": _Asr()},
+        inferencers={"physical": vad, "asr": _Asr()},
         runtime_config=AudioRuntimeConfig(1, 1),
         asr_semaphore=asyncio.Semaphore(1),
     )
@@ -366,7 +833,7 @@ async def test_physical_vad_passes_node_postprocessing_to_engine(
         async for output in inferencer.stream(
             _chunks(),
             AudioInferenceRequest(
-                recognition=RecognitionOptions(
+                recognition=AsrInferencer.Options(
                     sample_rate=4,
                     language_code="zh-CN",
                 )
@@ -374,6 +841,6 @@ async def test_physical_vad_passes_node_postprocessing_to_engine(
         )
     ] == []
     assert vad.postprocessing is not None
-    assert vad.postprocessing.processor == "firered.stream_vad"
-    assert vad.postprocessing.parameters["speech_threshold"] == 0.7
-    assert vad.postprocessing.parameters["min_silence_frame"] == 20
+    assert vad.postprocessing["processor"] == "firered.stream_vad"
+    assert vad.postprocessing["parameters"]["speech_threshold"] == 0.7
+    assert vad.postprocessing["parameters"]["min_silence_frame"] == 20

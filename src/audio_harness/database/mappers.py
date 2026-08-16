@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from audio_harness.assets import EngineAssetData
+from audio_harness.engines.models import EngineAssetData
 from audio_harness.database.models import EngineAsset
 
 

@@ -15,7 +15,8 @@ from sqlalchemy.ext.asyncio import (
 )
 
 
-DATABASE_BASELINE_REVISION = "0001_initial"
+DATABASE_BASELINE_REVISION = "0003_remove_vector_spaces"
+DATABASE_CLEANUP_REVISIONS = {"0002_vector_search"}
 
 
 def _ensure_sqlite_parent(database_url: str) -> None:
@@ -75,7 +76,7 @@ def require_fresh_database(database_url: str) -> None:
             "SELECT version_num FROM alembic_version LIMIT 1"
         ).fetchone()
     revision = revision_row[0] if revision_row is not None else None
-    if revision != DATABASE_BASELINE_REVISION:
+    if revision != DATABASE_BASELINE_REVISION and revision not in DATABASE_CLEANUP_REVISIONS:
         raise RuntimeError(
             "当前版本不支持原地升级旧业务数据。请停止服务并人工移走 "
             f"{database_path}、{database_path}-wal 和 {database_path}-shm，"

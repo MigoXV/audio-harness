@@ -4,7 +4,7 @@ import logging
 
 import grpc
 
-from audio_harness.config import GrpcConfig
+from audio_harness.configs import GrpcConfig
 from audio_harness.protos.asr import ux_speech_pb2_grpc
 from audio_harness.serving.grpc.speech import SpeechServicer
 

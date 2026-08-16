@@ -45,13 +45,8 @@ from openai.types.realtime.conversation_item_input_audio_transcription_failed_ev
     Error as TranscriptionError,
 )
 
-from audio_harness.domain import (
-    RecognitionOptions,
-    SpeechStarted,
-    SpeechStopped,
-    TranscriptionResult,
-)
-from audio_harness.capacity import ResizableConcurrencyLimiter
+from audio_harness.inferencers.asr.base import AsrInferencer
+from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
 from audio_harness.engines.pool import InferencerPool
 from audio_harness.serving.realtime.conversation import (
     ConversationMutationError,
@@ -69,10 +64,19 @@ from audio_harness.sessions import (
     AudioWorkflowSessionReservation,
     AudioWorkflowSessionService,
 )
-from audio_harness.voice_agents.service import ActiveVoiceAgent, RealtimeTarget
-from audio_harness.workflow_settings import WorkflowSettingsStore
+from audio_harness.realtime_routes.service import RealtimeTarget
+from audio_harness.voice_agents.service import ActiveVoiceAgent
+from audio_harness.workflows.settings import WorkflowSettingsStore
 from audio_harness.workflows.models import PhysicalVadNode
 from audio_harness.workflows.service import ActiveAudioWorkflow
+from audio_harness.workflows.events import (
+    DiarizationClusterResult,
+    DiarizationLocalResult,
+    SpeakerTranscriptionResult,
+    SpeechStarted,
+    SpeechStopped,
+    VectorSearchResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +86,27 @@ ENGINE_SAMPLE_RATE = 16_000
 EventSender = Callable[[Any], Awaitable[None]]
 AudioEventHandler = Callable[[InputAudioBufferAppendEvent], Awaitable[None]]
 _DEFAULT_TURN_DETECTION = object()
+
+DIARIZATION_LOCAL_EVENT_TYPES = frozenset(
+    {
+        "x_aha.diarization.local.delta",
+        "x_aha.diarization.local.completed",
+        "x_aha.diarization.local.failed",
+    }
+)
+DIARIZATION_CLUSTER_EVENT_TYPES = frozenset(
+    {
+        "x_aha.diarization.cluster.completed",
+        "x_aha.diarization.cluster.failed",
+    }
+)
+SPEAKER_TRANSCRIPTION_EVENT_TYPES = frozenset(
+    {
+        "x_aha.input_audio_transcription.speaker.delta",
+        "x_aha.input_audio_transcription.speaker.completed",
+        "x_aha.input_audio_transcription.speaker.failed",
+    }
+)
 
 
 def event_id() -> str:
@@ -193,8 +218,6 @@ def _transcription_audio_settings(
         if audio_format.get("rate", INPUT_SAMPLE_RATE) != INPUT_SAMPLE_RATE:
             raise ValueError("audio/pcm 只支持 24 kHz")
         audio_format = {"type": "audio/pcm", "rate": INPUT_SAMPLE_RATE}
-    elif format_type in {"audio/pcmu", "audio/pcma"}:
-        audio_format = {"type": format_type}
     else:
         raise ValueError(f"不支持的输入音频格式: {format_type}")
     turn_detection = audio_input.get("turn_detection", {"type": "server_vad"})
@@ -214,6 +237,25 @@ class _TranscriptItem:
     start_sample: int
     end_sample: int
     sent_transcript: str = ""
+
+
+def _join_interim_parts(parts: list[str]) -> str:
+    result = ""
+    for raw in parts:
+        part = raw.strip()
+        if not part:
+            continue
+        separator = (
+            " "
+            if result
+            and result[-1].isascii()
+            and result[-1].isalnum()
+            and part[0].isascii()
+            and part[0].isalnum()
+            else ""
+        )
+        result += separator + part
+    return result
 
 
 class RealtimeTranscriptionSession:
@@ -251,13 +293,20 @@ class RealtimeTranscriptionSession:
             if isinstance(target, ActiveVoiceAgent)
             else target
         )
-        physical_node = next(
+        speech_started_binding = next(
             (
-                node
-                for node in self._workflow.plan.nodes.values()
-                if node.spec.kind == "physical_vad"
+                output
+                for output in self._workflow.plan.definition.outputs
+                if output.name == "speech_started"
             ),
             None,
+        )
+        physical_node = (
+            self._workflow.plan.nodes.get(
+                speech_started_binding.source.node_id
+            )
+            if speech_started_binding is not None
+            else None
         )
         if physical_node is None or not isinstance(
             physical_node.definition,
@@ -334,6 +383,12 @@ class RealtimeTranscriptionSession:
         self._workflow_task: asyncio.Task[None] | None = None
         self._active_item_id: str | None = None
         self._pending_items: deque[_TranscriptItem] = deque()
+        self._interim_segments: dict[tuple[int, int], str] = {}
+        self._interim_item_id: str | None = None
+        self._interim_revision = 0
+        self._interim_sent_transcript = ""
+        self._interim_was_sent = False
+        self._interim_suppressed_item_id: str | None = None
         self._previous_item_id: str | None = None
         self._manual_audio_buffer = bytearray()
         self._audio_started = False
@@ -671,6 +726,7 @@ class RealtimeTranscriptionSession:
         try:
             await self._finish_workflow(send_results=False)
         finally:
+            await self._clear_interim("input_audio_buffer_cleared")
             self._active_item_id = None
             self._pending_items.clear()
             self._manual_audio_buffer.clear()
@@ -798,16 +854,22 @@ class RealtimeTranscriptionSession:
         )
 
     async def _start_workflow(self) -> None:
-        options = RecognitionOptions(
+        options = AsrInferencer.Options(
             sample_rate=ENGINE_SAMPLE_RATE,
             language_code=self.language,
             enable_automatic_punctuation=True,
         )
         if self._reservation is not None:
-            self._transcription = self._reservation.create(
+            self._transcription = await self._reservation.create(
                 options=options,
                 include_vad_events=True,
                 include_vad_progress=self._aha_version == "v1",
+                include_interim_transcripts=(
+                    self._aha_version == "v1"
+                    and not self._manual_commit_enabled
+                ),
+                include_vector_search=self._aha_version == "v1",
+                include_diarization=self._aha_version == "v1",
                 workflow=self._workflow,
             )
         else:
@@ -815,6 +877,12 @@ class RealtimeTranscriptionSession:
                 options,
                 include_vad_events=True,
                 include_vad_progress=self._aha_version == "v1",
+                include_interim_transcripts=(
+                    self._aha_version == "v1"
+                    and not self._manual_commit_enabled
+                ),
+                include_vector_search=self._aha_version == "v1",
+                include_diarization=self._aha_version == "v1",
                 workflow=self._workflow,
             )
             self._transcription = await self._session_context.__aenter__()
@@ -859,11 +927,180 @@ class RealtimeTranscriptionSession:
                 )
 
     async def _handle_workflow_event(self, output_name: str, event: Any) -> None:
+        if output_name == "diarization_local" and isinstance(
+            event,
+            DiarizationLocalResult,
+        ):
+            if self._aha_version != "v1":
+                return
+            event_type = f"x_aha.diarization.local.{event.phase}"
+            if event_type not in DIARIZATION_LOCAL_EVENT_TYPES:
+                raise RuntimeError(f"未知 diarization 事件阶段: {event.phase}")
+            common = {
+                "type": event_type,
+                "event_id": event_id(),
+                "batch_id": event.batch_id,
+                "batch_audio_start_ms": round(
+                    event.batch_start_sample * 1000 / event.sample_rate
+                ),
+                "batch_audio_end_ms": round(
+                    event.batch_end_sample * 1000 / event.sample_rate
+                ),
+                "speech_duration_ms": round(
+                    event.speech_samples * 1000 / event.sample_rate
+                ),
+                "segments": [
+                    {
+                        "segment_id": segment.segment_id,
+                        "audio_start_ms": round(
+                            segment.start_sample * 1000 / event.sample_rate
+                        ),
+                        "audio_end_ms": round(
+                            segment.end_sample * 1000 / event.sample_rate
+                        ),
+                        "speaker": segment.speaker,
+                        "local_speaker_id": segment.local_speaker_id,
+                    }
+                    for segment in event.segments
+                ],
+                "latency_ms": round(event.latency_ms, 3),
+            }
+            if event.sequence is not None:
+                common["sequence"] = event.sequence
+            if event.error_code is not None:
+                common["error"] = {
+                    "code": event.error_code,
+                    "message": event.error_message or "说话人分离失败",
+                }
+            await self._send_event(common)
+            return
+        if output_name == "speaker_transcript" and isinstance(
+            event,
+            SpeakerTranscriptionResult,
+        ):
+            if self._aha_version != "v1":
+                return
+            event_type = (
+                "x_aha.input_audio_transcription.speaker."
+                f"{event.phase}"
+            )
+            if event_type not in SPEAKER_TRANSCRIPTION_EVENT_TYPES:
+                raise RuntimeError(
+                    f"未知说话人转写事件阶段: {event.phase}"
+                )
+            matched_item = next(
+                (
+                    item
+                    for item in self._pending_items
+                    if item.start_sample <= event.start_sample
+                    and item.end_sample >= event.end_sample
+                ),
+                None,
+            )
+            current_item_id = (
+                matched_item.item_id
+                if matched_item is not None
+                else self._active_item_id or self._interim_item_id
+            )
+            common = {
+                "type": event_type,
+                "event_id": event_id(),
+                "item_id": current_item_id,
+                "item_source_id": event.item_source_id,
+                "segment_id": event.segment_id,
+                "batch_id": event.batch_id,
+                "local_speaker_id": event.local_speaker_id,
+                "speaker": event.speaker,
+                "audio_start_ms": round(
+                    event.start_sample * 1000 / event.sample_rate
+                ),
+                "audio_end_ms": round(
+                    event.end_sample * 1000 / event.sample_rate
+                ),
+            }
+            if event.language_code is not None:
+                common["language"] = event.language_code
+            if event.phase == "delta":
+                common["delta"] = event.text
+            elif event.phase == "completed":
+                common["transcript"] = event.text
+            else:
+                common["error"] = {
+                    "code": event.error_code
+                    or "speaker_transcription_failed",
+                    "message": event.error_message or "说话人片段转写失败",
+                }
+            await self._send_event(common)
+            return
+        if output_name == "diarization_cluster" and isinstance(
+            event,
+            DiarizationClusterResult,
+        ):
+            if self._aha_version != "v1":
+                return
+            event_type = f"x_aha.diarization.cluster.{event.phase}"
+            if event_type not in DIARIZATION_CLUSTER_EVENT_TYPES:
+                raise RuntimeError(f"未知聚类事件阶段: {event.phase}")
+            common = {
+                "type": event_type,
+                "event_id": event_id(),
+                "revision": event.revision,
+                "replaces_revision": event.replaces_revision,
+            }
+            if event.phase == "completed":
+                common["full_snapshot"] = True
+                common["assignments"] = [
+                    {
+                        "segment_id": assignment.segment_id,
+                        "local_speaker_id": assignment.local_speaker_id,
+                        "speaker_id": assignment.speaker_id,
+                    }
+                    for assignment in event.assignments
+                ]
+            else:
+                common["error"] = {
+                    "code": event.error_code or "diarization_cluster_failed",
+                    "message": event.error_message or "说话人聚类失败",
+                }
+            await self._send_event(common)
+            return
+        if output_name == "vector_search" and isinstance(event, VectorSearchResult):
+            if self._aha_version != "v1":
+                return
+            current_item_id = self._active_item_id or self._interim_item_id
+            if current_item_id is None and self._pending_items:
+                current_item_id = self._pending_items[0].item_id
+            if current_item_id is None:
+                logger.warning("人物搜索结果缺少关联 Realtime item")
+                return
+            common = {
+                "event_id": event_id(), "item_id": current_item_id,
+                "audio_start_ms": round(event.start_sample * 1000 / event.sample_rate),
+                "audio_end_ms": round(event.end_sample * 1000 / event.sample_rate),
+                "collection_name": event.collection_name,
+                "vector_name": event.vector_name,
+            }
+            if event.error_code is not None:
+                await self._send_event({"type": "x_aha.vector.search.failed", **common, "error": {"code": event.error_code, "message": event.error_message or "人物搜索失败"}})
+            else:
+                payload = {"type": "x_aha.vector.search.completed", **common, "groups": list(event.groups), "latency_ms": round(event.latency_ms, 3)}
+                if event.embedding is not None:
+                    payload["embedding"] = list(event.embedding)
+                await self._send_event(payload)
+            return
+        if output_name == "interim_transcript":
+            if (
+                self._aha_version == "v1"
+                and not self._manual_commit_enabled
+                and isinstance(event, AsrInferencer.Result)
+            ):
+                await self._handle_interim_transcript(event)
+            return
         if output_name == "turn_progress":
             if (
                 self._aha_version == "v1"
                 and not self._manual_commit_enabled
-                and isinstance(event, TranscriptionResult)
+                and isinstance(event, AsrInferencer.Result)
                 and not event.turn_completed
             ):
                 if self._active_item_id is None:
@@ -887,6 +1124,8 @@ class RealtimeTranscriptionSession:
         if isinstance(event, SpeechStarted):
             if self._active_item_id is not None:
                 return
+            if self._interim_item_id is not None:
+                await self._clear_interim("superseded")
             interrupt_response = (
                 self._agent is not None
                 and self._agent.active_response_id is not None
@@ -897,6 +1136,8 @@ class RealtimeTranscriptionSession:
                 )
             )
             self._active_item_id = item_id()
+            self._interim_item_id = self._active_item_id
+            self._interim_suppressed_item_id = None
             if self._manual_commit_enabled:
                 return
             await self._send_event(
@@ -912,6 +1153,7 @@ class RealtimeTranscriptionSession:
             if interrupt_response:
                 assert self._agent is not None
                 await self._agent.interrupt(reason="turn_detected")
+            await self._emit_interim_snapshot(event.sample_rate)
             return
         if isinstance(event, SpeechStopped):
             current_item_id = self._active_item_id or item_id()
@@ -936,7 +1178,7 @@ class RealtimeTranscriptionSession:
             )
             await self._emit_committed_item(item, append_pending=False)
             return
-        if not isinstance(event, TranscriptionResult):
+        if not isinstance(event, AsrInferencer.Result):
             return
         if not self._pending_items:
             await self._emit_committed_item(
@@ -947,6 +1189,11 @@ class RealtimeTranscriptionSession:
                 ),
             )
         item = self._pending_items[0]
+        if self._interim_suppressed_item_id != item.item_id:
+            await self._clear_interim(
+                "primary_transcript_started",
+                suppress_item_id=item.item_id,
+            )
         delta = (
             event.transcript[len(item.sent_transcript) :]
             if event.transcript.startswith(item.sent_transcript)
@@ -988,6 +1235,72 @@ class RealtimeTranscriptionSession:
                         event.transcript,
                         input_item_id=item.item_id,
                     )
+
+    async def _handle_interim_transcript(
+        self,
+        event: AsrInferencer.Result,
+    ) -> None:
+        current_item_id = self._active_item_id or self._interim_item_id
+        if current_item_id is None and self._pending_items:
+            current_item_id = self._pending_items[0].item_id
+        if current_item_id == self._interim_suppressed_item_id:
+            return
+        key = (event.start_sample, event.end_sample)
+        self._interim_segments[key] = event.transcript
+        if current_item_id is None:
+            return
+        self._interim_item_id = current_item_id
+        await self._emit_interim_snapshot(event.sample_rate)
+
+    async def _emit_interim_snapshot(self, sample_rate: int) -> None:
+        if self._interim_item_id is None or not self._interim_segments:
+            return
+        ordered = sorted(self._interim_segments.items())
+        transcript = _join_interim_parts([text for _, text in ordered])
+        if transcript == self._interim_sent_transcript:
+            return
+        self._interim_revision += 1
+        self._interim_sent_transcript = transcript
+        self._interim_was_sent = True
+        await self._send_event(
+            {
+                "type": "x_aha.input_audio_transcription.interim",
+                "event_id": event_id(),
+                "item_id": self._interim_item_id,
+                "content_index": 0,
+                "revision": self._interim_revision,
+                "transcript": transcript,
+                "audio_start_ms": round(
+                    ordered[0][0][0] * 1000 / sample_rate
+                ),
+                "audio_end_ms": round(
+                    max(key[1] for key, _ in ordered) * 1000 / sample_rate
+                ),
+            }
+        )
+
+    async def _clear_interim(
+        self,
+        reason: str,
+        *,
+        suppress_item_id: str | None = None,
+    ) -> None:
+        current_item_id = self._interim_item_id
+        if self._interim_was_sent and current_item_id is not None:
+            await self._send_event(
+                {
+                    "type": "x_aha.input_audio_transcription.interim_cleared",
+                    "event_id": event_id(),
+                    "item_id": current_item_id,
+                    "reason": reason,
+                }
+            )
+        self._interim_segments.clear()
+        self._interim_item_id = None
+        self._interim_revision = 0
+        self._interim_sent_transcript = ""
+        self._interim_was_sent = False
+        self._interim_suppressed_item_id = suppress_item_id
 
     async def _emit_committed_item(
         self,

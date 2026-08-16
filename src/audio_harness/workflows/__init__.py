@@ -9,6 +9,7 @@ from audio_harness.workflows.compiler import (
 )
 from audio_harness.workflows.models import (
     AsrNode,
+    AsrNodeConfig,
     AudioEdge,
     AudioWorkflowDocument,
     FailurePolicy,
@@ -21,13 +22,17 @@ from audio_harness.workflows.models import (
     PhysicalVadNode,
     SemanticVadConfig,
     SemanticVadNode,
+    SpeakerDiarizationNode,
+    SpeakerDiarizationNodeConfig,
+    SpeakerClusteringNode,
+    SpeakerClusteringNodeConfig,
     default_audio_workflow,
 )
 from audio_harness.workflows.runtime import (
     AudioGraphExecutionError,
     AudioInferenceRequest,
     AudioRuntimeConfig,
-    AudioWorkflowInferencer,
+    AudioWorkflowRuntime,
     AudioWorkflowOutput,
 )
 from audio_harness.workflows.repository import AudioWorkflowRepository
@@ -35,6 +40,7 @@ from audio_harness.workflows.service import AudioWorkflowService
 
 __all__ = [
     "AsrNode",
+    "AsrNodeConfig",
     "AudioEdge",
     "AudioGraphDiagnostic",
     "AudioGraphExecutionError",
@@ -42,7 +48,7 @@ __all__ = [
     "AudioInferenceRequest",
     "AudioRuntimeConfig",
     "AudioWorkflowDocument",
-    "AudioWorkflowInferencer",
+    "AudioWorkflowRuntime",
     "AudioWorkflowOutput",
     "AudioWorkflowRepository",
     "AudioWorkflowService",
@@ -57,6 +63,10 @@ __all__ = [
     "PhysicalVadNode",
     "SemanticVadConfig",
     "SemanticVadNode",
+    "SpeakerDiarizationNode",
+    "SpeakerDiarizationNodeConfig",
+    "SpeakerClusteringNode",
+    "SpeakerClusteringNodeConfig",
     "audio_node_catalog",
     "compile_audio_graph",
     "compiled_audio_graph_document",

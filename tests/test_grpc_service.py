@@ -6,62 +6,69 @@ from datetime import datetime, timezone
 import grpc
 import pytest
 
-from audio_harness.capacity import ServingCapacity
-from audio_harness.config import (
+from audio_harness.serving.capacity import ServingCapacity
+from audio_harness.configs import (
     AppConfig,
     CapacityConfig,
     WorkflowRuntimeConfig,
 )
-from audio_harness.domain import (
-    AudioSegment,
-    RecognitionOptions,
-    TranscriptionResult,
-    VadBoundary,
-    VadUpdate,
-)
+from audio_harness.inferencers.asr.base import AsrInferencer
+from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.protos.asr import ux_speech_pb2 as pb2
 from audio_harness.protos.asr import ux_speech_pb2_grpc as pb2_grpc
 from audio_harness.serving.grpc import SpeechServicer
 from audio_harness.sessions import AudioWorkflowSessionService
-from audio_harness.workflow_settings import WorkflowSettingsSnapshot
+from audio_harness.workflows.settings import WorkflowSettingsSnapshot
 from tests.graph_fakes import static_audio_workflow
 
 
-class CompleteVad:
+class CompleteVad(VadInferencer):
     async def stream_detect(
         self,
         audio_chunks: AsyncIterator[bytes],
         sample_rate: int,
-    ) -> AsyncIterator[VadUpdate]:
+    ) -> AsyncIterator[VadInferencer.Update]:
         total_bytes = 0
         async for chunk in audio_chunks:
             total_bytes += len(chunk)
         total_samples = total_bytes // 2
-        yield VadUpdate(
-            boundaries=(VadBoundary(0, total_samples),),
+        yield VadInferencer.Update(
+            boundaries=((0, total_samples),),
             processed_samples=total_samples,
         )
 
     async def detect_turn(self, audio: bytes, sample_rate: int) -> bool:
         return True
 
+    async def ready(self) -> None: pass
+    async def probe(self) -> None: pass
+    async def close(self) -> None: pass
 
-class EchoAsr:
+
+class EchoAsr(AsrInferencer):
     async def transcribe(
         self,
-        segment: AudioSegment,
-        options: RecognitionOptions,
-    ) -> AsyncIterator[TranscriptionResult]:
+        audio: bytes,
+        *,
+        start_sample: int,
+        end_sample: int,
+        turn_completed: bool,
+        options: AsrInferencer.Options,
+    ) -> AsyncIterator[AsrInferencer.Result]:
         for text, final in (("interim", False), ("final", True)):
-            yield TranscriptionResult(
+            yield AsrInferencer.Result(
                 transcript=text,
                 is_final=final,
-                start_sample=segment.start_sample,
-                end_sample=segment.end_sample,
+                start_sample=start_sample,
+                end_sample=end_sample,
                 sample_rate=options.sample_rate,
-                turn_completed=True,
+                turn_completed=turn_completed,
                 language_code=options.language_code,
             )
+
+    async def ready(self) -> None: pass
+    async def probe(self) -> None: pass
+    async def close(self) -> None: pass
 
 
 class PendingSemanticVad(CompleteVad):

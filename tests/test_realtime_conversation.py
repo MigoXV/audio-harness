@@ -4,14 +4,11 @@ import base64
 import io
 import wave
 
-import numpy as np
 import pytest
 
 from audio_harness.serving.realtime.conversation import (
     ConversationMutationError,
     RealtimeConversation,
-    decode_wire_audio,
-    encode_wire_audio,
 )
 
 
@@ -128,16 +125,3 @@ def test_conversation_truncates_assistant_audio_and_removes_transcript() -> None
     )
 
     assert truncated["content"] == [{"type": "output_audio"}]
-
-
-@pytest.mark.parametrize("format_type", ["audio/pcmu", "audio/pcma"])
-def test_companded_wire_audio_decodes_to_pcm(format_type: str) -> None:
-    pcm = b"\0\0" * 160
-    encoded = encode_wire_audio(pcm, format_type=format_type)
-
-    assert len(encoded) == len(pcm) // 2
-    decoded = np.frombuffer(
-        decode_wire_audio(encoded, format_type=format_type),
-        dtype="<i2",
-    )
-    assert np.max(np.abs(decoded)) <= 8

@@ -1,3 +1,1 @@
-from audio_harness.serving.host import AudioHarnessHost
-
-__all__ = ["AudioHarnessHost"]
+"""Audio Harness 服务组装与协议适配。"""

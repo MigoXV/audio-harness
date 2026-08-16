@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from audio_harness.assets import (
+from audio_harness.engines.models import (
     EngineApi,
     EngineAssetData,
     EngineKind,
@@ -64,13 +64,18 @@ def _asset(
 
 
 class StaticInferencerPool:
-    def __init__(self, engines: dict[tuple[str, int], object]) -> None:
-        self._engines = engines
+    def __init__(self, inferencers: dict[tuple[str, int], object]) -> None:
+        self._inferencers = inferencers
+        self.active_leases = 0
 
     @asynccontextmanager
     async def lease(self, snapshots):
         keys = {(snapshot.id, snapshot.revision) for snapshot in snapshots}
-        yield {key: self._engines[key] for key in keys}
+        self.active_leases += 1
+        try:
+            yield {key: self._inferencers[key] for key in keys}
+        finally:
+            self.active_leases -= 1
 
 
 class StaticAudioWorkflowService:
@@ -124,7 +129,7 @@ def static_audio_workflow(
     ]
     segment_source = "physical-vad"
     stop_source = "physical-vad"
-    engines: dict[tuple[str, int], object] = {
+    inferencers: dict[tuple[str, int], object] = {
         ("vad-engine", 1): vad,
         ("asr-engine", 1): asr,
     }
@@ -157,7 +162,7 @@ def static_audio_workflow(
         )
         segment_source = "semantic-vad"
         stop_source = "semantic-vad"
-        engines[("semantic-engine", 1)] = semantic_vad
+        inferencers[("semantic-engine", 1)] = semantic_vad
         assets["semantic-engine"] = _asset(
             "semantic-engine",
             kind=EngineKind.VAD,
@@ -209,7 +214,7 @@ def static_audio_workflow(
         plan=compile_audio_graph(document, assets=assets),
     )
     return (
-        StaticInferencerPool(engines),
+        StaticInferencerPool(inferencers),
         StaticAudioWorkflowService(workflow),
         workflow,
     )

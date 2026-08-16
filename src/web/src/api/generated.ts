@@ -109,6 +109,177 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/vector-infrastructure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Infrastructure */
+        get: operations["infrastructure_api_v1_vector_infrastructure_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vector-spaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Spaces */
+        get: operations["list_spaces_api_v1_vector_spaces_get"];
+        put?: never;
+        /** Create Space */
+        post: operations["create_space_api_v1_vector_spaces_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vector-spaces/{collection_name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Space */
+        get: operations["get_space_api_v1_vector_spaces__collection_name__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vector-spaces/{collection_name}/destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Destroy */
+        post: operations["destroy_api_v1_vector_spaces__collection_name__destroy_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vector-spaces/{collection_name}/points/audio": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register Audio */
+        post: operations["register_audio_api_v1_vector_spaces__collection_name__points_audio_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vector-spaces/{collection_name}/search/audio": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Search Audio */
+        post: operations["search_audio_api_v1_vector_spaces__collection_name__search_audio_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vector-spaces/{collection_name}/search/audio/vad-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Vad Audio */
+        post: operations["preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vector-spaces/{collection_name}/points/scroll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Scroll */
+        post: operations["scroll_api_v1_vector_spaces__collection_name__points_scroll_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vector-spaces/{collection_name}/points/{point_id}/payload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace Payload */
+        put: operations["replace_payload_api_v1_vector_spaces__collection_name__points__point_id__payload_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vector-spaces/{collection_name}/points/{point_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Point */
+        delete: operations["delete_point_api_v1_vector_spaces__collection_name__points__point_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/audio-node-types": {
         parameters: {
             query?: never;
@@ -650,7 +821,13 @@ export interface components {
             config?: components["schemas"]["AsrNodeConfig"];
         };
         /** AsrNodeConfig */
-        AsrNodeConfig: Record<string, never>;
+        AsrNodeConfig: {
+            /**
+             * Remove Punctuation
+             * @default false
+             */
+            remove_punctuation: boolean;
+        };
         /** AudioEdge */
         AudioEdge: {
             /** Id */
@@ -659,13 +836,46 @@ export interface components {
             source: components["schemas"]["GraphInputRef"] | components["schemas"]["NodeOutputRef"];
             target: components["schemas"]["NodeInputRef"];
         };
+        /** AudioEmbeddingNode */
+        AudioEmbeddingNode: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "audio_embedding";
+            /** Engine Id */
+            engine_id?: string | null;
+            config?: components["schemas"]["AudioEmbeddingNodeConfig"];
+        };
+        /** AudioEmbeddingNodeConfig */
+        AudioEmbeddingNodeConfig: {
+            /**
+             * Algorithm
+             * @default eres2netv2
+             */
+            algorithm: string;
+            /**
+             * Expected Dimension
+             * @default 192
+             */
+            expected_dimension: number;
+            /**
+             * Normalize
+             * @default true
+             */
+            normalize: boolean;
+        };
         /** AudioNodeTypeRead */
         AudioNodeTypeRead: {
             /** Kind */
             kind: string;
             /** Display Name */
             display_name: string;
-            required_api: components["schemas"]["EngineApi"];
+            required_api: components["schemas"]["EngineApi"] | null;
+            /** Required Capability */
+            required_capability?: string | null;
             /** Inputs */
             inputs: components["schemas"]["NodePortRead"][];
             /** Outputs */
@@ -674,6 +884,13 @@ export interface components {
             config_schema: {
                 [key: string]: unknown;
             };
+        };
+        /** AudioSpeakerSearchRead */
+        AudioSpeakerSearchRead: {
+            /** Embedding */
+            embedding: number[];
+            /** Groups */
+            groups: components["schemas"]["SpeakerMatchRead"][];
         };
         /** AudioWorkflowCreate */
         AudioWorkflowCreate: {
@@ -694,7 +911,7 @@ export interface components {
              */
             schema_version: 1;
             /** Nodes */
-            nodes: (components["schemas"]["PhysicalVadNode"] | components["schemas"]["SemanticVadNode"] | components["schemas"]["AsrNode"])[];
+            nodes: (components["schemas"]["PhysicalVadNode"] | components["schemas"]["SemanticVadNode"] | components["schemas"]["AsrNode"] | components["schemas"]["AudioEmbeddingNode"] | components["schemas"]["SpeakerDiarizationNode"] | components["schemas"]["SpeakerClusteringNode"] | components["schemas"]["VectorSearchNode"])[];
             /** Edges */
             edges: components["schemas"]["AudioEdge"][];
             /** Outputs */
@@ -795,6 +1012,65 @@ export interface components {
             /** File */
             file: string;
         };
+        /** Body_preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post */
+        Body_preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post: {
+            /** Audio */
+            audio: string;
+            /** Vad Engine Id */
+            vad_engine_id: string;
+            /** Vad Postprocessing Json */
+            vad_postprocessing_json?: string | null;
+        };
+        /** Body_register_audio_api_v1_vector_spaces__collection_name__points_audio_post */
+        Body_register_audio_api_v1_vector_spaces__collection_name__points_audio_post: {
+            /** Audio */
+            audio: string;
+            /** Embeddings Json */
+            embeddings_json: string;
+            /**
+             * Payload Json
+             * @default {}
+             */
+            payload_json: string;
+            /** Point Id */
+            point_id?: string | null;
+            /** Speaker Id */
+            speaker_id?: string | null;
+            /** Channel Id */
+            channel_id?: string | null;
+            /** Captured At */
+            captured_at?: number | null;
+            /** Quality Score */
+            quality_score?: number | null;
+        };
+        /** Body_search_audio_api_v1_vector_spaces__collection_name__search_audio_post */
+        Body_search_audio_api_v1_vector_spaces__collection_name__search_audio_post: {
+            /** Audio */
+            audio: string;
+            /** Vector Name */
+            vector_name: string;
+            /** Engine Id */
+            engine_id: string;
+            /** Algorithm */
+            algorithm: string;
+            /**
+             * Normalize
+             * @default true
+             */
+            normalize: boolean;
+            /**
+             * Top K
+             * @default 10
+             */
+            top_k: number;
+            /** Score Threshold */
+            score_threshold?: number | null;
+            /**
+             * Filter Json
+             * @default {}
+             */
+            filter_json: string;
+        };
         /** CapacitySettingsRead */
         CapacitySettingsRead: {
             grpc?: components["schemas"]["ProtocolCapacityConfig"];
@@ -805,6 +1081,16 @@ export interface components {
              * @default 8
              */
             max_asr_concurrency: number;
+            /**
+             * Max Embedding Concurrency
+             * @default 8
+             */
+            max_embedding_concurrency: number;
+            /**
+             * Max Qdrant Concurrency
+             * @default 8
+             */
+            max_qdrant_concurrency: number;
             /**
              * Max Responses Concurrency
              * @default 8
@@ -834,6 +1120,16 @@ export interface components {
              */
             max_asr_concurrency: number;
             /**
+             * Max Embedding Concurrency
+             * @default 8
+             */
+            max_embedding_concurrency: number;
+            /**
+             * Max Qdrant Concurrency
+             * @default 8
+             */
+            max_qdrant_concurrency: number;
+            /**
              * Max Responses Concurrency
              * @default 8
              */
@@ -854,6 +1150,11 @@ export interface components {
             message: string;
             /** Field */
             field?: string | null;
+        };
+        /** DestroyRequest */
+        DestroyRequest: {
+            /** Confirmation */
+            confirmation: string;
         };
         /** DuplexTtsConfig */
         DuplexTtsConfig: {
@@ -879,7 +1180,7 @@ export interface components {
          * EngineApi
          * @enum {string}
          */
-        EngineApi: "ux_speech" | "ux_vad" | "responses" | "qwen_tts_duplex";
+        EngineApi: "ux_speech" | "ux_vad" | "responses" | "qwen_tts_duplex" | "engine_feature" | "ux_speaker_diarization";
         /** EngineCreate */
         EngineCreate: {
             /** Slug */
@@ -929,7 +1230,7 @@ export interface components {
          * EngineKind
          * @enum {string}
          */
-        EngineKind: "asr" | "vad" | "llm" | "tts";
+        EngineKind: "asr" | "vad" | "llm" | "tts" | "embedding" | "diarization";
         /** EngineList */
         EngineList: {
             /** Items */
@@ -1203,6 +1504,17 @@ export interface components {
             /** Workflow Revision */
             workflow_revision?: number | null;
         };
+        /** InfrastructureRead */
+        InfrastructureRead: {
+            /** Configured */
+            configured: boolean;
+            /** Ready */
+            ready: boolean;
+            /** Grpc Target */
+            grpc_target: string | null;
+            /** Http Url */
+            http_url: string | null;
+        };
         /** McpServerConfig */
         McpServerConfig: {
             /** Server Label */
@@ -1234,6 +1546,19 @@ export interface components {
             name: string;
             source: components["schemas"]["NodeOutputRef"];
         };
+        /** NamedVectorSchema */
+        NamedVectorSchema: {
+            /** Name */
+            name: string;
+            /** Size */
+            size: number;
+            /**
+             * Distance
+             * @default cosine
+             * @enum {string}
+             */
+            distance: "cosine" | "euclid" | "dot" | "manhattan";
+        };
         /** NodeInputRef */
         NodeInputRef: {
             /** Node Id */
@@ -1259,6 +1584,8 @@ export interface components {
             name: string;
             /** Kind */
             kind: string;
+            /** Accepted Kinds */
+            accepted_kinds?: string[];
         };
         /** NodePosition */
         NodePosition: {
@@ -1272,6 +1599,13 @@ export interface components {
              * @default 0
              */
             y: number;
+        };
+        /** PayloadReplace */
+        PayloadReplace: {
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
         };
         /** PhysicalVadConfig */
         PhysicalVadConfig: {
@@ -1472,6 +1806,8 @@ export interface components {
             realtime: components["schemas"]["RuntimeLimiterRead"];
             webrtc: components["schemas"]["RuntimeLimiterRead"];
             asr: components["schemas"]["RuntimeLimiterRead"];
+            embedding: components["schemas"]["RuntimeLimiterRead"];
+            qdrant: components["schemas"]["RuntimeLimiterRead"];
             responses: components["schemas"]["RuntimeLimiterRead"];
             tts: components["schemas"]["RuntimeLimiterRead"];
             /**
@@ -1479,6 +1815,25 @@ export interface components {
              * Format: date-time
              */
             started_at: string;
+        };
+        /** ScrollRequest */
+        ScrollRequest: {
+            /** Filter */
+            filter?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Limit
+             * @default 50
+             */
+            limit: number;
+            /** Offset */
+            offset?: string | null;
+            /**
+             * With Vectors
+             * @default false
+             */
+            with_vectors: boolean;
         };
         /** SemanticVadConfig */
         SemanticVadConfig: {
@@ -1503,6 +1858,105 @@ export interface components {
             /** @default fail_open */
             failure_policy: components["schemas"]["FailurePolicy"];
         };
+        /** SpeakerClusteringNode */
+        SpeakerClusteringNode: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "speaker_clustering";
+            /** Engine Id */
+            engine_id?: string | null;
+            config?: components["schemas"]["SpeakerClusteringNodeConfig"];
+            /** @default fail_open */
+            failure_policy: components["schemas"]["FailurePolicy"];
+        };
+        /** SpeakerClusteringNodeConfig */
+        SpeakerClusteringNodeConfig: {
+            /**
+             * Embedding Algorithm
+             * @default eres2netv2
+             */
+            embedding_algorithm: string;
+            /**
+             * Expected Dimension
+             * @default 192
+             */
+            expected_dimension: number;
+            /**
+             * Normalize
+             * @default true
+             */
+            normalize: boolean;
+            /**
+             * Max Embedding Seconds
+             * @default 60
+             */
+            max_embedding_seconds: number;
+            /**
+             * Clustering Algorithm
+             * @default hdbscan
+             */
+            clustering_algorithm: string;
+            /** Parameters */
+            parameters?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Max Vectors
+             * @default 10000
+             */
+            max_vectors: number;
+        };
+        /** SpeakerDiarizationNode */
+        SpeakerDiarizationNode: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "speaker_diarization";
+            /** Engine Id */
+            engine_id?: string | null;
+            config?: components["schemas"]["SpeakerDiarizationNodeConfig"];
+        };
+        /** SpeakerDiarizationNodeConfig */
+        SpeakerDiarizationNodeConfig: {
+            /**
+             * Min Batch Seconds
+             * @default 60
+             */
+            min_batch_seconds: number;
+            /**
+             * Max Batch Seconds
+             * @default 120
+             */
+            max_batch_seconds: number;
+        };
+        /** SpeakerMatchRead */
+        SpeakerMatchRead: {
+            /** Speaker Id */
+            speaker_id: string;
+            /** Score */
+            score: number;
+            observation: components["schemas"]["VectorObservationRead"];
+        };
+        /** VadAudioPreviewRead */
+        VadAudioPreviewRead: {
+            /** Audio Base64 */
+            audio_base64: string;
+            /**
+             * Content Type
+             * @default audio/wav
+             * @constant
+             */
+            content_type: "audio/wav";
+            /** Duration Ms */
+            duration_ms: number;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -1515,6 +1969,74 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** VectorObservationRead */
+        VectorObservationRead: {
+            /** Point Id */
+            point_id: string;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+        };
+        /** VectorSearchNode */
+        VectorSearchNode: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "vector_search";
+            /** Engine Id */
+            engine_id?: null;
+            config: components["schemas"]["VectorSearchNodeConfig"];
+        };
+        /** VectorSearchNodeConfig */
+        VectorSearchNodeConfig: {
+            /** Collection Name */
+            collection_name: string;
+            /** Vector Name */
+            vector_name: string;
+            /**
+             * Top K
+             * @default 10
+             */
+            top_k: number;
+            /** Score Threshold */
+            score_threshold?: number | null;
+            /** Filter */
+            filter?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Include Embedding
+             * @default false
+             */
+            include_embedding: boolean;
+        };
+        /** VectorSpaceCreate */
+        VectorSpaceCreate: {
+            /** Collection Name */
+            collection_name: string;
+            /** Vectors */
+            vectors: components["schemas"]["NamedVectorSchema"][];
+            /** Template */
+            template?: "voiceprint" | null;
+        };
+        /** VectorSpaceList */
+        VectorSpaceList: {
+            /** Items */
+            items: components["schemas"]["VectorSpaceRead"][];
+        };
+        /** VectorSpaceRead */
+        VectorSpaceRead: {
+            /** Collection Name */
+            collection_name: string;
+            /** Vectors */
+            vectors: components["schemas"]["NamedVectorSchema"][];
+            /** Template */
+            template?: "voiceprint" | null;
         };
         /** VoiceAgentCreate */
         VoiceAgentCreate: {
@@ -1984,6 +2506,351 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["EngineUsageRead"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    infrastructure_api_v1_vector_infrastructure_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InfrastructureRead"];
+                };
+            };
+        };
+    };
+    list_spaces_api_v1_vector_spaces_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VectorSpaceList"];
+                };
+            };
+        };
+    };
+    create_space_api_v1_vector_spaces_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VectorSpaceCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VectorSpaceRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_space_api_v1_vector_spaces__collection_name__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VectorSpaceRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    destroy_api_v1_vector_spaces__collection_name__destroy_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DestroyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    register_audio_api_v1_vector_spaces__collection_name__points_audio_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_register_audio_api_v1_vector_spaces__collection_name__points_audio_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_audio_api_v1_vector_spaces__collection_name__search_audio_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_search_audio_api_v1_vector_spaces__collection_name__search_audio_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AudioSpeakerSearchRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VadAudioPreviewRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scroll_api_v1_vector_spaces__collection_name__points_scroll_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScrollRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replace_payload_api_v1_vector_spaces__collection_name__points__point_id__payload_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_name: string;
+                point_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayloadReplace"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_point_api_v1_vector_spaces__collection_name__points__point_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_name: string;
+                point_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

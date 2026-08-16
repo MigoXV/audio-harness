@@ -1,0 +1,46 @@
+from __future__ import annotations
+
+from pydantic import Field, field_validator, model_validator
+
+from audio_harness.configs.base import StrictModel
+
+
+class WorkflowConfig(StrictModel):
+    min_chunk_bytes: int = Field(default=640, ge=2)
+    min_segment_seconds: float = Field(default=0.5, ge=0)
+    max_segment_seconds: float = Field(default=60.0, gt=0)
+    audio_buffer_seconds: float = Field(default=120.0, gt=0)
+    speech_pre_roll_seconds: float = Field(default=0.3, ge=0)
+    default_language_code: str = Field(default="zh-CN", min_length=1)
+    audio_queue_capacity: int = Field(default=32, gt=0)
+    segment_queue_capacity: int = Field(default=8, gt=0)
+    result_queue_capacity: int = Field(default=32, gt=0)
+
+    @model_validator(mode="after")
+    def validate_pcm_alignment(self) -> "WorkflowConfig":
+        if self.min_chunk_bytes % 2:
+            raise ValueError("min_chunk_bytes 必须为偶数，以保持 PCM S16LE 对齐")
+        required_buffer = self.max_segment_seconds + self.speech_pre_roll_seconds
+        if self.audio_buffer_seconds < required_buffer:
+            raise ValueError(
+                "audio_buffer_seconds 不能小于 "
+                "max_segment_seconds + speech_pre_roll_seconds"
+            )
+        return self
+
+
+class WorkflowRuntimeConfig(StrictModel):
+    min_chunk_bytes: int = Field(default=640, ge=2)
+    default_language_code: str = Field(default="zh-CN", min_length=1)
+    audio_queue_capacity: int = Field(default=32, gt=0)
+    segment_queue_capacity: int = Field(default=8, gt=0)
+    result_queue_capacity: int = Field(default=32, gt=0)
+
+    @field_validator("min_chunk_bytes")
+    @classmethod
+    def validate_pcm_alignment(cls, value: int) -> int:
+        if value % 2:
+            raise ValueError(
+                "min_chunk_bytes 必须为偶数，以保持 PCM S16LE 对齐"
+            )
+        return value

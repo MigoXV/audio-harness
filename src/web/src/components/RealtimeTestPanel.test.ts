@@ -9,8 +9,11 @@ import {
   isTtsFirstAudio,
   appendGroupedEvent,
   eventDetail,
+  nextTranscriptView,
   realtimeEndpoint,
   realtimeSessionUpdate,
+  vectorSearchEventView,
+  type TranscriptView,
 } from "./RealtimeTestPanel";
 
 describe("realtimeSessionUpdate", () => {
@@ -98,6 +101,75 @@ describe("eventDetail", () => {
       turn_completed: false,
     })).toBe("物理停顿 1200–2380 ms；语义轮次未结束");
   });
+
+  it("describes interim transcript snapshots and clearing", () => {
+    expect(eventDetail({
+      type: "x_aha.input_audio_transcription.interim",
+      revision: 2,
+      audio_start_ms: 0,
+      audio_end_ms: 1500,
+      transcript: "正在识别",
+    })).toBe("预览 r2 · 0–1500 ms · 正在识别");
+    expect(eventDetail({
+      type: "x_aha.input_audio_transcription.interim_cleared",
+      reason: "primary_transcript_started",
+    })).toBe("中间结果已清除：primary_transcript_started");
+  });
+
+  it("summarizes completed and failed vector search events", () => {
+    expect(eventDetail({
+      type: "x_aha.vector.search.completed",
+      collection_name: "voiceprints",
+      vector_name: "eres2netv2",
+      latency_ms: 12.5,
+      groups: [{ speaker_id: "speaker-1" }, { speaker_id: "speaker-2" }],
+    })).toBe("2 个候选人 · 12.5 ms");
+    expect(eventDetail({
+      type: "x_aha.vector.search.failed",
+      collection_name: "voiceprints",
+      vector_name: "eres2netv2",
+      error: { code: "vector_search_failed", message: "Qdrant 不可用" },
+    })).toBe("Qdrant 不可用");
+  });
+});
+
+describe("vectorSearchEventView", () => {
+  it("parses a completed push into displayable speaker groups", () => {
+    expect(vectorSearchEventView({
+      type: "x_aha.vector.search.completed",
+      event_id: "event-1",
+      item_id: "item-1",
+      audio_start_ms: 100,
+      audio_end_ms: 2300,
+      collection_name: "voiceprints",
+      vector_name: "eres2netv2",
+      latency_ms: 18.25,
+      groups: [{
+        speaker_id: "speaker-1",
+        score: 0.9321,
+        observation: { point_id: "point-1", payload: { speaker_id: "speaker-1" } },
+      }],
+    }, "12:30:00")).toEqual({
+      status: "completed",
+      groups: [{ speakerId: "speaker-1", score: 0.9321 }],
+      error: null,
+    });
+  });
+
+  it("parses a failed push and ignores unrelated events", () => {
+    expect(vectorSearchEventView({ type: "response.done" }, "12:30:00")).toBeNull();
+    expect(vectorSearchEventView({
+      type: "x_aha.vector.search.failed",
+      event_id: "event-2",
+      collection_name: "voiceprints",
+      vector_name: "eres2netv2",
+      error: { message: "Qdrant 不可用" },
+    }, "12:31:00")).toMatchObject({
+      status: "failed",
+      groups: [],
+      error: "Qdrant 不可用",
+    });
+  });
 });
 
 describe("RealtimeTestPanel", () => {
@@ -126,6 +198,91 @@ describe("RealtimeTestPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "WebRTC" }));
     expect(screen.getByRole("button", { name: "WebRTC" })).toHaveClass("active");
     expect(screen.getByRole("button", { name: "WSS" })).not.toHaveClass("active");
+  });
+});
+
+describe("nextTranscriptView", () => {
+  it("replaces the previous final result through the next turn lifecycle", () => {
+    let view: TranscriptView = { phase: "final", text: "上一轮最终结果", itemId: "old" };
+
+    view = nextTranscriptView(view, { type: "input_audio_buffer.speech_started", item_id: "new" });
+    expect(view).toEqual({ phase: "listening", text: "正在聆听…", itemId: "new" });
+
+    view = nextTranscriptView(view, {
+      type: "x_aha.input_audio_transcription.interim",
+      item_id: "new",
+      transcript: "新的中间",
+    });
+    expect(view).toEqual({ phase: "interim", text: "新的中间", itemId: "new" });
+
+    view = nextTranscriptView(view, {
+      type: "x_aha.input_audio_transcription.interim_cleared",
+      item_id: "new",
+      reason: "primary_transcript_started",
+    });
+    expect(view).toEqual({ phase: "processing", text: "正在生成最终转写…", itemId: "new" });
+
+    view = nextTranscriptView(view, {
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "new",
+      delta: "新的",
+    });
+    view = nextTranscriptView(view, {
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "new",
+      delta: "最终结果",
+    });
+    expect(view).toEqual({ phase: "primary", text: "新的最终结果", itemId: "new" });
+
+    view = nextTranscriptView(view, {
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "new",
+      transcript: "新的最终结果。",
+    });
+    expect(view).toEqual({ phase: "final", text: "新的最终结果。", itemId: "new" });
+  });
+
+  it("keeps an interim result visible while speech is stopping", () => {
+    const interim = { phase: "interim" as const, text: "还在识别", itemId: "item" };
+
+    expect(nextTranscriptView(interim, {
+      type: "input_audio_buffer.speech_stopped",
+      item_id: "item",
+    })).toEqual(interim);
+    expect(nextTranscriptView({ phase: "listening", text: "正在聆听…", itemId: "item" }, {
+      type: "input_audio_buffer.speech_stopped",
+      item_id: "item",
+    })).toEqual({ phase: "processing", text: "正在生成最终转写…", itemId: "item" });
+  });
+
+  it("does not hide an interim result that arrives before speech started", () => {
+    const interim = nextTranscriptView(
+      { phase: "final", text: "上一轮最终结果", itemId: "old" },
+      {
+        type: "x_aha.input_audio_transcription.interim",
+        item_id: "new",
+        transcript: "抢先到达的预览",
+      },
+    );
+
+    expect(nextTranscriptView(interim, {
+      type: "input_audio_buffer.speech_started",
+      item_id: "new",
+    })).toEqual({ phase: "interim", text: "抢先到达的预览", itemId: "new" });
+  });
+
+  it("ignores a completed result from an older item while a new turn is active", () => {
+    const current: TranscriptView = {
+      phase: "interim",
+      text: "当前轮预览",
+      itemId: "new",
+    };
+
+    expect(nextTranscriptView(current, {
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "old",
+      transcript: "迟到的上一轮最终结果",
+    })).toEqual(current);
   });
 });
 

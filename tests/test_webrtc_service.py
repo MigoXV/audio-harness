@@ -19,39 +19,34 @@ from av import AudioFrame
 from openai.types.realtime import RealtimeServerEvent
 from pydantic import TypeAdapter
 
-from audio_harness.capacity import ServingCapacity
-from audio_harness.config import (
+from audio_harness.serving.capacity import ServingCapacity
+from audio_harness.configs import (
     CapacityConfig,
     WebRtcConfig,
     WorkflowRuntimeConfig,
 )
-from audio_harness.domain import (
-    AudioSegment,
-    RecognitionOptions,
-    TranscriptionResult,
-    VadBoundary,
-    VadUpdate,
-)
+from audio_harness.inferencers.asr.base import AsrInferencer
+from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.serving.webrtc import WebRtcCallService
 from audio_harness.serving.webrtc.service import WebRtcCall
 from audio_harness.sessions import AudioWorkflowSessionService
-from audio_harness.workflow_settings import WorkflowSettingsSnapshot
+from audio_harness.workflows.settings import WorkflowSettingsSnapshot
 from tests.graph_fakes import StaticRouteService, static_audio_workflow
 from tests.test_agent_runtime import _profile
 
 _SERVER_EVENT_ADAPTER = TypeAdapter(RealtimeServerEvent)
 
 
-class _ImmediateVad:
+class _ImmediateVad(VadInferencer):
     async def stream_detect(
         self,
         audio_chunks: AsyncIterator[bytes],
         sample_rate: int,
-    ) -> AsyncIterator[VadUpdate]:
+    ) -> AsyncIterator[VadInferencer.Update]:
         async for chunk in audio_chunks:
             samples = len(chunk) // 2
-            yield VadUpdate(
-                boundaries=(VadBoundary(0, samples),),
+            yield VadInferencer.Update(
+                boundaries=((0, samples),),
                 processed_samples=samples,
             )
             return
@@ -59,20 +54,24 @@ class _ImmediateVad:
     async def detect_turn(self, audio: bytes, sample_rate: int) -> bool:
         return True
 
+    async def ready(self) -> None: pass
+    async def probe(self) -> None: pass
+    async def close(self) -> None: pass
+
 
 class _TwoSegmentVad(_ImmediateVad):
     async def stream_detect(
         self,
         audio_chunks: AsyncIterator[bytes],
         sample_rate: int,
-    ) -> AsyncIterator[VadUpdate]:
+    ) -> AsyncIterator[VadInferencer.Update]:
         async for chunk in audio_chunks:
             samples = len(chunk) // 2
             middle = samples // 2
-            yield VadUpdate(
+            yield VadInferencer.Update(
                 boundaries=(
-                    VadBoundary(0, middle),
-                    VadBoundary(middle, samples),
+                    (0, middle),
+                    (middle, samples),
                 ),
                 processed_samples=samples,
             )
@@ -88,21 +87,29 @@ class _PendingThenCompleteVad(_ImmediateVad):
         return self.calls > 1
 
 
-class _FinalAsr:
+class _FinalAsr(AsrInferencer):
     async def transcribe(
         self,
-        segment: AudioSegment,
-        options: RecognitionOptions,
-    ) -> AsyncIterator[TranscriptionResult]:
-        yield TranscriptionResult(
+        audio: bytes,
+        *,
+        start_sample: int,
+        end_sample: int,
+        turn_completed: bool,
+        options: AsrInferencer.Options,
+    ) -> AsyncIterator[AsrInferencer.Result]:
+        yield AsrInferencer.Result(
             transcript="WebRTC 转写成功",
             is_final=True,
-            start_sample=segment.start_sample,
-            end_sample=segment.end_sample,
+            start_sample=start_sample,
+            end_sample=end_sample,
             sample_rate=options.sample_rate,
-            turn_completed=True,
+            turn_completed=turn_completed,
             language_code=options.language_code,
         )
+
+    async def ready(self) -> None: pass
+    async def probe(self) -> None: pass
+    async def close(self) -> None: pass
 
 
 class _StaticSettings:

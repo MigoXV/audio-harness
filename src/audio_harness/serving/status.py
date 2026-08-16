@@ -4,9 +4,9 @@ from dataclasses import dataclass
 from typing import Literal
 
 from audio_harness.database.session import Database
-from audio_harness.voice_agents.service import RealtimeRouteService
-from audio_harness.workflow_settings import WorkflowSettingsStore
-from audio_harness.workflow_types import ModelRouteVisibility
+from audio_harness.realtime_routes.models import ModelRouteVisibility
+from audio_harness.realtime_routes.service import RealtimeRouteService
+from audio_harness.workflows.settings import WorkflowSettingsStore
 from audio_harness.workflows.service import ActiveAudioWorkflow, AudioWorkflowService
 
 

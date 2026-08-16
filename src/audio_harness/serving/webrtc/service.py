@@ -24,10 +24,14 @@ from openai.types.realtime import (
 )
 from pydantic import TypeAdapter, ValidationError
 
-from audio_harness.config import WebRtcConfig
-from audio_harness.capacity import ResizableConcurrencyLimiter
-from audio_harness.domain import CapacityExceededError
+from audio_harness.configs import WebRtcConfig
+from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
+from audio_harness.errors import CapacityExceededError
 from audio_harness.engines.pool import InferencerPool
+from audio_harness.realtime_routes.service import (
+    RealtimeRouteService,
+    RealtimeTarget,
+)
 from audio_harness.serving.realtime.session import (
     RealtimeTranscriptionSession,
     default_transcription_session,
@@ -42,12 +46,8 @@ from audio_harness.sessions import (
 )
 from audio_harness.serving.realtime.tools import ToolRegistry
 from audio_harness.serving.realtime.agent import VoiceResolver
-from audio_harness.workflow_settings import WorkflowSettingsStore
-from audio_harness.voice_agents.service import (
-    ActiveVoiceAgent,
-    RealtimeRouteService,
-    RealtimeTarget,
-)
+from audio_harness.workflows.settings import WorkflowSettingsStore
+from audio_harness.voice_agents.service import ActiveVoiceAgent
 from audio_harness.workflows.models import PhysicalVadNode
 
 logger = logging.getLogger(__name__)
@@ -497,11 +497,14 @@ class WebRtcCallService:
             else target
         )
         workflow = self._workflow_settings.current().config
-        physical_definition = next(
-            node.definition
-            for node in audio_workflow.plan.nodes.values()
-            if node.spec.kind == "physical_vad"
+        speech_started_binding = next(
+            output
+            for output in audio_workflow.plan.definition.outputs
+            if output.name == "speech_started"
         )
+        physical_definition = audio_workflow.plan.nodes[
+            speech_started_binding.source.node_id
+        ].definition
         physical_vad = cast(PhysicalVadNode, physical_definition).config
         initial_session = session
         if initial_session is None and not isinstance(target, ActiveVoiceAgent):

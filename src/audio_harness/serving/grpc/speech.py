@@ -8,16 +8,15 @@ from dataclasses import dataclass
 import grpc
 from google.protobuf import duration_pb2
 
-from audio_harness.config import AppConfig
-from audio_harness.domain import (
+from audio_harness.configs import AppConfig
+from audio_harness.errors import (
     CapacityExceededError,
     EngineConfigurationInvalidError,
     EngineDeadlineError,
     EngineUnavailableError,
     InvalidAudioError,
-    RecognitionOptions,
-    TranscriptionResult,
 )
+from audio_harness.inferencers.asr.base import AsrInferencer
 from audio_harness.protos.asr import ux_speech_pb2 as pb2
 from audio_harness.protos.asr import ux_speech_pb2_grpc as pb2_grpc
 from audio_harness.sessions import (
@@ -25,14 +24,14 @@ from audio_harness.sessions import (
     AudioWorkflowSessionService,
 )
 from audio_harness.workflows.service import AudioWorkflowNotActiveError
-from audio_harness.workflow_settings import WorkflowSettingsStore
+from audio_harness.workflows.settings import WorkflowSettingsStore
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class _RecognitionSettings:
-    options: RecognitionOptions
+    options: AsrInferencer.Options
 
 
 def _seconds_to_duration(value: float) -> duration_pb2.Duration:
@@ -44,7 +43,9 @@ def _seconds_to_duration(value: float) -> duration_pb2.Duration:
     return duration_pb2.Duration(seconds=seconds, nanos=nanos)
 
 
-def build_response(result: TranscriptionResult) -> pb2.StreamingRecognizeResponse:
+def build_response(
+    result: AsrInferencer.Result,
+) -> pb2.StreamingRecognizeResponse:
     start = result.start_sample / result.sample_rate
     end = result.end_sample / result.sample_rate
     word = pb2.WordInfo(
@@ -116,7 +117,7 @@ class SpeechServicer(pb2_grpc.UxSpeechServicer):
                 )
                 async for output in session.outputs():
                     result = output.payload
-                    if isinstance(result, TranscriptionResult):
+                    if isinstance(result, AsrInferencer.Result):
                         yield build_response(result)
                 await reader
         except CapacityExceededError as exc:
@@ -166,7 +167,7 @@ class SpeechServicer(pb2_grpc.UxSpeechServicer):
         if not language or language.lower() == "auto":
             language = default_language_code
         return _RecognitionSettings(
-            options=RecognitionOptions(
+            options=AsrInferencer.Options(
                 sample_rate=sample_rate,
                 language_code=language,
                 enable_automatic_punctuation=config.enable_automatic_punctuation,

@@ -10,7 +10,7 @@ const document: AudioWorkflowDocument = {
   schema_version: 1,
   nodes: [
     { id: "physical-vad", kind: "physical_vad", engine_id: "vad-1", config: { min_segment_seconds: .5, max_segment_seconds: 60, audio_buffer_seconds: 120, speech_pre_roll_seconds: .3 } },
-    { id: "asr", kind: "asr", engine_id: "asr-1", config: {} },
+    { id: "asr", kind: "asr", engine_id: "asr-1", config: { remove_punctuation: false } },
   ],
   edges: [
     { id: "audio-vad", source: { kind: "input", name: "audio" }, target: { node_id: "physical-vad", port: "audio" } },
@@ -37,7 +37,7 @@ function fakeApi() {
   const createAudioWorkflow = vi.fn().mockResolvedValue({ id: "wf-new", slug: "new-audio", name: "New", description: null, draft_revision: 1, active_revision: null, created_at: "2026-08-09T00:00:00Z", updated_at: "2026-08-09T00:00:00Z" });
   const saveAudioWorkflowDraft = vi.fn().mockImplementation(async (_id, next, revision) => ({ id: "wf-1", slug: "audio-main", name: "主语音图", description: null, document: next, revision: revision + 1, active_revision: 1, updated_at: "2026-08-09T00:00:00Z" }));
   const saveVoiceAgentDraft = vi.fn().mockImplementation(async (_id, next, revision) => ({ ...agent, definition: next, revision: revision + 1 }));
-  const engine = (id: string, kind: "vad" | "asr" | "llm" | "tts", api: "ux_vad" | "ux_speech" | "responses" | "qwen_tts_duplex") => ({
+  const engine = (id: string, kind: "vad" | "asr" | "llm" | "tts" | "embedding", api: "ux_vad" | "ux_speech" | "responses" | "qwen_tts_duplex" | "engine_feature") => ({
     id, slug: id, name: id.toUpperCase(), kind, api, protocol: "grpc", target: "test:1", connect_timeout_seconds: 1,
     request_timeout_seconds: null, credential_env: null, api_key: null, enabled: true, status: "healthy", image: null,
     description: null, status_basis: "人工连通性校验通过", status_observed_at: "2026-08-09T00:00:00Z", last_success_at: null,
@@ -59,10 +59,12 @@ function fakeApi() {
     listAudioNodeTypes: vi.fn().mockResolvedValue([
       { kind: "physical_vad", display_name: "物理 VAD", required_api: "ux_vad", inputs: [{ name: "audio", kind: "pcm_chunk" }], outputs: [{ name: "segments", kind: "audio_segment" }, { name: "speech_started", kind: "speech_started" }, { name: "speech_stopped", kind: "speech_stopped" }], config_schema: {} },
       { kind: "semantic_vad", display_name: "语义 VAD", required_api: "ux_vad", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "segments", kind: "audio_segment" }], config_schema: {} },
-      { kind: "asr", display_name: "语音识别", required_api: "ux_speech", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "transcripts", kind: "transcription" }], config_schema: {} },
+      { kind: "asr", display_name: "语音识别", required_api: "ux_speech", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "transcripts", kind: "transcription" }, { name: "speaker_transcripts", kind: "speaker_transcription" }], config_schema: {} },
+      { kind: "audio_embedding", display_name: "语音特征向量提取", required_api: "engine_feature", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "embeddings", kind: "embedding" }], config_schema: {} },
+      { kind: "vector_search", display_name: "人物搜索", required_api: null, inputs: [{ name: "embeddings", kind: "embedding" }], outputs: [{ name: "results", kind: "vector_search_result" }], config_schema: {} },
     ]),
     listAudioWorkflowRevisions: vi.fn().mockResolvedValue([]),
-    listEngines: vi.fn().mockResolvedValue({ items: [engine("vad-1", "vad", "ux_vad"), engine("asr-1", "asr", "ux_speech"), engine("llm-1", "llm", "responses"), engine("tts-1", "tts", "qwen_tts_duplex")], total: 4, limit: 200, offset: 0 }),
+    listEngines: vi.fn().mockResolvedValue({ items: [engine("vad-1", "vad", "ux_vad"), engine("asr-1", "asr", "ux_speech"), engine("llm-1", "llm", "responses"), engine("tts-1", "tts", "qwen_tts_duplex"), engine("embedding-1", "embedding", "engine_feature")], total: 5, limit: 200, offset: 0 }),
     listEngineModels: vi.fn().mockResolvedValue({ engine_id: "llm-1", engine_revision: 1, items: ["deepseek-chat", "deepseek-reasoner"] }),
     getRuntimeStatus: vi.fn().mockResolvedValue({ grpc: { active: 1, capacity: 64, rejected: 0 }, realtime: { active: 2, capacity: 64, rejected: 1 }, webrtc: { active: 1, capacity: 64, rejected: 0 }, asr: { active: 2, capacity: 8, rejected: 0 }, responses: { active: 1, capacity: 8, rejected: 0 }, tts: { active: 1, capacity: 1, rejected: 2 }, started_at: "2026-08-09T00:00:00Z" }),
     getCapacitySettings: vi.fn().mockResolvedValue({ grpc: { max_sessions: 64 }, realtime: { max_sessions: 64 }, webrtc: { max_sessions: 64 }, max_asr_concurrency: 8, max_responses_concurrency: 8, max_tts_concurrency: 1, revision: 1, updated_at: "2026-08-09T00:00:00Z" }),
@@ -76,6 +78,9 @@ function fakeApi() {
     restoreVoiceAgentRevision: vi.fn(),
     createVoiceAgent: vi.fn(),
     listRealtimeRoutes: vi.fn().mockResolvedValue([{ model: "voice-helper", target_type: "voice_agent", target_id: "agent-1", visibility: "public", created_at: "2026-08-09T00:00:00Z", updated_at: "2026-08-09T00:00:00Z" }]),
+    getVectorInfrastructure: vi.fn().mockResolvedValue({ configured: true, ready: true, grpc_target: "qdrant:6334", http_url: "http://qdrant:6333" }),
+    listVectorSpaces: vi.fn().mockResolvedValue([{ collection_name: "voiceprints", vectors: [{ name: "eres2netv2", size: 192, distance: "cosine" }], template: "voiceprint" }]),
+    createVectorSpace: vi.fn().mockResolvedValue({ collection_name: "voiceprints", vectors: [{ name: "eres2netv2", size: 192, distance: "cosine" }], template: "voiceprint" }),
     updateCapacitySettings: vi.fn(), updateWorkflowSettings: vi.fn(), createEngine: vi.fn(), updateEngine: vi.fn(), deleteEngine: vi.fn(), getEngineUsage: vi.fn().mockResolvedValue({ engine_id: "vad-1", references: [] }), probeEngine: vi.fn(),
   } as unknown as AudioHarnessApi;
   return { api, createAudioWorkflow, saveAudioWorkflowDraft, saveVoiceAgentDraft };
@@ -103,6 +108,23 @@ describe("typed audio workflow control plane", () => {
     await waitFor(() => expect(createAudioWorkflow).toHaveBeenCalledWith(expect.objectContaining({ slug: "new-audio" })));
   });
 
+  it("creates a collection from the voice feature extraction template", async () => {
+    const { api } = fakeApi(); renderApp(api, "/vectors");
+    expect(await screen.findByRole("heading", { name: "向量检索" })).toBeVisible();
+    expect(await screen.findByText("语音特征向量提取")).toBeVisible();
+    expect(screen.queryByText(["声", "纹"].join(""))).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "创建 Collection" }));
+    expect(screen.getAllByText("语音特征向量提取").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+
+    await waitFor(() => expect(api.createVectorSpace).toHaveBeenCalledWith({
+      collection_name: "voiceprints",
+      vectors: [{ name: "eres2netv2", size: 192, distance: "cosine" }],
+      template: "voiceprint",
+    }));
+  });
+
   it("renders a real port-based DAG editor", async () => {
     const { api } = fakeApi(); renderApp(api, "/audio-workflows/wf-1/build");
     expect(await screen.findByRole("heading", { name: "节点目录" })).toBeVisible();
@@ -117,6 +139,7 @@ describe("typed audio workflow control plane", () => {
     expect(screen.getByRole("region", { name: "语音工作流画布" })).toBeVisible();
     expect(screen.getByRole("navigation", { name: "工作流页面" })).toBeVisible();
     expect(screen.getByRole("button", { name: /^语义 VAD/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: /^双路物理 \+ 语义 VAD \+ ASR/ })).toBeVisible();
 
     const inputNode = screen.getByLabelText("节点 PCM 输入");
     const processorNode = screen.getByLabelText("节点 physical-vad");
@@ -169,6 +192,21 @@ describe("typed audio workflow control plane", () => {
         min_silence_frame: 20,
       },
     });
+  });
+
+  it("configures punctuation removal on ASR nodes", async () => {
+    const { api, saveAudioWorkflowDraft } = fakeApi();
+    renderApp(api, "/audio-workflows/wf-1/build");
+    fireEvent.click(await screen.findByLabelText("节点 asr"));
+
+    const toggle = screen.getByRole("checkbox", { name: "移除转写标点" });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(saveAudioWorkflowDraft).toHaveBeenCalled());
+    const saved = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
+    const asr = saved.nodes.find((node) => node.kind === "asr");
+    expect(asr?.config?.remove_punctuation).toBe(true);
   });
 
   it("keeps one left sidebar across workflow pages", async () => {
@@ -272,7 +310,7 @@ describe("typed audio workflow control plane", () => {
     const saveButton = await screen.findByRole("button", { name: "保存草稿" });
     expect(saveButton).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: /物理 \+ 语义 VAD \+ ASR/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^物理 \+ 语义 VAD \+ ASR/ }));
     fireEvent.click(screen.getByRole("button", { name: "确认应用" }));
     expect(saveButton).toBeEnabled();
     fireEvent.click(saveButton);
@@ -283,7 +321,7 @@ describe("typed audio workflow control plane", () => {
 
   it("applies a complete semantic VAD template and preserves engine choices", async () => {
     const { api, saveAudioWorkflowDraft } = fakeApi(); renderApp(api, "/audio-workflows/wf-1/build");
-    fireEvent.click(await screen.findByRole("button", { name: /物理 \+ 语义 VAD \+ ASR/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^物理 \+ 语义 VAD \+ ASR/ }));
     expect(screen.getByRole("alertdialog", { name: "应用快速模板？" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "确认应用" }));
 
@@ -293,6 +331,25 @@ describe("typed audio workflow control plane", () => {
     expect(savedDocument.nodes.find((node) => node.kind === "physical_vad")?.engine_id).toBe("vad-1");
     expect(savedDocument.nodes.find((node) => node.kind === "asr")?.engine_id).toBe("asr-1");
     expect(savedDocument.outputs.map((output) => output.name)).toContain("turn_progress");
+  });
+
+  it("applies the complete meeting template with a vector search branch", async () => {
+    const { api, saveAudioWorkflowDraft } = fakeApi(); renderApp(api, "/audio-workflows/wf-1/build");
+    fireEvent.click(await screen.findByRole("button", { name: /^会议系统完全体/ }));
+    fireEvent.click(screen.getByRole("button", { name: "确认应用" }));
+
+    await waitFor(() => expect(saveAudioWorkflowDraft).toHaveBeenCalled(), { timeout: 2_000 });
+    const savedDocument = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
+    expect(savedDocument.nodes.map((node) => node.kind)).toEqual([
+      "physical_vad", "semantic_vad", "asr", "physical_vad", "asr", "audio_embedding", "vector_search", "speaker_diarization", "speaker_clustering",
+    ]);
+    expect(savedDocument.nodes.find((node) => node.kind === "vector_search")?.config).toMatchObject({
+      collection_name: "voiceprints",
+      vector_name: "eres2netv2",
+    });
+    expect(savedDocument.outputs.map((output) => output.name)).toContain("vector_search");
+    expect(savedDocument.outputs.map((output) => output.name)).toContain("diarization_local");
+    expect(savedDocument.outputs.map((output) => output.name)).toContain("diarization_cluster");
   });
 
   it("shows live runtime capacity", async () => {

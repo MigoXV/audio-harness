@@ -436,6 +436,486 @@
         }
       }
     },
+    "/api/v1/vector-infrastructure": {
+      "get": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Infrastructure",
+        "operationId": "infrastructure_api_v1_vector_infrastructure_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InfrastructureRead"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vector-spaces": {
+      "get": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "List Spaces",
+        "operationId": "list_spaces_api_v1_vector_spaces_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VectorSpaceList"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Create Space",
+        "operationId": "create_space_api_v1_vector_spaces_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VectorSpaceCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VectorSpaceRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vector-spaces/{collection_name}": {
+      "get": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Get Space",
+        "operationId": "get_space_api_v1_vector_spaces__collection_name__get",
+        "parameters": [
+          {
+            "name": "collection_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Collection Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VectorSpaceRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vector-spaces/{collection_name}/destroy": {
+      "post": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Destroy",
+        "operationId": "destroy_api_v1_vector_spaces__collection_name__destroy_post",
+        "parameters": [
+          {
+            "name": "collection_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Collection Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DestroyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vector-spaces/{collection_name}/points/audio": {
+      "post": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Register Audio",
+        "operationId": "register_audio_api_v1_vector_spaces__collection_name__points_audio_post",
+        "parameters": [
+          {
+            "name": "collection_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Collection Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_register_audio_api_v1_vector_spaces__collection_name__points_audio_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Register Audio Api V1 Vector Spaces  Collection Name  Points Audio Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vector-spaces/{collection_name}/search/audio": {
+      "post": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Search Audio",
+        "operationId": "search_audio_api_v1_vector_spaces__collection_name__search_audio_post",
+        "parameters": [
+          {
+            "name": "collection_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Collection Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_search_audio_api_v1_vector_spaces__collection_name__search_audio_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioSpeakerSearchRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vector-spaces/{collection_name}/search/audio/vad-preview": {
+      "post": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Preview Vad Audio",
+        "operationId": "preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post",
+        "parameters": [
+          {
+            "name": "collection_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Collection Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VadAudioPreviewRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vector-spaces/{collection_name}/points/scroll": {
+      "post": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Scroll",
+        "operationId": "scroll_api_v1_vector_spaces__collection_name__points_scroll_post",
+        "parameters": [
+          {
+            "name": "collection_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Collection Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScrollRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Scroll Api V1 Vector Spaces  Collection Name  Points Scroll Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vector-spaces/{collection_name}/points/{point_id}/payload": {
+      "put": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Replace Payload",
+        "operationId": "replace_payload_api_v1_vector_spaces__collection_name__points__point_id__payload_put",
+        "parameters": [
+          {
+            "name": "collection_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Collection Name"
+            }
+          },
+          {
+            "name": "point_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Point Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PayloadReplace"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vector-spaces/{collection_name}/points/{point_id}": {
+      "delete": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Delete Point",
+        "operationId": "delete_point_api_v1_vector_spaces__collection_name__points__point_id__delete",
+        "parameters": [
+          {
+            "name": "collection_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Collection Name"
+            }
+          },
+          {
+            "name": "point_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Point Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/audio-node-types": {
       "get": {
         "tags": [
@@ -1512,7 +1992,7 @@
     "/api/v1/realtime-routes": {
       "get": {
         "tags": [
-          "workflows"
+          "realtime-routes"
         ],
         "summary": "List Realtime Routes",
         "operationId": "list_realtime_routes_api_v1_realtime_routes_get",
@@ -1537,7 +2017,7 @@
     "/api/v1/realtime-routes/{model}": {
       "get": {
         "tags": [
-          "workflows"
+          "realtime-routes"
         ],
         "summary": "Get Realtime Route",
         "operationId": "get_realtime_route_api_v1_realtime_routes__model__get",
@@ -1577,7 +2057,7 @@
       },
       "put": {
         "tags": [
-          "workflows"
+          "realtime-routes"
         ],
         "summary": "Upsert Realtime Route",
         "operationId": "upsert_realtime_route_api_v1_realtime_routes__model__put",
@@ -1627,7 +2107,7 @@
       },
       "delete": {
         "tags": [
-          "workflows"
+          "realtime-routes"
         ],
         "summary": "Delete Realtime Route",
         "operationId": "delete_realtime_route_api_v1_realtime_routes__model__delete",
@@ -2158,7 +2638,13 @@
         "title": "AsrNode"
       },
       "AsrNodeConfig": {
-        "properties": {},
+        "properties": {
+          "remove_punctuation": {
+            "type": "boolean",
+            "title": "Remove Punctuation",
+            "default": false
+          }
+        },
         "additionalProperties": false,
         "type": "object",
         "title": "AsrNodeConfig"
@@ -2203,6 +2689,69 @@
         ],
         "title": "AudioEdge"
       },
+      "AudioEmbeddingNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "audio_embedding",
+            "title": "Kind",
+            "default": "audio_embedding"
+          },
+          "engine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Id"
+          },
+          "config": {
+            "$ref": "#/components/schemas/AudioEmbeddingNodeConfig"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "AudioEmbeddingNode"
+      },
+      "AudioEmbeddingNodeConfig": {
+        "properties": {
+          "algorithm": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Algorithm",
+            "default": "eres2netv2"
+          },
+          "expected_dimension": {
+            "type": "integer",
+            "maximum": 65536.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Expected Dimension",
+            "default": 192
+          },
+          "normalize": {
+            "type": "boolean",
+            "title": "Normalize",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AudioEmbeddingNodeConfig"
+      },
       "AudioNodeTypeRead": {
         "properties": {
           "kind": {
@@ -2214,7 +2763,25 @@
             "title": "Display Name"
           },
           "required_api": {
-            "$ref": "#/components/schemas/EngineApi"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EngineApi"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "required_capability": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Capability"
           },
           "inputs": {
             "items": {
@@ -2247,6 +2814,31 @@
           "config_schema"
         ],
         "title": "AudioNodeTypeRead"
+      },
+      "AudioSpeakerSearchRead": {
+        "properties": {
+          "embedding": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Embedding"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/SpeakerMatchRead"
+            },
+            "type": "array",
+            "title": "Groups"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "embedding",
+          "groups"
+        ],
+        "title": "AudioSpeakerSearchRead"
       },
       "AudioWorkflowCreate": {
         "properties": {
@@ -2312,14 +2904,30 @@
                 },
                 {
                   "$ref": "#/components/schemas/AsrNode"
+                },
+                {
+                  "$ref": "#/components/schemas/AudioEmbeddingNode"
+                },
+                {
+                  "$ref": "#/components/schemas/SpeakerDiarizationNode"
+                },
+                {
+                  "$ref": "#/components/schemas/SpeakerClusteringNode"
+                },
+                {
+                  "$ref": "#/components/schemas/VectorSearchNode"
                 }
               ],
               "discriminator": {
                 "propertyName": "kind",
                 "mapping": {
                   "asr": "#/components/schemas/AsrNode",
+                  "audio_embedding": "#/components/schemas/AudioEmbeddingNode",
                   "physical_vad": "#/components/schemas/PhysicalVadNode",
-                  "semantic_vad": "#/components/schemas/SemanticVadNode"
+                  "semantic_vad": "#/components/schemas/SemanticVadNode",
+                  "speaker_clustering": "#/components/schemas/SpeakerClusteringNode",
+                  "speaker_diarization": "#/components/schemas/SpeakerDiarizationNode",
+                  "vector_search": "#/components/schemas/VectorSearchNode"
                 }
               }
             },
@@ -2637,6 +3245,170 @@
         ],
         "title": "Body_create_voice_api_v1_voices_post"
       },
+      "Body_preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post": {
+        "properties": {
+          "audio": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Audio"
+          },
+          "vad_engine_id": {
+            "type": "string",
+            "title": "Vad Engine Id"
+          },
+          "vad_postprocessing_json": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vad Postprocessing Json"
+          }
+        },
+        "type": "object",
+        "required": [
+          "audio",
+          "vad_engine_id"
+        ],
+        "title": "Body_preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post"
+      },
+      "Body_register_audio_api_v1_vector_spaces__collection_name__points_audio_post": {
+        "properties": {
+          "audio": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Audio"
+          },
+          "embeddings_json": {
+            "type": "string",
+            "title": "Embeddings Json"
+          },
+          "payload_json": {
+            "type": "string",
+            "title": "Payload Json",
+            "default": "{}"
+          },
+          "point_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Point Id"
+          },
+          "speaker_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker Id"
+          },
+          "channel_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Id"
+          },
+          "captured_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured At"
+          },
+          "quality_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality Score"
+          }
+        },
+        "type": "object",
+        "required": [
+          "audio",
+          "embeddings_json"
+        ],
+        "title": "Body_register_audio_api_v1_vector_spaces__collection_name__points_audio_post"
+      },
+      "Body_search_audio_api_v1_vector_spaces__collection_name__search_audio_post": {
+        "properties": {
+          "audio": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Audio"
+          },
+          "vector_name": {
+            "type": "string",
+            "title": "Vector Name"
+          },
+          "engine_id": {
+            "type": "string",
+            "title": "Engine Id"
+          },
+          "algorithm": {
+            "type": "string",
+            "title": "Algorithm"
+          },
+          "normalize": {
+            "type": "boolean",
+            "title": "Normalize",
+            "default": true
+          },
+          "top_k": {
+            "type": "integer",
+            "title": "Top K",
+            "default": 10
+          },
+          "score_threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score Threshold"
+          },
+          "filter_json": {
+            "type": "string",
+            "title": "Filter Json",
+            "default": "{}"
+          }
+        },
+        "type": "object",
+        "required": [
+          "audio",
+          "vector_name",
+          "engine_id",
+          "algorithm"
+        ],
+        "title": "Body_search_audio_api_v1_vector_spaces__collection_name__search_audio_post"
+      },
       "CapacitySettingsRead": {
         "properties": {
           "grpc": {
@@ -2652,6 +3424,18 @@
             "type": "integer",
             "exclusiveMinimum": 0.0,
             "title": "Max Asr Concurrency",
+            "default": 8
+          },
+          "max_embedding_concurrency": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Embedding Concurrency",
+            "default": 8
+          },
+          "max_qdrant_concurrency": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Qdrant Concurrency",
             "default": 8
           },
           "max_responses_concurrency": {
@@ -2699,6 +3483,18 @@
             "type": "integer",
             "exclusiveMinimum": 0.0,
             "title": "Max Asr Concurrency",
+            "default": 8
+          },
+          "max_embedding_concurrency": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Embedding Concurrency",
+            "default": 8
+          },
+          "max_qdrant_concurrency": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Qdrant Concurrency",
             "default": 8
           },
           "max_responses_concurrency": {
@@ -2756,6 +3552,20 @@
         ],
         "title": "ConfigurationDiagnosticRead"
       },
+      "DestroyRequest": {
+        "properties": {
+          "confirmation": {
+            "type": "string",
+            "title": "Confirmation"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "confirmation"
+        ],
+        "title": "DestroyRequest"
+      },
       "DuplexTtsConfig": {
         "properties": {
           "default_voice": {
@@ -2796,7 +3606,9 @@
           "ux_speech",
           "ux_vad",
           "responses",
-          "qwen_tts_duplex"
+          "qwen_tts_duplex",
+          "engine_feature",
+          "ux_speaker_diarization"
         ],
         "title": "EngineApi"
       },
@@ -2966,7 +3778,9 @@
           "asr",
           "vad",
           "llm",
-          "tts"
+          "tts",
+          "embedding",
+          "diarization"
         ],
         "title": "EngineKind"
       },
@@ -3851,6 +4665,49 @@
         ],
         "title": "HealthResponse"
       },
+      "InfrastructureRead": {
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "ready": {
+            "type": "boolean",
+            "title": "Ready"
+          },
+          "grpc_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grpc Target"
+          },
+          "http_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Http Url"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "configured",
+          "ready",
+          "grpc_target",
+          "http_url"
+        ],
+        "title": "InfrastructureRead"
+      },
       "McpServerConfig": {
         "properties": {
           "server_label": {
@@ -3942,6 +4799,41 @@
         ],
         "title": "NamedOutputBinding"
       },
+      "NamedVectorSchema": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Name"
+          },
+          "size": {
+            "type": "integer",
+            "maximum": 65536.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Size"
+          },
+          "distance": {
+            "type": "string",
+            "enum": [
+              "cosine",
+              "euclid",
+              "dot",
+              "manhattan"
+            ],
+            "title": "Distance",
+            "default": "cosine"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "size"
+        ],
+        "title": "NamedVectorSchema"
+      },
       "NodeInputRef": {
         "properties": {
           "node_id": {
@@ -4007,6 +4899,13 @@
           "kind": {
             "type": "string",
             "title": "Kind"
+          },
+          "accepted_kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Accepted Kinds"
           }
         },
         "additionalProperties": false,
@@ -4033,6 +4932,21 @@
         "additionalProperties": false,
         "type": "object",
         "title": "NodePosition"
+      },
+      "PayloadReplace": {
+        "properties": {
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "payload"
+        ],
+        "title": "PayloadReplace"
       },
       "PhysicalVadConfig": {
         "properties": {
@@ -4467,6 +5381,12 @@
           "asr": {
             "$ref": "#/components/schemas/RuntimeLimiterRead"
           },
+          "embedding": {
+            "$ref": "#/components/schemas/RuntimeLimiterRead"
+          },
+          "qdrant": {
+            "$ref": "#/components/schemas/RuntimeLimiterRead"
+          },
           "responses": {
             "$ref": "#/components/schemas/RuntimeLimiterRead"
           },
@@ -4486,11 +5406,55 @@
           "realtime",
           "webrtc",
           "asr",
+          "embedding",
+          "qdrant",
           "responses",
           "tts",
           "started_at"
         ],
         "title": "RuntimeStatusRead"
+      },
+      "ScrollRequest": {
+        "properties": {
+          "filter": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filter"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 50
+          },
+          "offset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offset"
+          },
+          "with_vectors": {
+            "type": "boolean",
+            "title": "With Vectors",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ScrollRequest"
       },
       "SemanticVadConfig": {
         "properties": {
@@ -4546,6 +5510,204 @@
         ],
         "title": "SemanticVadNode"
       },
+      "SpeakerClusteringNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "speaker_clustering",
+            "title": "Kind",
+            "default": "speaker_clustering"
+          },
+          "engine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Id"
+          },
+          "config": {
+            "$ref": "#/components/schemas/SpeakerClusteringNodeConfig"
+          },
+          "failure_policy": {
+            "$ref": "#/components/schemas/FailurePolicy",
+            "default": "fail_open"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "SpeakerClusteringNode"
+      },
+      "SpeakerClusteringNodeConfig": {
+        "properties": {
+          "embedding_algorithm": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Embedding Algorithm",
+            "default": "eres2netv2"
+          },
+          "expected_dimension": {
+            "type": "integer",
+            "maximum": 65536.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Expected Dimension",
+            "default": 192
+          },
+          "normalize": {
+            "type": "boolean",
+            "title": "Normalize",
+            "default": true
+          },
+          "max_embedding_seconds": {
+            "type": "number",
+            "maximum": 600.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Embedding Seconds",
+            "default": 60.0
+          },
+          "clustering_algorithm": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Clustering Algorithm",
+            "default": "hdbscan"
+          },
+          "parameters": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Parameters"
+          },
+          "max_vectors": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Vectors",
+            "default": 10000
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SpeakerClusteringNodeConfig"
+      },
+      "SpeakerDiarizationNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "speaker_diarization",
+            "title": "Kind",
+            "default": "speaker_diarization"
+          },
+          "engine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Id"
+          },
+          "config": {
+            "$ref": "#/components/schemas/SpeakerDiarizationNodeConfig"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "SpeakerDiarizationNode"
+      },
+      "SpeakerDiarizationNodeConfig": {
+        "properties": {
+          "min_batch_seconds": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Min Batch Seconds",
+            "default": 60.0
+          },
+          "max_batch_seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Batch Seconds",
+            "default": 120.0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SpeakerDiarizationNodeConfig"
+      },
+      "SpeakerMatchRead": {
+        "properties": {
+          "speaker_id": {
+            "type": "string",
+            "title": "Speaker Id"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "observation": {
+            "$ref": "#/components/schemas/VectorObservationRead"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "speaker_id",
+          "score",
+          "observation"
+        ],
+        "title": "SpeakerMatchRead"
+      },
+      "VadAudioPreviewRead": {
+        "properties": {
+          "audio_base64": {
+            "type": "string",
+            "title": "Audio Base64"
+          },
+          "content_type": {
+            "type": "string",
+            "const": "audio/wav",
+            "title": "Content Type",
+            "default": "audio/wav"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Duration Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "audio_base64",
+          "duration_ms"
+        ],
+        "title": "VadAudioPreviewRead"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -4585,6 +5747,196 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VectorObservationRead": {
+        "properties": {
+          "point_id": {
+            "type": "string",
+            "title": "Point Id"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "point_id",
+          "payload"
+        ],
+        "title": "VectorObservationRead"
+      },
+      "VectorSearchNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "vector_search",
+            "title": "Kind",
+            "default": "vector_search"
+          },
+          "engine_id": {
+            "type": "null",
+            "title": "Engine Id"
+          },
+          "config": {
+            "$ref": "#/components/schemas/VectorSearchNodeConfig"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "config"
+        ],
+        "title": "VectorSearchNode"
+      },
+      "VectorSearchNodeConfig": {
+        "properties": {
+          "collection_name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Collection Name"
+          },
+          "vector_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Vector Name"
+          },
+          "top_k": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Top K",
+            "default": 10
+          },
+          "score_threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score Threshold"
+          },
+          "filter": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Filter"
+          },
+          "include_embedding": {
+            "type": "boolean",
+            "title": "Include Embedding",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "collection_name",
+          "vector_name"
+        ],
+        "title": "VectorSearchNodeConfig"
+      },
+      "VectorSpaceCreate": {
+        "properties": {
+          "collection_name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Collection Name"
+          },
+          "vectors": {
+            "items": {
+              "$ref": "#/components/schemas/NamedVectorSchema"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Vectors"
+          },
+          "template": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "voiceprint"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "collection_name",
+          "vectors"
+        ],
+        "title": "VectorSpaceCreate"
+      },
+      "VectorSpaceList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/VectorSpaceRead"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "VectorSpaceList"
+      },
+      "VectorSpaceRead": {
+        "properties": {
+          "collection_name": {
+            "type": "string",
+            "title": "Collection Name"
+          },
+          "vectors": {
+            "items": {
+              "$ref": "#/components/schemas/NamedVectorSchema"
+            },
+            "type": "array",
+            "title": "Vectors"
+          },
+          "template": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "voiceprint"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "collection_name",
+          "vectors"
+        ],
+        "title": "VectorSpaceRead"
       },
       "VoiceAgentCreate": {
         "properties": {

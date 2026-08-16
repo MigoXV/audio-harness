@@ -7,9 +7,12 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from audio_harness.config import AppConfig
+from audio_harness.configs import AppConfig
 from audio_harness.database import require_fresh_database, upgrade_database
-from audio_harness.domain import EngineDeadlineError, EngineUnavailableError
+from audio_harness.errors import (
+    EngineDeadlineError,
+    EngineUnavailableError,
+)
 from audio_harness.serving.host import AudioHarnessHost
 
 
@@ -77,7 +80,7 @@ async def control_plane(tmp_path: Path):
         }
     )
     host = AudioHarnessHost(config)
-    host.inferencer_pool._inferencer_factory = ReadyFactory()
+    host.inferencer_pool._create_inferencer = ReadyFactory().create
     await host.workflow_settings.initialize()
     capacity = await host.capacity_settings.initialize()
     await host.capacity.apply(capacity)
@@ -172,6 +175,10 @@ async def test_fresh_baseline_is_explicitly_unconfigured(
         "physical_vad",
         "semantic_vad",
         "asr",
+        "audio_embedding",
+            "speaker_diarization",
+            "speaker_clustering",
+            "vector_search",
     }
     readiness = await control_plane.client.get("/health/ready")
     assert readiness.status_code == 503
@@ -186,11 +193,29 @@ async def test_fresh_baseline_is_explicitly_unconfigured(
 
 
 @pytest.mark.asyncio
+async def test_diarization_engine_uses_dedicated_kind_and_api(
+    control_plane: ControlPlane,
+) -> None:
+    response = await control_plane.client.post(
+        "/api/v1/engines",
+        json=engine_payload(
+            "moss-trancribe-diarize",
+            kind="diarization",
+            api="ux_speaker_diarization",
+        ),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["kind"] == "diarization"
+    assert response.json()["api"] == "ux_speaker_diarization"
+
+
+@pytest.mark.asyncio
 async def test_responses_engine_discovers_models_without_exposing_credentials(
     control_plane: ControlPlane,
 ) -> None:
     factory = ReadyFactory()
-    control_plane.host.inferencer_pool._inferencer_factory = factory
+    control_plane.host.inferencer_pool._create_inferencer = factory.create
     created = await control_plane.client.post(
         "/api/v1/engines",
         json=engine_payload(
@@ -282,7 +307,9 @@ async def test_model_discovery_maps_upstream_failures(
             protocol="https",
         ),
     )
-    control_plane.host.inferencer_pool._inferencer_factory = FailingModelFactory(error)
+    control_plane.host.inferencer_pool._create_inferencer = FailingModelFactory(
+        error
+    ).create
 
     response = await control_plane.client.get(
         f"/api/v1/engines/{created.json()['id']}/models"
@@ -500,3 +527,23 @@ def test_old_database_revision_is_rejected(tmp_path: Path) -> None:
         connection.execute("INSERT INTO alembic_version VALUES ('0009_control_plane_v2')")
     with pytest.raises(RuntimeError, match="不支持原地升级"):
         require_fresh_database(f"sqlite+aiosqlite:///{path}")
+
+
+def test_vector_space_registry_revision_can_be_cleaned_up(tmp_path: Path) -> None:
+    path = tmp_path / "vector-registry.db"
+    import sqlite3
+
+    with sqlite3.connect(path) as connection:
+        connection.execute("CREATE TABLE alembic_version (version_num VARCHAR(32))")
+        connection.execute("INSERT INTO alembic_version VALUES ('0002_vector_search')")
+        connection.execute("CREATE TABLE vector_spaces (id VARCHAR(36) PRIMARY KEY, slug VARCHAR(100))")
+        connection.execute("CREATE UNIQUE INDEX ix_vector_spaces_slug ON vector_spaces (slug)")
+
+    require_fresh_database(f"sqlite+aiosqlite:///{path}")
+    upgrade_database(f"sqlite+aiosqlite:///{path}")
+
+    with sqlite3.connect(path) as connection:
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
+    assert "vector_spaces" not in tables
+    assert revision == ("0003_remove_vector_spaces",)

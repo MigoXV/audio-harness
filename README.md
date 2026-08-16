@@ -28,13 +28,16 @@ gRPC / Realtime / WebRTC 数据面 ─────┘
 
 ## 类型化语音 DAG
 
-第一版内置三个静态节点类型：
+内置节点类型包括：
 
 | 节点 | 输入 | 输出 | 引擎 API |
 | --- | --- | --- | --- |
 | Physical VAD | `pcm_chunk` | `audio_segment`、`speech_started`、`speech_stopped` | `ux_vad` |
 | Semantic VAD | `audio_segment` | `audio_segment`、`speech_stopped`、`transcription` | `ux_vad` |
 | ASR | `audio_segment` | `transcription` | `ux_speech` |
+| Speaker Diarization | `audio_segment` | `audio_segment`、`diarization_local_result` | `ux_speaker_diarization` |
+| Audio Embedding | `audio_segment` | `embedding` | `engine_feature` |
+| Vector Search | `embedding` | `vector_search_result` | 无 |
 
 节点类型不是动态插件。编译器会统一检查：
 
@@ -43,12 +46,37 @@ gRPC / Realtime / WebRTC 数据面 ─────┘
 - 单输入端口是否发生隐式 fan-in；
 - 是否存在环、不可达节点或断开的输出路径；
 - 引擎是否存在、启用且 API 能力匹配；
-- `primary_transcript`、`speech_started`、`speech_stopped` 三个稳定出口是否完整且类型正确。
+- `primary_transcript`、`speech_started`、`speech_stopped` 三个稳定出口是否完整且类型正确；
+- 可选的 `interim_transcript`、`vector_search` 和 `diarization_local` 是否连接到匹配端口。
 
 物理 VAD 节点可以按工作流配置 FireRed `firered.stream_vad` v1 后处理参数，
 包括概率平滑、判定阈值、起点前补以及语音/静音帧数限制。未启用自定义配置时，
 流式首包不会发送 `postprocessing` 字段，继续使用 VAD 服务端默认值；参数修改随
 工作流重新发布后生效，不会热更新已经运行的会话。旧 VAD 服务可以忽略新增字段。
+
+工作流编辑器另提供“物理双路 VAD + ASR”和“物理双路 + 语义 VAD + ASR”模板。
+两者都使用独立的敏感物理 VAD 与 ASR 生成 `interim_transcript` Realtime 预览结果；
+后一个模板的正式分支为“物理 VAD → 语义 VAD → ASR”，由语义 VAD 输出正式的
+`speech_stopped` 和 `turn_progress`。`primary_transcript` 始终是正式结果，预览分支的
+VAD 带有一组偏敏感的初始参数，但所有参数和引擎绑定都可继续编辑；现有默认工作流
+和已发布修订不会被自动迁移。
+
+“会议系统完全体”模板建立在双路物理与语义 VAD 模板之上，并把正式语义 VAD 输出的
+音频片段并联到“语音特征向量提取 → 人物搜索”，增加 `vector_search` 命名出口；
+主链路为“物理 VAD → 语义 VAD → 说话人分离 → ASR”，并增加
+`diarization_local` 与 `speaker_transcript` 命名出口。原低延迟 interim ASR 分支继续并行工作。
+模板优先选择带语音特征向量提取模板标记的 Qdrant Collection，并据其首个 Named
+Vector 初始化算法和维度；没有可用空间时使用 `voiceprints`、`eres2netv2`、192 维
+作为待确认配置。再次应用模板会保留已经选择的提取引擎、Collection 和检索参数。
+
+说话人分离节点按有效语音时长聚合 VAD 块，默认累计 60 秒后处理，单次最多 120 秒。
+`min_batch_seconds=0` 时每个 VAD 块立即处理；旧缓存加新块超过最大长度时先提交旧缓存，
+新块不会丢弃；单个超长块按最大长度硬切。会话结束时不足最小时长的尾块也会提交。
+不同 VAD 块之间不补静音，服务返回的相对时间会根据拼接映射还原为会话绝对时间。
+
+ASR 节点可以独立开启“移除转写标点”，在节点输出进入工作流出口前删除中英文及
+其他语言的 Unicode 标点，同时保留原有空白、符号和 emoji。该选项默认关闭；两个
+双路模板新建的预览 ASR 默认开启，正式 ASR 默认关闭。
 
 工作流的语义文档与画布 `layout` 分开保存。发布时重新编译草稿、准备全部引擎，然后原子写入不可变 revision；活动会话不会被后续草稿或引擎资产修改热改。
 
@@ -56,16 +84,21 @@ gRPC / Realtime / WebRTC 数据面 ─────┘
 
 ```text
 src/audio_harness/
+├── api/                # FastAPI 应用、URL、路由与异常映射
+├── errors.py           # 跨能力共享的应用异常
+├── schemas/            # 跨协议的请求与响应数据契约
+├── configs/            # 按用途拆分的进程配置
+├── realtime_routes/    # Realtime 模型路由控制面
 ├── workflows/          # AudioWorkflow 文档、编译器、运行时、仓储与发布服务
-├── voice_agents/       # 语音智能体配置与 Realtime Route
-├── engines/            # InferencerPool
-├── inferencers/        # 各协议推理客户端适配器
+├── voice_agents/       # 语音智能体配置、仓储与发布服务
+├── engines/            # 引擎资产目录与 InferencerPool
+├── inferencers/        # 按能力分组的推理客户端适配器
+├── media/              # PCM 等媒体数据类型
 ├── sessions/           # 协议无关会话生命周期与容量租约
-├── serving/
+├── serving/            # 进程容量、状态与协议服务
 │   ├── grpc/           # gRPC 数据面适配器
 │   ├── realtime/       # OpenAI Realtime WebSocket 适配器
-│   ├── webrtc/         # WebRTC 适配器
-│   └── http/routers/   # 按资源拆分的 HTTP 控制面
+│   └── webrtc/         # WebRTC 适配器
 └── database/           # SQLAlchemy 模型与单一 Alembic 基线
 
 src/web/
@@ -78,7 +111,7 @@ src/web/
 
 ## 数据库策略
 
-数据库只支持 `sqlite+aiosqlite`。当前 Alembic head 为 `0001_initial`。
+数据库只支持 `sqlite+aiosqlite`。当前 Alembic head 为 `0003_remove_vector_spaces`。
 
 启动命令只接受：
 
@@ -106,6 +139,16 @@ poetry run audio-harness serve
 | `GRPC_HOST` / `GRPC_PORT` | `0.0.0.0` / `50051` | gRPC 监听地址 |
 | `HTTP_HOST` / `HTTP_PORT` | `0.0.0.0` / `8000` | HTTP、WSS 与 WebRTC 信令地址 |
 | `VOICE_STORAGE_DIR` | `./data-bin/voices` | 参考音频目录 |
+| `QDRANT_GRPC_TARGET` | 未配置 | Qdrant 正式数据面，例如 `192.168.0.222:16334` |
+| `QDRANT_HTTP_URL` | 未配置 | Qdrant Dashboard 与健康检查，例如 `http://192.168.0.222:16333` |
+
+## 音频向量检索
+
+Qdrant 是 Collection、Named Vector、Point 和 payload 的唯一事实来源；Audio Harness
+不在 SQLite 中复制向量空间注册表。系统支持通用 Collection、voiceprint 模板、音频
+登记、VAD 预处理、按人物分组搜索，以及工作流内的 Embedding → Vector Search 分支。
+完整字段、curl 示例和 `x_aha.vector.*` 事件分别见[向量检索接口](docs/control-plane/vectors.md)
+与 [AHA v1 协议](docs/realtime-api/aha-v1.md)。
 
 控制台按“语音工作流、语音智能体、推理引擎、接入与运行”四个任务域组织。首次启动后的推荐顺序：
 
@@ -119,86 +162,36 @@ poetry run audio-harness serve
 
 `GET /api/v1/runtime/overview` 始终返回 `200`，用于控制台展示“待配置”和可操作诊断；`/health/ready` 仍是部署探针，在 gRPC 默认工作流未就绪时返回 `503`。因此浏览器界面不再轮询 503 探针来判断管理服务是否在线。
 
-## 控制面接口
+## 接口文档
 
-主要资源路径如下：
+完整对接规范已经拆分到 [`docs/`](docs/README.md)，以避免 README 与接口契约形成两套事实来源：
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| `GET/POST` | `/api/v1/engines` | 引擎列表与创建 |
-| `POST` | `/api/v1/engines/{id}/validate` | 单引擎真实探测 |
-| `GET` | `/api/v1/audio-node-types` | 节点、端口与配置 Schema |
-| `GET/POST` | `/api/v1/audio-workflows` | 语音工作流列表与创建 |
-| `GET/PUT` | `/api/v1/audio-workflows/{id}/draft` | 乐观锁读取和保存草稿 |
-| `POST` | `/api/v1/audio-workflows/{id}/validate` | 编译校验草稿 |
-| `POST` | `/api/v1/audio-workflows/{id}/publish` | 原子发布不可变 revision |
-| `GET` | `/api/v1/audio-workflows/{id}/revisions` | 发布历史 |
-| `GET/POST` | `/api/v1/voice-agents` | 语音智能体配置 |
-| `POST` | `/api/v1/voice-agents/{id}/validate` | 校验语音智能体草稿及其依赖 |
-| `GET` | `/api/v1/realtime-routes/{model}` | 读取并预检单个 Realtime 路由 |
-| `PUT` | `/api/v1/realtime-routes/{model}` | 显式创建或确认替换 Realtime 路由 |
-| `GET` | `/api/v1/runtime/overview` | 控制面与协议接入状态总览 |
-| `GET/PUT` | `/api/v1/settings/workflow` | 流式队列设置 |
-| `GET/PUT` | `/api/v1/settings/capacity` | 会话与推理并发设置 |
-
-数据面路径保持为：
-
-- gRPC `UxSpeech.StreamingRecognize`
-- 纯转写 WebSocket `/v1/realtime?intent=transcription`；转写模型在后续
-  `session.update.audio.input.transcription.model` 中指定，可显式协商 `x_aha=v1`
-- 语音智能体 WebSocket `/v1/realtime?model=<public-active-route>`；`model`
-  必须是指向已激活语音智能体的公开 Realtime Route，也可显式协商
-  `x_aha=v1`
-- WebRTC `POST /v1/realtime/calls?model=...`
-
-WebSocket 建连时必须在 `intent=transcription` 和 `model=...` 中二选一；
-缺失、并用或传入未发布的路由都会在建连阶段被拒绝。
-
-### x_aha Realtime 扩展
-
-默认情况下，WebSocket 与 WebRTC 只发送 OpenAI Realtime 原生事件。
-纯转写和语音智能体会话都可以在建连时显式传入 `x_aha=v1`，启用版本化的
-`x_aha.*` 扩展事件。不支持的扩展版本会被拒绝。扩展只追加观测信息，
-不会替换、删减或改写 OpenAI Realtime 原生事件；未协商扩展时，服务端不会
-发送 `x_aha.*`、`audio_harness.*` 或其他私有事件。
-
-当物理 VAD 已结束、语义 VAD 仍认为用户轮次未完成时，服务端发送：
-
-```json
-{
-  "type": "x_aha.vad.physical_speech_stopped",
-  "event_id": "event_xxx",
-  "item_id": "item_xxx",
-  "audio_start_ms": 1200,
-  "audio_end_ms": 2380,
-  "turn_completed": false
-}
-```
-
-该 `item_id` 与本轮标准 `input_audio_buffer.speech_started` 及最终的
-`input_audio_buffer.speech_stopped` 相同。Python SDK 客户端可使用
-`extra_query={"intent": "transcription", "x_aha": "v1"}` 协商转写扩展，
-或使用 `extra_query={"model": "<route>", "x_aha": "v1"}` 协商语音智能体
-扩展。启用后应按原始 JSON 分派 `x_aha.*`，再使用 SDK 类型处理原生事件。
-完整转写示例见 `examples/openai_realtime_python_demo`；语音智能体 Demo 刻意不
-协商扩展，用于验证默认原生协议兼容性。
+- [通用 API 约定](docs/api-conventions.md)
+- [控制面：引擎、向量、工作流、Agent 与运行设置](docs/README.md#调用-audio-harness)
+- [OpenAI Realtime 兼容子集](docs/realtime-api/openai-realtime.md)
+- [AHA Realtime 扩展协议 v1](docs/realtime-api/aha-v1.md)
+- [WebRTC 接入](docs/realtime-api/webrtc.md)
+- [gRPC ASR 数据面](docs/data-plane/grpc-asr.md)
+- [下游推理引擎协议](docs/engine-integration/README.md)
+- [机器可读 OpenAPI](docs/reference/openapi.json)
 
 ## OpenAPI 与前端类型
 
-前端不手写后端 DTO。修改接口后执行：
+前端不手写后端 DTO，`docs/reference/openapi.json` 也由同一脚本生成。修改接口后执行：
 
 ```bash
-poetry run audio-harness export-openapi --output src/web/openapi.json
+poetry run python scripts/export_openapi.py
 cd src/web
 pnpm generate:api
 ```
 
+默认导出会同时更新前端与文档契约；`--output <path>` 可只导出单个文件。
 `pnpm build` 会自动重新生成 `src/api/generated.ts`，从而在后端字段变化时让 TypeScript 构建直接失败。
 
 ## 验证
 
 ```bash
-poetry run pytest -q
+poetry run pytest -q tests
 
 cd src/web
 pnpm lint

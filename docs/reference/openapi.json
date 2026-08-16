@@ -1,0 +1,6427 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Audio Harness",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/engines": {
+      "get": {
+        "tags": [
+          "engines"
+        ],
+        "summary": "List Engines",
+        "operationId": "list_engines_api_v1_engines_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/EngineKind"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "api",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/EngineApi"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Api"
+            }
+          },
+          {
+            "name": "enabled",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Enabled"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "engines"
+        ],
+        "summary": "Create Engine",
+        "operationId": "create_engine_api_v1_engines_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EngineCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/engines/{engine_id}": {
+      "get": {
+        "tags": [
+          "engines"
+        ],
+        "summary": "Get Engine",
+        "operationId": "get_engine_api_v1_engines__engine_id__get",
+        "parameters": [
+          {
+            "name": "engine_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Engine Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "engines"
+        ],
+        "summary": "Patch Engine",
+        "operationId": "patch_engine_api_v1_engines__engine_id__patch",
+        "parameters": [
+          {
+            "name": "engine_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Engine Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnginePatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "engines"
+        ],
+        "summary": "Delete Engine",
+        "operationId": "delete_engine_api_v1_engines__engine_id__delete",
+        "parameters": [
+          {
+            "name": "engine_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Engine Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/engines/{engine_id}/models": {
+      "get": {
+        "tags": [
+          "engines"
+        ],
+        "summary": "List Engine Models",
+        "operationId": "list_engine_models_api_v1_engines__engine_id__models_get",
+        "parameters": [
+          {
+            "name": "engine_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Engine Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineModelListRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/engines/{engine_id}/validate": {
+      "post": {
+        "tags": [
+          "engines"
+        ],
+        "summary": "Validate Engine",
+        "operationId": "validate_engine_api_v1_engines__engine_id__validate_post",
+        "parameters": [
+          {
+            "name": "engine_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Engine Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineValidationRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/engines/validate": {
+      "post": {
+        "tags": [
+          "engines"
+        ],
+        "summary": "Validate Engines",
+        "operationId": "validate_engines_api_v1_engines_validate_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineValidationRead"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/engines/{engine_id}/usage": {
+      "get": {
+        "tags": [
+          "engines"
+        ],
+        "summary": "Engine Usage",
+        "operationId": "engine_usage_api_v1_engines__engine_id__usage_get",
+        "parameters": [
+          {
+            "name": "engine_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Engine Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineUsageRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vector-infrastructure": {
+      "get": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Infrastructure",
+        "operationId": "infrastructure_api_v1_vector_infrastructure_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InfrastructureRead"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vector-spaces": {
+      "get": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "List Spaces",
+        "operationId": "list_spaces_api_v1_vector_spaces_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VectorSpaceList"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Create Space",
+        "operationId": "create_space_api_v1_vector_spaces_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VectorSpaceCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VectorSpaceRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vector-spaces/{collection_name}": {
+      "get": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Get Space",
+        "operationId": "get_space_api_v1_vector_spaces__collection_name__get",
+        "parameters": [
+          {
+            "name": "collection_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Collection Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VectorSpaceRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vector-spaces/{collection_name}/destroy": {
+      "post": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Destroy",
+        "operationId": "destroy_api_v1_vector_spaces__collection_name__destroy_post",
+        "parameters": [
+          {
+            "name": "collection_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Collection Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DestroyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vector-spaces/{collection_name}/points/audio": {
+      "post": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Register Audio",
+        "operationId": "register_audio_api_v1_vector_spaces__collection_name__points_audio_post",
+        "parameters": [
+          {
+            "name": "collection_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Collection Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_register_audio_api_v1_vector_spaces__collection_name__points_audio_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Register Audio Api V1 Vector Spaces  Collection Name  Points Audio Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vector-spaces/{collection_name}/search/audio": {
+      "post": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Search Audio",
+        "operationId": "search_audio_api_v1_vector_spaces__collection_name__search_audio_post",
+        "parameters": [
+          {
+            "name": "collection_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Collection Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_search_audio_api_v1_vector_spaces__collection_name__search_audio_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioSpeakerSearchRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vector-spaces/{collection_name}/search/audio/vad-preview": {
+      "post": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Preview Vad Audio",
+        "operationId": "preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post",
+        "parameters": [
+          {
+            "name": "collection_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Collection Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VadAudioPreviewRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vector-spaces/{collection_name}/points/scroll": {
+      "post": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Scroll",
+        "operationId": "scroll_api_v1_vector_spaces__collection_name__points_scroll_post",
+        "parameters": [
+          {
+            "name": "collection_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Collection Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScrollRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Scroll Api V1 Vector Spaces  Collection Name  Points Scroll Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vector-spaces/{collection_name}/points/{point_id}/payload": {
+      "put": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Replace Payload",
+        "operationId": "replace_payload_api_v1_vector_spaces__collection_name__points__point_id__payload_put",
+        "parameters": [
+          {
+            "name": "collection_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Collection Name"
+            }
+          },
+          {
+            "name": "point_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Point Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PayloadReplace"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vector-spaces/{collection_name}/points/{point_id}": {
+      "delete": {
+        "tags": [
+          "vectors"
+        ],
+        "summary": "Delete Point",
+        "operationId": "delete_point_api_v1_vector_spaces__collection_name__points__point_id__delete",
+        "parameters": [
+          {
+            "name": "collection_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Collection Name"
+            }
+          },
+          {
+            "name": "point_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Point Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/audio-node-types": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "List Node Types",
+        "operationId": "list_node_types_api_v1_audio_node_types_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AudioNodeTypeRead"
+                  },
+                  "type": "array",
+                  "title": "Response List Node Types Api V1 Audio Node Types Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/audio-workflows": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "List Audio Workflows",
+        "operationId": "list_audio_workflows_api_v1_audio_workflows_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AudioWorkflowRead"
+                  },
+                  "type": "array",
+                  "title": "Response List Audio Workflows Api V1 Audio Workflows Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Create Audio Workflow",
+        "operationId": "create_audio_workflow_api_v1_audio_workflows_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AudioWorkflowCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioWorkflowRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/audio-workflows/{workflow_id}": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Get Audio Workflow",
+        "operationId": "get_audio_workflow_api_v1_audio_workflows__workflow_id__get",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioWorkflowRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Patch Audio Workflow",
+        "operationId": "patch_audio_workflow_api_v1_audio_workflows__workflow_id__patch",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AudioWorkflowPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioWorkflowRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Delete Audio Workflow",
+        "operationId": "delete_audio_workflow_api_v1_audio_workflows__workflow_id__delete",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/audio-workflows/{workflow_id}/draft": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Get Audio Workflow Draft",
+        "operationId": "get_audio_workflow_draft_api_v1_audio_workflows__workflow_id__draft_get",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioWorkflowDraftRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Update Audio Workflow Draft",
+        "operationId": "update_audio_workflow_draft_api_v1_audio_workflows__workflow_id__draft_put",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AudioWorkflowDraftUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioWorkflowDraftRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/audio-workflows/{workflow_id}/validate": {
+      "post": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Validate Audio Workflow",
+        "operationId": "validate_audio_workflow_api_v1_audio_workflows__workflow_id__validate_post",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioWorkflowValidationRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/audio-workflows/{workflow_id}/publish": {
+      "post": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Publish Audio Workflow",
+        "operationId": "publish_audio_workflow_api_v1_audio_workflows__workflow_id__publish_post",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioWorkflowRevisionRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/audio-workflows/{workflow_id}/active": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Active Audio Workflow",
+        "operationId": "active_audio_workflow_api_v1_audio_workflows__workflow_id__active_get",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioWorkflowRevisionRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/audio-workflows/{workflow_id}/revisions": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "List Audio Workflow Revisions",
+        "operationId": "list_audio_workflow_revisions_api_v1_audio_workflows__workflow_id__revisions_get",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AudioWorkflowRevisionRead"
+                  },
+                  "title": "Response List Audio Workflow Revisions Api V1 Audio Workflows  Workflow Id  Revisions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/audio-workflows/{workflow_id}/revisions/{revision}/restore": {
+      "post": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Restore Audio Workflow Revision",
+        "operationId": "restore_audio_workflow_revision_api_v1_audio_workflows__workflow_id__revisions__revision__restore_post",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          },
+          {
+            "name": "revision",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Revision"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioWorkflowDraftRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/voice-agents": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "List Voice Agents",
+        "operationId": "list_voice_agents_api_v1_voice_agents_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/VoiceAgentRead"
+                  },
+                  "type": "array",
+                  "title": "Response List Voice Agents Api V1 Voice Agents Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Create Voice Agent",
+        "operationId": "create_voice_agent_api_v1_voice_agents_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoiceAgentCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceAgentRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/voice-agents/{profile_id}": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Get Voice Agent",
+        "operationId": "get_voice_agent_api_v1_voice_agents__profile_id__get",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceAgentRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Patch Voice Agent",
+        "operationId": "patch_voice_agent_api_v1_voice_agents__profile_id__patch",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoiceAgentPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceAgentRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Delete Voice Agent",
+        "operationId": "delete_voice_agent_api_v1_voice_agents__profile_id__delete",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/voice-agents/{profile_id}/draft": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Get Voice Agent Draft",
+        "operationId": "get_voice_agent_draft_api_v1_voice_agents__profile_id__draft_get",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceAgentDraftRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Update Voice Agent Draft",
+        "operationId": "update_voice_agent_draft_api_v1_voice_agents__profile_id__draft_put",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoiceAgentDraftUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceAgentDraftRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/voice-agents/{profile_id}/validate": {
+      "post": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Validate Voice Agent",
+        "operationId": "validate_voice_agent_api_v1_voice_agents__profile_id__validate_post",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceAgentValidationRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/voice-agents/{profile_id}/publish": {
+      "post": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Publish Voice Agent",
+        "operationId": "publish_voice_agent_api_v1_voice_agents__profile_id__publish_post",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceAgentRevisionRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/voice-agents/{profile_id}/active": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Active Voice Agent",
+        "operationId": "active_voice_agent_api_v1_voice_agents__profile_id__active_get",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceAgentRevisionRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/voice-agents/{profile_id}/revisions": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "List Voice Agent Revisions",
+        "operationId": "list_voice_agent_revisions_api_v1_voice_agents__profile_id__revisions_get",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/VoiceAgentRevisionRead"
+                  },
+                  "title": "Response List Voice Agent Revisions Api V1 Voice Agents  Profile Id  Revisions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/voice-agents/{profile_id}/revisions/{revision}/restore": {
+      "post": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Restore Voice Agent Revision",
+        "operationId": "restore_voice_agent_revision_api_v1_voice_agents__profile_id__revisions__revision__restore_post",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          },
+          {
+            "name": "revision",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Revision"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceAgentDraftRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/realtime-routes": {
+      "get": {
+        "tags": [
+          "realtime-routes"
+        ],
+        "summary": "List Realtime Routes",
+        "operationId": "list_realtime_routes_api_v1_realtime_routes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RealtimeRouteRead"
+                  },
+                  "type": "array",
+                  "title": "Response List Realtime Routes Api V1 Realtime Routes Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/realtime-routes/{model}": {
+      "get": {
+        "tags": [
+          "realtime-routes"
+        ],
+        "summary": "Get Realtime Route",
+        "operationId": "get_realtime_route_api_v1_realtime_routes__model__get",
+        "parameters": [
+          {
+            "name": "model",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RealtimeRouteRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "realtime-routes"
+        ],
+        "summary": "Upsert Realtime Route",
+        "operationId": "upsert_realtime_route_api_v1_realtime_routes__model__put",
+        "parameters": [
+          {
+            "name": "model",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RealtimeRouteUpsert"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RealtimeRouteRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "realtime-routes"
+        ],
+        "summary": "Delete Realtime Route",
+        "operationId": "delete_realtime_route_api_v1_realtime_routes__model__delete",
+        "parameters": [
+          {
+            "name": "model",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/workflow": {
+      "get": {
+        "tags": [
+          "runtime"
+        ],
+        "summary": "Get Workflow Settings",
+        "operationId": "get_workflow_settings_api_v1_settings_workflow_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowSettingsRead"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "runtime"
+        ],
+        "summary": "Update Workflow Settings",
+        "operationId": "update_workflow_settings_api_v1_settings_workflow_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkflowSettingsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowSettingsRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/grpc-workflow": {
+      "put": {
+        "tags": [
+          "runtime"
+        ],
+        "summary": "Update Grpc Workflow Binding",
+        "operationId": "update_grpc_workflow_binding_api_v1_settings_grpc_workflow_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrpcWorkflowBindingUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowSettingsRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/capacity": {
+      "get": {
+        "tags": [
+          "runtime"
+        ],
+        "summary": "Get Capacity Settings",
+        "operationId": "get_capacity_settings_api_v1_settings_capacity_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapacitySettingsRead"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "runtime"
+        ],
+        "summary": "Update Capacity Settings",
+        "operationId": "update_capacity_settings_api_v1_settings_capacity_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapacitySettingsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapacitySettingsRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runtime/status": {
+      "get": {
+        "tags": [
+          "runtime"
+        ],
+        "summary": "Runtime Status",
+        "operationId": "runtime_status_api_v1_runtime_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeStatusRead"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runtime/overview": {
+      "get": {
+        "tags": [
+          "runtime"
+        ],
+        "summary": "Runtime Overview",
+        "operationId": "runtime_overview_api_v1_runtime_overview_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeOverviewRead"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/voices": {
+      "get": {
+        "tags": [
+          "runtime"
+        ],
+        "summary": "List Voices",
+        "operationId": "list_voices_api_v1_voices_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/VoiceAssetRead"
+                  },
+                  "type": "array",
+                  "title": "Response List Voices Api V1 Voices Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "runtime"
+        ],
+        "summary": "Create Voice",
+        "operationId": "create_voice_api_v1_voices_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_voice_api_v1_voices_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceAssetRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/voices/{voice_id}": {
+      "delete": {
+        "tags": [
+          "runtime"
+        ],
+        "summary": "Delete Voice",
+        "operationId": "delete_voice_api_v1_voices__voice_id__delete",
+        "parameters": [
+          {
+            "name": "voice_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Voice Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health/live": {
+      "get": {
+        "tags": [
+          "runtime"
+        ],
+        "summary": "Liveness",
+        "operationId": "liveness_api_v1_health_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health/ready": {
+      "get": {
+        "tags": [
+          "runtime"
+        ],
+        "summary": "Readiness",
+        "operationId": "readiness_api_v1_health_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/realtime/calls": {
+      "post": {
+        "tags": [
+          "realtime"
+        ],
+        "summary": "Create Call",
+        "operationId": "create_call_v1_realtime_calls_post",
+        "parameters": [
+          {
+            "name": "diagnostics",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Diagnostics"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model"
+            }
+          },
+          {
+            "name": "x_aha",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X Aha"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/realtime/calls/{call_id}/hangup": {
+      "post": {
+        "tags": [
+          "realtime"
+        ],
+        "summary": "Hangup",
+        "operationId": "hangup_v1_realtime_calls__call_id__hangup_post",
+        "parameters": [
+          {
+            "name": "call_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Call Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AsrNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "asr",
+            "title": "Kind",
+            "default": "asr"
+          },
+          "engine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Id"
+          },
+          "config": {
+            "$ref": "#/components/schemas/AsrNodeConfig"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "AsrNode"
+      },
+      "AsrNodeConfig": {
+        "properties": {
+          "remove_punctuation": {
+            "type": "boolean",
+            "title": "Remove Punctuation",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AsrNodeConfig"
+      },
+      "AudioEdge": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 150,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "source": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/GraphInputRef"
+              },
+              {
+                "$ref": "#/components/schemas/NodeOutputRef"
+              }
+            ],
+            "title": "Source",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "input": "#/components/schemas/GraphInputRef",
+                "node": "#/components/schemas/NodeOutputRef"
+              }
+            }
+          },
+          "target": {
+            "$ref": "#/components/schemas/NodeInputRef"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "source",
+          "target"
+        ],
+        "title": "AudioEdge"
+      },
+      "AudioEmbeddingNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "audio_embedding",
+            "title": "Kind",
+            "default": "audio_embedding"
+          },
+          "engine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Id"
+          },
+          "config": {
+            "$ref": "#/components/schemas/AudioEmbeddingNodeConfig"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "AudioEmbeddingNode"
+      },
+      "AudioEmbeddingNodeConfig": {
+        "properties": {
+          "algorithm": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Algorithm",
+            "default": "eres2netv2"
+          },
+          "expected_dimension": {
+            "type": "integer",
+            "maximum": 65536.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Expected Dimension",
+            "default": 192
+          },
+          "normalize": {
+            "type": "boolean",
+            "title": "Normalize",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AudioEmbeddingNodeConfig"
+      },
+      "AudioNodeTypeRead": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "required_api": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EngineApi"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "required_capability": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Capability"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/NodePortRead"
+            },
+            "type": "array",
+            "title": "Inputs"
+          },
+          "outputs": {
+            "items": {
+              "$ref": "#/components/schemas/NodePortRead"
+            },
+            "type": "array",
+            "title": "Outputs"
+          },
+          "config_schema": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Config Schema"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "display_name",
+          "required_api",
+          "inputs",
+          "outputs",
+          "config_schema"
+        ],
+        "title": "AudioNodeTypeRead"
+      },
+      "AudioSpeakerSearchRead": {
+        "properties": {
+          "embedding": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Embedding"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/SpeakerMatchRead"
+            },
+            "type": "array",
+            "title": "Groups"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "embedding",
+          "groups"
+        ],
+        "title": "AudioSpeakerSearchRead"
+      },
+      "AudioWorkflowCreate": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Slug"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "document": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AudioWorkflowDocument"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "slug",
+          "name"
+        ],
+        "title": "AudioWorkflowCreate"
+      },
+      "AudioWorkflowDocument": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Schema Version",
+            "default": 1
+          },
+          "nodes": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/PhysicalVadNode"
+                },
+                {
+                  "$ref": "#/components/schemas/SemanticVadNode"
+                },
+                {
+                  "$ref": "#/components/schemas/AsrNode"
+                },
+                {
+                  "$ref": "#/components/schemas/AudioEmbeddingNode"
+                },
+                {
+                  "$ref": "#/components/schemas/SpeakerDiarizationNode"
+                },
+                {
+                  "$ref": "#/components/schemas/SpeakerClusteringNode"
+                },
+                {
+                  "$ref": "#/components/schemas/VectorSearchNode"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "kind",
+                "mapping": {
+                  "asr": "#/components/schemas/AsrNode",
+                  "audio_embedding": "#/components/schemas/AudioEmbeddingNode",
+                  "physical_vad": "#/components/schemas/PhysicalVadNode",
+                  "semantic_vad": "#/components/schemas/SemanticVadNode",
+                  "speaker_clustering": "#/components/schemas/SpeakerClusteringNode",
+                  "speaker_diarization": "#/components/schemas/SpeakerDiarizationNode",
+                  "vector_search": "#/components/schemas/VectorSearchNode"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Nodes"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/AudioEdge"
+            },
+            "type": "array",
+            "title": "Edges"
+          },
+          "outputs": {
+            "items": {
+              "$ref": "#/components/schemas/NamedOutputBinding"
+            },
+            "type": "array",
+            "title": "Outputs"
+          },
+          "layout": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/NodePosition"
+            },
+            "type": "object",
+            "title": "Layout"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "nodes",
+          "edges",
+          "outputs"
+        ],
+        "title": "AudioWorkflowDocument"
+      },
+      "AudioWorkflowDraftRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "document": {
+            "$ref": "#/components/schemas/AudioWorkflowDocument"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "active_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Revision"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "description",
+          "document",
+          "revision",
+          "active_revision",
+          "updated_at"
+        ],
+        "title": "AudioWorkflowDraftRead"
+      },
+      "AudioWorkflowDraftUpdate": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "document": {
+            "$ref": "#/components/schemas/AudioWorkflowDocument"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "document"
+        ],
+        "title": "AudioWorkflowDraftUpdate"
+      },
+      "AudioWorkflowPatch": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AudioWorkflowPatch"
+      },
+      "AudioWorkflowRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "draft_revision": {
+            "type": "integer",
+            "title": "Draft Revision"
+          },
+          "active_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Revision"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "description",
+          "draft_revision",
+          "active_revision",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AudioWorkflowRead"
+      },
+      "AudioWorkflowRevisionRead": {
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "document": {
+            "$ref": "#/components/schemas/AudioWorkflowDocument"
+          },
+          "engine_revisions": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Engine Revisions"
+          },
+          "activated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "workflow_id",
+          "revision",
+          "document",
+          "engine_revisions"
+        ],
+        "title": "AudioWorkflowRevisionRead"
+      },
+      "AudioWorkflowValidationRead": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/GraphDiagnosticRead"
+            },
+            "type": "array",
+            "title": "Diagnostics"
+          },
+          "topological_order": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Topological Order"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "valid",
+          "diagnostics"
+        ],
+        "title": "AudioWorkflowValidationRead"
+      },
+      "Body_create_voice_api_v1_voices_post": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "ref_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref Text"
+          },
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "file"
+        ],
+        "title": "Body_create_voice_api_v1_voices_post"
+      },
+      "Body_preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post": {
+        "properties": {
+          "audio": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Audio"
+          },
+          "vad_engine_id": {
+            "type": "string",
+            "title": "Vad Engine Id"
+          },
+          "vad_postprocessing_json": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vad Postprocessing Json"
+          }
+        },
+        "type": "object",
+        "required": [
+          "audio",
+          "vad_engine_id"
+        ],
+        "title": "Body_preview_vad_audio_api_v1_vector_spaces__collection_name__search_audio_vad_preview_post"
+      },
+      "Body_register_audio_api_v1_vector_spaces__collection_name__points_audio_post": {
+        "properties": {
+          "audio": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Audio"
+          },
+          "embeddings_json": {
+            "type": "string",
+            "title": "Embeddings Json"
+          },
+          "payload_json": {
+            "type": "string",
+            "title": "Payload Json",
+            "default": "{}"
+          },
+          "point_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Point Id"
+          },
+          "speaker_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker Id"
+          },
+          "channel_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Id"
+          },
+          "captured_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured At"
+          },
+          "quality_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality Score"
+          }
+        },
+        "type": "object",
+        "required": [
+          "audio",
+          "embeddings_json"
+        ],
+        "title": "Body_register_audio_api_v1_vector_spaces__collection_name__points_audio_post"
+      },
+      "Body_search_audio_api_v1_vector_spaces__collection_name__search_audio_post": {
+        "properties": {
+          "audio": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Audio"
+          },
+          "vector_name": {
+            "type": "string",
+            "title": "Vector Name"
+          },
+          "engine_id": {
+            "type": "string",
+            "title": "Engine Id"
+          },
+          "algorithm": {
+            "type": "string",
+            "title": "Algorithm"
+          },
+          "normalize": {
+            "type": "boolean",
+            "title": "Normalize",
+            "default": true
+          },
+          "top_k": {
+            "type": "integer",
+            "title": "Top K",
+            "default": 10
+          },
+          "score_threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score Threshold"
+          },
+          "filter_json": {
+            "type": "string",
+            "title": "Filter Json",
+            "default": "{}"
+          }
+        },
+        "type": "object",
+        "required": [
+          "audio",
+          "vector_name",
+          "engine_id",
+          "algorithm"
+        ],
+        "title": "Body_search_audio_api_v1_vector_spaces__collection_name__search_audio_post"
+      },
+      "CapacitySettingsRead": {
+        "properties": {
+          "grpc": {
+            "$ref": "#/components/schemas/ProtocolCapacityConfig"
+          },
+          "realtime": {
+            "$ref": "#/components/schemas/ProtocolCapacityConfig"
+          },
+          "webrtc": {
+            "$ref": "#/components/schemas/ProtocolCapacityConfig"
+          },
+          "max_asr_concurrency": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Asr Concurrency",
+            "default": 8
+          },
+          "max_embedding_concurrency": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Embedding Concurrency",
+            "default": 8
+          },
+          "max_qdrant_concurrency": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Qdrant Concurrency",
+            "default": 8
+          },
+          "max_responses_concurrency": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Responses Concurrency",
+            "default": 8
+          },
+          "max_tts_concurrency": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Tts Concurrency",
+            "default": 1
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "revision",
+          "updated_at"
+        ],
+        "title": "CapacitySettingsRead"
+      },
+      "CapacitySettingsUpdate": {
+        "properties": {
+          "grpc": {
+            "$ref": "#/components/schemas/ProtocolCapacityConfig"
+          },
+          "realtime": {
+            "$ref": "#/components/schemas/ProtocolCapacityConfig"
+          },
+          "webrtc": {
+            "$ref": "#/components/schemas/ProtocolCapacityConfig"
+          },
+          "max_asr_concurrency": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Asr Concurrency",
+            "default": 8
+          },
+          "max_embedding_concurrency": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Embedding Concurrency",
+            "default": 8
+          },
+          "max_qdrant_concurrency": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Qdrant Concurrency",
+            "default": 8
+          },
+          "max_responses_concurrency": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Responses Concurrency",
+            "default": 8
+          },
+          "max_tts_concurrency": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Tts Concurrency",
+            "default": 1
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "revision"
+        ],
+        "title": "CapacitySettingsUpdate"
+      },
+      "ConfigurationDiagnosticRead": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ConfigurationDiagnosticRead"
+      },
+      "DestroyRequest": {
+        "properties": {
+          "confirmation": {
+            "type": "string",
+            "title": "Confirmation"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "confirmation"
+        ],
+        "title": "DestroyRequest"
+      },
+      "DuplexTtsConfig": {
+        "properties": {
+          "default_voice": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Default Voice",
+            "default": ""
+          },
+          "allowed_voices": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Allowed Voices"
+          },
+          "language": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Language",
+            "default": "Auto"
+          },
+          "decoder_chunk_size": {
+            "type": "integer",
+            "maximum": 1024.0,
+            "minimum": 0.0,
+            "title": "Decoder Chunk Size",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "DuplexTtsConfig"
+      },
+      "EngineApi": {
+        "type": "string",
+        "enum": [
+          "ux_speech",
+          "ux_vad",
+          "responses",
+          "qwen_tts_duplex",
+          "engine_feature",
+          "ux_speaker_diarization"
+        ],
+        "title": "EngineApi"
+      },
+      "EngineCreate": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Slug"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/EngineKind"
+          },
+          "api": {
+            "$ref": "#/components/schemas/EngineApi"
+          },
+          "protocol": {
+            "$ref": "#/components/schemas/EngineProtocol",
+            "default": "grpc"
+          },
+          "target": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Target"
+          },
+          "connect_timeout_seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Connect Timeout Seconds",
+            "default": 10.0
+          },
+          "request_timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Timeout Seconds"
+          },
+          "credential_env": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Env"
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 8192,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "status": {
+            "$ref": "#/components/schemas/EngineStatus",
+            "default": "unknown"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "status_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Basis"
+          },
+          "status_observed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Observed At"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "slug",
+          "name",
+          "kind",
+          "api",
+          "target"
+        ],
+        "title": "EngineCreate"
+      },
+      "EngineKind": {
+        "type": "string",
+        "enum": [
+          "asr",
+          "vad",
+          "llm",
+          "tts",
+          "embedding",
+          "diarization"
+        ],
+        "title": "EngineKind"
+      },
+      "EngineList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EngineRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "EngineList"
+      },
+      "EngineModelListRead": {
+        "properties": {
+          "engine_id": {
+            "type": "string",
+            "title": "Engine Id"
+          },
+          "engine_revision": {
+            "type": "integer",
+            "title": "Engine Revision"
+          },
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "engine_id",
+          "engine_revision",
+          "items"
+        ],
+        "title": "EngineModelListRead"
+      },
+      "EnginePatch": {
+        "properties": {
+          "slug": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1,
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slug"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EngineKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "api": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EngineApi"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "protocol": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EngineProtocol"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "connect_timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connect Timeout Seconds"
+          },
+          "request_timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Timeout Seconds"
+          },
+          "credential_env": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Env"
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 8192
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EngineStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "image": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "status_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Basis"
+          },
+          "status_observed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Observed At"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "EnginePatch"
+      },
+      "EngineProtocol": {
+        "type": "string",
+        "enum": [
+          "grpc",
+          "https"
+        ],
+        "title": "EngineProtocol"
+      },
+      "EngineRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/EngineKind"
+          },
+          "api": {
+            "$ref": "#/components/schemas/EngineApi"
+          },
+          "protocol": {
+            "$ref": "#/components/schemas/EngineProtocol"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "connect_timeout_seconds": {
+            "type": "number",
+            "title": "Connect Timeout Seconds"
+          },
+          "request_timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Timeout Seconds"
+          },
+          "credential_env": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Env"
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "status": {
+            "$ref": "#/components/schemas/EngineStatus"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "status_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Basis"
+          },
+          "status_observed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Observed At"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          },
+          "probe_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probe Latency Ms"
+          },
+          "consecutive_failures": {
+            "type": "integer",
+            "title": "Consecutive Failures"
+          },
+          "next_probe_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Probe At"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "kind",
+          "api",
+          "protocol",
+          "target",
+          "connect_timeout_seconds",
+          "request_timeout_seconds",
+          "credential_env",
+          "api_key",
+          "enabled",
+          "status",
+          "image",
+          "description",
+          "status_basis",
+          "status_observed_at",
+          "last_success_at",
+          "probe_latency_ms",
+          "consecutive_failures",
+          "next_probe_at",
+          "source",
+          "details",
+          "revision",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "EngineRead"
+      },
+      "EngineStatus": {
+        "type": "string",
+        "enum": [
+          "unknown",
+          "checking",
+          "healthy",
+          "unhealthy",
+          "stale",
+          "disabled",
+          "observed_running",
+          "confirmed_running",
+          "unavailable",
+          "inactive"
+        ],
+        "title": "EngineStatus"
+      },
+      "EngineUsageRead": {
+        "properties": {
+          "engine_id": {
+            "type": "string",
+            "title": "Engine Id"
+          },
+          "references": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "References"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "engine_id"
+        ],
+        "title": "EngineUsageRead"
+      },
+      "EngineValidationRead": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/EngineValidationResultRead"
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "title": "EngineValidationRead"
+      },
+      "EngineValidationResultRead": {
+        "properties": {
+          "engine_id": {
+            "type": "string",
+            "title": "Engine Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "outcome": {
+            "type": "string",
+            "title": "Outcome"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "engine_id",
+          "name",
+          "revision",
+          "outcome"
+        ],
+        "title": "EngineValidationResultRead"
+      },
+      "FailurePolicy": {
+        "type": "string",
+        "enum": [
+          "fail_pipeline",
+          "fail_open"
+        ],
+        "title": "FailurePolicy"
+      },
+      "FireRedPostprocessingOptions": {
+        "properties": {
+          "processor": {
+            "type": "string",
+            "const": "firered.stream_vad",
+            "title": "Processor",
+            "default": "firered.stream_vad"
+          },
+          "version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Version",
+            "default": 1
+          },
+          "parameters": {
+            "$ref": "#/components/schemas/FireRedPostprocessingParameters"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "FireRedPostprocessingOptions"
+      },
+      "FireRedPostprocessingParameters": {
+        "properties": {
+          "smooth_window_size": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Smooth Window Size",
+            "default": 5
+          },
+          "speech_threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Speech Threshold",
+            "default": 0.5
+          },
+          "pad_start_frame": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Pad Start Frame",
+            "default": 5
+          },
+          "min_speech_frame": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Min Speech Frame",
+            "default": 8
+          },
+          "max_speech_frame": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Speech Frame",
+            "default": 2000
+          },
+          "min_silence_frame": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Min Silence Frame",
+            "default": 20
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "FireRedPostprocessingParameters"
+      },
+      "GraphDiagnosticRead": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
+          },
+          "edge_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edge Id"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "GraphDiagnosticRead"
+      },
+      "GraphInputRef": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "input",
+            "title": "Kind",
+            "default": "input"
+          },
+          "name": {
+            "type": "string",
+            "const": "audio",
+            "title": "Name",
+            "default": "audio"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "GraphInputRef"
+      },
+      "GrpcOverviewRead": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "needs_configuration",
+              "unavailable"
+            ],
+            "title": "State"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
+          },
+          "workflow_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "workflow_id",
+          "workflow_revision"
+        ],
+        "title": "GrpcOverviewRead"
+      },
+      "GrpcWorkflowBindingUpdate": {
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Workflow Id"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "workflow_id",
+          "expected_revision"
+        ],
+        "title": "GrpcWorkflowBindingUpdate"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "database": {
+            "type": "string",
+            "title": "Database"
+          },
+          "data_plane": {
+            "type": "string",
+            "title": "Data Plane"
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Problems"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
+          },
+          "workflow_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "database",
+          "data_plane"
+        ],
+        "title": "HealthResponse"
+      },
+      "InfrastructureRead": {
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "ready": {
+            "type": "boolean",
+            "title": "Ready"
+          },
+          "grpc_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grpc Target"
+          },
+          "http_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Http Url"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "configured",
+          "ready",
+          "grpc_target",
+          "http_url"
+        ],
+        "title": "InfrastructureRead"
+      },
+      "McpServerConfig": {
+        "properties": {
+          "server_label": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Server Label"
+          },
+          "server_url": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Server Url"
+          },
+          "require_approval": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "always",
+                  "never"
+                ]
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "title": "Require Approval",
+            "default": "always"
+          },
+          "allowed_tools": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allowed Tools"
+          },
+          "headers_env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Headers Env"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "server_label",
+          "server_url"
+        ],
+        "title": "McpServerConfig"
+      },
+      "ModelRouteVisibility": {
+        "type": "string",
+        "enum": [
+          "public",
+          "internal"
+        ],
+        "title": "ModelRouteVisibility"
+      },
+      "NamedOutputBinding": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Name"
+          },
+          "source": {
+            "$ref": "#/components/schemas/NodeOutputRef"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "source"
+        ],
+        "title": "NamedOutputBinding"
+      },
+      "NamedVectorSchema": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Name"
+          },
+          "size": {
+            "type": "integer",
+            "maximum": 65536.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Size"
+          },
+          "distance": {
+            "type": "string",
+            "enum": [
+              "cosine",
+              "euclid",
+              "dot",
+              "manhattan"
+            ],
+            "title": "Distance",
+            "default": "cosine"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "size"
+        ],
+        "title": "NamedVectorSchema"
+      },
+      "NodeInputRef": {
+        "properties": {
+          "node_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Node Id"
+          },
+          "port": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Port"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "node_id",
+          "port"
+        ],
+        "title": "NodeInputRef"
+      },
+      "NodeOutputRef": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "node",
+            "title": "Kind",
+            "default": "node"
+          },
+          "node_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Node Id"
+          },
+          "port": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Port"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "node_id",
+          "port"
+        ],
+        "title": "NodeOutputRef"
+      },
+      "NodePortRead": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "accepted_kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Accepted Kinds"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "kind"
+        ],
+        "title": "NodePortRead"
+      },
+      "NodePosition": {
+        "properties": {
+          "x": {
+            "type": "number",
+            "title": "X",
+            "default": 0
+          },
+          "y": {
+            "type": "number",
+            "title": "Y",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "NodePosition"
+      },
+      "PayloadReplace": {
+        "properties": {
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "payload"
+        ],
+        "title": "PayloadReplace"
+      },
+      "PhysicalVadConfig": {
+        "properties": {
+          "min_segment_seconds": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Min Segment Seconds",
+            "default": 0.5
+          },
+          "max_segment_seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Segment Seconds",
+            "default": 60.0
+          },
+          "audio_buffer_seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Audio Buffer Seconds",
+            "default": 120.0
+          },
+          "speech_pre_roll_seconds": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Speech Pre Roll Seconds",
+            "default": 0.3
+          },
+          "postprocessing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FireRedPostprocessingOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "PhysicalVadConfig"
+      },
+      "PhysicalVadNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "physical_vad",
+            "title": "Kind",
+            "default": "physical_vad"
+          },
+          "engine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Id"
+          },
+          "config": {
+            "$ref": "#/components/schemas/PhysicalVadConfig"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "PhysicalVadNode"
+      },
+      "ProtocolCapacityConfig": {
+        "properties": {
+          "max_sessions": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Sessions",
+            "default": 64
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ProtocolCapacityConfig"
+      },
+      "PublishRequest": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "title": "PublishRequest"
+      },
+      "RealtimeOverviewRead": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "needs_configuration",
+              "unavailable"
+            ],
+            "title": "State"
+          },
+          "public_routes": {
+            "type": "integer",
+            "title": "Public Routes"
+          },
+          "internal_routes": {
+            "type": "integer",
+            "title": "Internal Routes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "public_routes",
+          "internal_routes"
+        ],
+        "title": "RealtimeOverviewRead"
+      },
+      "RealtimeRouteRead": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "target_type": {
+            "$ref": "#/components/schemas/RealtimeRouteTargetType"
+          },
+          "target_id": {
+            "type": "string",
+            "title": "Target Id"
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/ModelRouteVisibility"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "model",
+          "target_type",
+          "target_id",
+          "visibility",
+          "updated_at"
+        ],
+        "title": "RealtimeRouteRead"
+      },
+      "RealtimeRouteTargetType": {
+        "type": "string",
+        "enum": [
+          "audio_workflow",
+          "voice_agent"
+        ],
+        "title": "RealtimeRouteTargetType"
+      },
+      "RealtimeRouteUpsert": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9._-]*$",
+            "title": "Model"
+          },
+          "target_type": {
+            "$ref": "#/components/schemas/RealtimeRouteTargetType"
+          },
+          "target_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Target Id"
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/ModelRouteVisibility",
+            "default": "public"
+          },
+          "replace_existing": {
+            "type": "boolean",
+            "title": "Replace Existing",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "model",
+          "target_type",
+          "target_id"
+        ],
+        "title": "RealtimeRouteUpsert"
+      },
+      "ResponsesConfig": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Model",
+            "default": ""
+          },
+          "thinking_enabled": {
+            "type": "boolean",
+            "title": "Thinking Enabled",
+            "default": false
+          },
+          "instructions": {
+            "type": "string",
+            "maxLength": 32768,
+            "title": "Instructions",
+            "default": ""
+          },
+          "max_output_tokens": {
+            "type": "integer",
+            "maximum": 32768.0,
+            "minimum": 1.0,
+            "title": "Max Output Tokens",
+            "default": 1024
+          },
+          "max_tool_rounds": {
+            "type": "integer",
+            "maximum": 32.0,
+            "minimum": 1.0,
+            "title": "Max Tool Rounds",
+            "default": 8
+          },
+          "max_parallel_tools": {
+            "type": "integer",
+            "maximum": 16.0,
+            "minimum": 1.0,
+            "title": "Max Parallel Tools",
+            "default": 4
+          },
+          "tool_timeout_seconds": {
+            "type": "number",
+            "maximum": 300.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Tool Timeout Seconds",
+            "default": 30.0
+          },
+          "service_tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Service Tools"
+          },
+          "mcp_servers": {
+            "items": {
+              "$ref": "#/components/schemas/McpServerConfig"
+            },
+            "type": "array",
+            "title": "Mcp Servers"
+          },
+          "history_max_items": {
+            "type": "integer",
+            "maximum": 4096.0,
+            "minimum": 8.0,
+            "title": "History Max Items",
+            "default": 128
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ResponsesConfig"
+      },
+      "RestoreRequest": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "title": "RestoreRequest"
+      },
+      "RuntimeIssueRead": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "warning",
+              "error"
+            ],
+            "title": "Severity"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "control_plane",
+              "grpc",
+              "realtime"
+            ],
+            "title": "Scope"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "resource_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "severity",
+          "scope",
+          "message"
+        ],
+        "title": "RuntimeIssueRead"
+      },
+      "RuntimeLimiterRead": {
+        "properties": {
+          "active": {
+            "type": "integer",
+            "title": "Active"
+          },
+          "capacity": {
+            "type": "integer",
+            "title": "Capacity"
+          },
+          "rejected": {
+            "type": "integer",
+            "title": "Rejected"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "active",
+          "capacity",
+          "rejected"
+        ],
+        "title": "RuntimeLimiterRead"
+      },
+      "RuntimeOverviewRead": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "needs_configuration",
+              "unavailable"
+            ],
+            "title": "Status"
+          },
+          "control_plane": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "needs_configuration",
+              "unavailable"
+            ],
+            "title": "Control Plane"
+          },
+          "grpc": {
+            "$ref": "#/components/schemas/GrpcOverviewRead"
+          },
+          "realtime": {
+            "$ref": "#/components/schemas/RealtimeOverviewRead"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/RuntimeIssueRead"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "control_plane",
+          "grpc",
+          "realtime",
+          "issues"
+        ],
+        "title": "RuntimeOverviewRead"
+      },
+      "RuntimeStatusRead": {
+        "properties": {
+          "grpc": {
+            "$ref": "#/components/schemas/RuntimeLimiterRead"
+          },
+          "realtime": {
+            "$ref": "#/components/schemas/RuntimeLimiterRead"
+          },
+          "webrtc": {
+            "$ref": "#/components/schemas/RuntimeLimiterRead"
+          },
+          "asr": {
+            "$ref": "#/components/schemas/RuntimeLimiterRead"
+          },
+          "embedding": {
+            "$ref": "#/components/schemas/RuntimeLimiterRead"
+          },
+          "qdrant": {
+            "$ref": "#/components/schemas/RuntimeLimiterRead"
+          },
+          "responses": {
+            "$ref": "#/components/schemas/RuntimeLimiterRead"
+          },
+          "tts": {
+            "$ref": "#/components/schemas/RuntimeLimiterRead"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "grpc",
+          "realtime",
+          "webrtc",
+          "asr",
+          "embedding",
+          "qdrant",
+          "responses",
+          "tts",
+          "started_at"
+        ],
+        "title": "RuntimeStatusRead"
+      },
+      "ScrollRequest": {
+        "properties": {
+          "filter": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filter"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 50
+          },
+          "offset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offset"
+          },
+          "with_vectors": {
+            "type": "boolean",
+            "title": "With Vectors",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ScrollRequest"
+      },
+      "SemanticVadConfig": {
+        "properties": {
+          "max_buffer_seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Buffer Seconds",
+            "default": 60.0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SemanticVadConfig"
+      },
+      "SemanticVadNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "semantic_vad",
+            "title": "Kind",
+            "default": "semantic_vad"
+          },
+          "engine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Id"
+          },
+          "config": {
+            "$ref": "#/components/schemas/SemanticVadConfig"
+          },
+          "failure_policy": {
+            "$ref": "#/components/schemas/FailurePolicy",
+            "default": "fail_open"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "SemanticVadNode"
+      },
+      "SpeakerClusteringNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "speaker_clustering",
+            "title": "Kind",
+            "default": "speaker_clustering"
+          },
+          "engine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Id"
+          },
+          "config": {
+            "$ref": "#/components/schemas/SpeakerClusteringNodeConfig"
+          },
+          "failure_policy": {
+            "$ref": "#/components/schemas/FailurePolicy",
+            "default": "fail_open"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "SpeakerClusteringNode"
+      },
+      "SpeakerClusteringNodeConfig": {
+        "properties": {
+          "embedding_algorithm": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Embedding Algorithm",
+            "default": "eres2netv2"
+          },
+          "expected_dimension": {
+            "type": "integer",
+            "maximum": 65536.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Expected Dimension",
+            "default": 192
+          },
+          "normalize": {
+            "type": "boolean",
+            "title": "Normalize",
+            "default": true
+          },
+          "max_embedding_seconds": {
+            "type": "number",
+            "maximum": 600.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Embedding Seconds",
+            "default": 60.0
+          },
+          "clustering_algorithm": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Clustering Algorithm",
+            "default": "hdbscan"
+          },
+          "parameters": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Parameters"
+          },
+          "max_vectors": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Vectors",
+            "default": 10000
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SpeakerClusteringNodeConfig"
+      },
+      "SpeakerDiarizationNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "speaker_diarization",
+            "title": "Kind",
+            "default": "speaker_diarization"
+          },
+          "engine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Id"
+          },
+          "config": {
+            "$ref": "#/components/schemas/SpeakerDiarizationNodeConfig"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "SpeakerDiarizationNode"
+      },
+      "SpeakerDiarizationNodeConfig": {
+        "properties": {
+          "min_batch_seconds": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Min Batch Seconds",
+            "default": 60.0
+          },
+          "max_batch_seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Batch Seconds",
+            "default": 120.0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SpeakerDiarizationNodeConfig"
+      },
+      "SpeakerMatchRead": {
+        "properties": {
+          "speaker_id": {
+            "type": "string",
+            "title": "Speaker Id"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "observation": {
+            "$ref": "#/components/schemas/VectorObservationRead"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "speaker_id",
+          "score",
+          "observation"
+        ],
+        "title": "SpeakerMatchRead"
+      },
+      "VadAudioPreviewRead": {
+        "properties": {
+          "audio_base64": {
+            "type": "string",
+            "title": "Audio Base64"
+          },
+          "content_type": {
+            "type": "string",
+            "const": "audio/wav",
+            "title": "Content Type",
+            "default": "audio/wav"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Duration Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "audio_base64",
+          "duration_ms"
+        ],
+        "title": "VadAudioPreviewRead"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VectorObservationRead": {
+        "properties": {
+          "point_id": {
+            "type": "string",
+            "title": "Point Id"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "point_id",
+          "payload"
+        ],
+        "title": "VectorObservationRead"
+      },
+      "VectorSearchNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "vector_search",
+            "title": "Kind",
+            "default": "vector_search"
+          },
+          "engine_id": {
+            "type": "null",
+            "title": "Engine Id"
+          },
+          "config": {
+            "$ref": "#/components/schemas/VectorSearchNodeConfig"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "config"
+        ],
+        "title": "VectorSearchNode"
+      },
+      "VectorSearchNodeConfig": {
+        "properties": {
+          "collection_name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Collection Name"
+          },
+          "vector_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Vector Name"
+          },
+          "top_k": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Top K",
+            "default": 10
+          },
+          "score_threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score Threshold"
+          },
+          "filter": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Filter"
+          },
+          "include_embedding": {
+            "type": "boolean",
+            "title": "Include Embedding",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "collection_name",
+          "vector_name"
+        ],
+        "title": "VectorSearchNodeConfig"
+      },
+      "VectorSpaceCreate": {
+        "properties": {
+          "collection_name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Collection Name"
+          },
+          "vectors": {
+            "items": {
+              "$ref": "#/components/schemas/NamedVectorSchema"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Vectors"
+          },
+          "template": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "voiceprint"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "collection_name",
+          "vectors"
+        ],
+        "title": "VectorSpaceCreate"
+      },
+      "VectorSpaceList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/VectorSpaceRead"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "VectorSpaceList"
+      },
+      "VectorSpaceRead": {
+        "properties": {
+          "collection_name": {
+            "type": "string",
+            "title": "Collection Name"
+          },
+          "vectors": {
+            "items": {
+              "$ref": "#/components/schemas/NamedVectorSchema"
+            },
+            "type": "array",
+            "title": "Vectors"
+          },
+          "template": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "voiceprint"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "collection_name",
+          "vectors"
+        ],
+        "title": "VectorSpaceRead"
+      },
+      "VoiceAgentCreate": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Slug"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "definition": {
+            "$ref": "#/components/schemas/VoiceAgentDefinition"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "slug",
+          "name",
+          "definition"
+        ],
+        "title": "VoiceAgentCreate"
+      },
+      "VoiceAgentDefinition": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Schema Version",
+            "default": 1
+          },
+          "audio_workflow_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Audio Workflow Id"
+          },
+          "responses_engine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Responses Engine Id"
+          },
+          "responses": {
+            "$ref": "#/components/schemas/ResponsesConfig"
+          },
+          "tts_engine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tts Engine Id"
+          },
+          "tts": {
+            "$ref": "#/components/schemas/DuplexTtsConfig"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "audio_workflow_id"
+        ],
+        "title": "VoiceAgentDefinition"
+      },
+      "VoiceAgentDraftRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "definition": {
+            "$ref": "#/components/schemas/VoiceAgentDefinition"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "active_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Revision"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "description",
+          "definition",
+          "revision",
+          "active_revision",
+          "updated_at"
+        ],
+        "title": "VoiceAgentDraftRead"
+      },
+      "VoiceAgentDraftUpdate": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "definition": {
+            "$ref": "#/components/schemas/VoiceAgentDefinition"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "definition"
+        ],
+        "title": "VoiceAgentDraftUpdate"
+      },
+      "VoiceAgentPatch": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "VoiceAgentPatch"
+      },
+      "VoiceAgentRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "draft_revision": {
+            "type": "integer",
+            "title": "Draft Revision"
+          },
+          "active_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Revision"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "description",
+          "draft_revision",
+          "active_revision",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "VoiceAgentRead"
+      },
+      "VoiceAgentRevisionRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "definition": {
+            "$ref": "#/components/schemas/VoiceAgentDefinition"
+          },
+          "audio_workflow_id": {
+            "type": "string",
+            "title": "Audio Workflow Id"
+          },
+          "audio_workflow_revision": {
+            "type": "integer",
+            "title": "Audio Workflow Revision"
+          },
+          "engine_revisions": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Engine Revisions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "revision",
+          "definition",
+          "audio_workflow_id",
+          "audio_workflow_revision",
+          "engine_revisions"
+        ],
+        "title": "VoiceAgentRevisionRead"
+      },
+      "VoiceAgentValidationRead": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigurationDiagnosticRead"
+            },
+            "type": "array",
+            "title": "Diagnostics"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "valid",
+          "diagnostics"
+        ],
+        "title": "VoiceAgentValidationRead"
+      },
+      "VoiceAssetRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "ref_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref Text"
+          },
+          "sample_rate": {
+            "type": "integer",
+            "title": "Sample Rate"
+          },
+          "duration_seconds": {
+            "type": "number",
+            "title": "Duration Seconds"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "ref_text",
+          "sample_rate",
+          "duration_seconds",
+          "created_at"
+        ],
+        "title": "VoiceAssetRead"
+      },
+      "WorkflowSettingsRead": {
+        "properties": {
+          "min_chunk_bytes": {
+            "type": "integer",
+            "minimum": 2.0,
+            "title": "Min Chunk Bytes",
+            "default": 640
+          },
+          "default_language_code": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Default Language Code",
+            "default": "zh-CN"
+          },
+          "audio_queue_capacity": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Audio Queue Capacity",
+            "default": 32
+          },
+          "segment_queue_capacity": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Segment Queue Capacity",
+            "default": 8
+          },
+          "result_queue_capacity": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Result Queue Capacity",
+            "default": 32
+          },
+          "grpc_audio_workflow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grpc Audio Workflow Id"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "grpc_audio_workflow_id",
+          "revision",
+          "updated_at"
+        ],
+        "title": "WorkflowSettingsRead"
+      },
+      "WorkflowSettingsUpdate": {
+        "properties": {
+          "min_chunk_bytes": {
+            "type": "integer",
+            "minimum": 2.0,
+            "title": "Min Chunk Bytes",
+            "default": 640
+          },
+          "default_language_code": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Default Language Code",
+            "default": "zh-CN"
+          },
+          "audio_queue_capacity": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Audio Queue Capacity",
+            "default": 32
+          },
+          "segment_queue_capacity": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Segment Queue Capacity",
+            "default": 8
+          },
+          "result_queue_capacity": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Result Queue Capacity",
+            "default": 32
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "revision"
+        ],
+        "title": "WorkflowSettingsUpdate"
+      }
+    }
+  }
+}

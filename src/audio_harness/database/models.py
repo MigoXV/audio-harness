@@ -17,13 +17,13 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from audio_harness.assets import (
+from audio_harness.engines.models import (
     EngineApi,
     EngineKind,
     EngineProtocol,
     EngineStatus,
 )
-from audio_harness.workflow_types import (
+from audio_harness.realtime_routes.models import (
     ModelRouteVisibility,
     RealtimeRouteTargetType,
 )
@@ -121,6 +121,8 @@ class CapacitySetting(Base):
     realtime_max_sessions: Mapped[int] = mapped_column(Integer, nullable=False)
     webrtc_max_sessions: Mapped[int] = mapped_column(Integer, nullable=False)
     max_asr_concurrency: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_embedding_concurrency: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_qdrant_concurrency: Mapped[int] = mapped_column(Integer, nullable=False)
     max_responses_concurrency: Mapped[int] = mapped_column(
         Integer,
         nullable=False,

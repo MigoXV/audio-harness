@@ -18,6 +18,11 @@ import type {
   VoiceAgentDraft,
   VoiceAgentRevision,
   WorkflowSettings,
+  VectorInfrastructure,
+  VectorSpace,
+  VectorSpeakerMatch,
+  VectorPoint,
+  VadAudioPreview,
 } from "./types";
 
 interface ErrorEnvelope {
@@ -46,7 +51,7 @@ async function parseBody(response: Response): Promise<unknown> {
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  if (init.body !== undefined) headers.set("Content-Type", "application/json");
+  if (init.body !== undefined && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
   headers.set("Accept", "application/json");
   const response = await fetch(path, { credentials: "same-origin", ...init, headers });
   const body = await parseBody(response);
@@ -136,6 +141,16 @@ export const apiClient: AudioHarnessApi = {
     return request<CapacitySettings>("/api/v1/settings/capacity", { method: "PUT", body: JSON.stringify(body) });
   },
   getRuntimeStatus(signal) { return request<RuntimeStatus>("/api/v1/runtime/status", { signal }); },
+  getVectorInfrastructure(signal) { return request<VectorInfrastructure>("/api/v1/vector-infrastructure", { signal }); },
+  async listVectorSpaces(signal) { return (await request<{ items: VectorSpace[] }>("/api/v1/vector-spaces", { signal })).items; },
+  createVectorSpace(payload) { return request<VectorSpace>("/api/v1/vector-spaces", { method: "POST", body: JSON.stringify(payload) }); },
+  async destroyVectorSpace(collectionName, confirmation) { await request(`/api/v1/vector-spaces/${encodeURIComponent(collectionName)}/destroy`, { method: "POST", body: JSON.stringify({ confirmation }) }); },
+  registerVectorAudio(id, form) { return request<{ point_id: string }>(`/api/v1/vector-spaces/${encodeURIComponent(id)}/points/audio`, { method: "POST", body: form }); },
+  previewVectorSearchVad(id, form) { return request<VadAudioPreview>(`/api/v1/vector-spaces/${encodeURIComponent(id)}/search/audio/vad-preview`, { method: "POST", body: form }); },
+  searchVectorAudio(id, form) { return request<{ embedding: number[]; groups: VectorSpeakerMatch[] }>(`/api/v1/vector-spaces/${encodeURIComponent(id)}/search/audio`, { method: "POST", body: form }); },
+  scrollVectorPoints(id, payload) { return request<{ items: VectorPoint[]; next_offset: string | null }>(`/api/v1/vector-spaces/${encodeURIComponent(id)}/points/scroll`, { method: "POST", body: JSON.stringify(payload) }); },
+  async replaceVectorPayload(id, pointId, payload) { await request(`/api/v1/vector-spaces/${encodeURIComponent(id)}/points/${encodeURIComponent(pointId)}/payload`, { method: "PUT", body: JSON.stringify({ payload }) }); },
+  async deleteVectorPoint(id, pointId) { await request(`/api/v1/vector-spaces/${encodeURIComponent(id)}/points/${encodeURIComponent(pointId)}`, { method: "DELETE" }); },
 };
 
 export function errorMessage(error: unknown, fallback = "操作未完成，请稍后重试。"): string {

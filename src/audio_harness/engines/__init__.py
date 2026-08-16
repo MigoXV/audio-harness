@@ -1,3 +1,1 @@
-from audio_harness.engines.pool import InferencerPool
-
-__all__ = ["InferencerPool"]
+"""引擎资产、健康检查与推理客户端池。"""

@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/struct.proto";
+
+package pb;
+option go_package = "./;pb";
+
+service Engine {
+  rpc EngineInfo(google.protobuf.Empty) returns (EngineInfoReply) {}
+
+  rpc Feature(FeatRequest) returns (FeatReply) {}
+
+  rpc Compare(CompareRequest) returns (CompareReply) {}
+
+  rpc Clustering(ClusteringRequest) returns (ClusteringReply) {}
+
+  rpc StreamingClustering(stream StreamingClusteringRequest) returns (stream StreamingClusteringReply) {}
+}
+
+message EngineInfoReply {
+  repeated string engineList = 1;
+  repeated string vadList    = 2;
+  repeated string lidList    = 3;
+  repeated string gidList    = 4;
+}
+
+message FeatRequest {
+  string vadAlg = 1;
+  string sidAlg = 2;
+  bytes pcm = 3;
+}
+
+message FeatReply {
+  bytes feat = 1;
+}
+
+message CompareRequest {
+  string sidAlg = 1;
+  bytes feat = 2;
+  repeated bytes models = 3;
+}
+
+message CompareReply {
+  repeated ScoreInfo ScoreList = 1;
+}
+
+message ScoreInfo {
+  float score = 1;
+  string err = 2;
+}
+
+message ClusteringRequest {
+  repeated bytes vectors = 1;
+  string algorithm = 2;
+  google.protobuf.Struct parameters = 3;
+}
+
+message ClusteringReply {
+  repeated int32 labels = 1;
+}
+
+message StreamingClusteringRequest {
+  oneof payload {
+    ClusteringRequest config = 1;
+    ClusteringVectorBatch batch = 2;
+  }
+}
+
+message ClusteringVectorBatch {
+  uint64 sequence = 1;
+  repeated bytes vectors = 2;
+}
+
+message StreamingClusteringReply {
+  uint64 sequence = 1;
+  repeated int32 labels = 2;
+}
