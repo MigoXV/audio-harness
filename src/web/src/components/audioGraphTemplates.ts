@@ -81,6 +81,16 @@ function interimAsr(document: AudioWorkflowDocument, primary: ReturnType<typeof 
     : { ...primary, id: "interim-asr", config: { ...primary.config, remove_punctuation: true } };
 }
 
+function speakerAsr(document: AudioWorkflowDocument, primary: ReturnType<typeof asr>) {
+  const existing = outputNode(document, "speaker_transcript", "asr")
+    ?? document.nodes.find((node): node is Extract<AudioNode, { kind: "asr" }> =>
+      node.kind === "asr" && node.id === "speaker-asr",
+    );
+  return existing
+    ? { ...existing, id: "speaker-asr", config: { remove_punctuation: false, ...existing.config } }
+    : { ...primary, id: "speaker-asr", config: { ...primary.config } };
+}
+
 function interimPhysicalVad(
   document: AudioWorkflowDocument,
   primary: ReturnType<typeof physicalVad>,
@@ -280,6 +290,7 @@ export function applyAudioGraphTemplate(
     const embedding = audioEmbedding(document, preferredVectorSpace);
     const search = vectorSearch(document, preferredVectorSpace);
     const diarization = speakerDiarization(document);
+    const speakerRecognition = speakerAsr(document, recognition);
     const clustering = speakerClustering(document, engines);
     const completeMeeting = template === "meeting_complete";
     return {
@@ -290,18 +301,17 @@ export function applyAudioGraphTemplate(
         recognition,
         previewPhysical,
         previewRecognition,
-        ...(completeMeeting ? [embedding, search, diarization, clustering] : []),
+        ...(completeMeeting ? [embedding, search, diarization, speakerRecognition, clustering] : []),
       ],
       edges: [
         { id: "audio-to-physical-vad", source: { kind: "input", name: "audio" }, target: { node_id: "physical-vad", port: "audio" } },
         { id: "physical-vad-to-semantic-vad", source: { kind: "node", node_id: "physical-vad", port: "segments" }, target: { node_id: "semantic-vad", port: "segments" } },
+        { id: "semantic-vad-to-asr", source: { kind: "node" as const, node_id: "semantic-vad", port: "segments" }, target: { node_id: "asr", port: "segments" } },
         ...(completeMeeting ? [
           { id: "semantic-vad-to-speaker-diarization", source: { kind: "node" as const, node_id: "semantic-vad", port: "segments" }, target: { node_id: "speaker-diarization", port: "segments" } },
-          { id: "speaker-diarization-to-asr", source: { kind: "node" as const, node_id: "speaker-diarization", port: "segments" }, target: { node_id: "asr", port: "segments" } },
+          { id: "speaker-diarization-to-speaker-asr", source: { kind: "node" as const, node_id: "speaker-diarization", port: "segments" }, target: { node_id: "speaker-asr", port: "segments" } },
           { id: "speaker-diarization-to-clustering", source: { kind: "node" as const, node_id: "speaker-diarization", port: "segments" }, target: { node_id: "speaker-clustering", port: "segments" } },
-        ] : [
-          { id: "semantic-vad-to-asr", source: { kind: "node" as const, node_id: "semantic-vad", port: "segments" }, target: { node_id: "asr", port: "segments" } },
-        ]),
+        ] : []),
         { id: "audio-to-interim-physical-vad", source: { kind: "input", name: "audio" }, target: { node_id: "interim-physical-vad", port: "audio" } },
         { id: "interim-physical-vad-to-asr", source: { kind: "node", node_id: "interim-physical-vad", port: "segments" }, target: { node_id: "interim-asr", port: "segments" } },
         ...(completeMeeting ? [
@@ -318,21 +328,22 @@ export function applyAudioGraphTemplate(
         ...(completeMeeting ? [
           { name: "vector_search", source: { kind: "node" as const, node_id: "vector-search", port: "results" } },
           { name: "diarization_local", source: { kind: "node" as const, node_id: "speaker-diarization", port: "local_results" } },
-          { name: "speaker_transcript", source: { kind: "node" as const, node_id: "asr", port: "speaker_transcripts" } },
+          { name: "speaker_transcript", source: { kind: "node" as const, node_id: "speaker-asr", port: "speaker_transcripts" } },
           { name: "diarization_cluster", source: { kind: "node" as const, node_id: "speaker-clustering", port: "results" } },
         ] : []),
       ],
       layout: {
         "physical-vad": { x: 240, y: 40 },
         "semantic-vad": { x: 520, y: 40 },
-        asr: { x: completeMeeting ? 1080 : 800, y: 40 },
+        asr: { x: 800, y: 40 },
         "interim-physical-vad": { x: 240, y: 360 },
         "interim-asr": { x: 520, y: 360 },
         ...(completeMeeting ? {
           "audio-embedding": { x: 800, y: 240 },
           "vector-search": { x: 1080, y: 240 },
-          "speaker-diarization": { x: 800, y: 40 },
-          "speaker-clustering": { x: 1080, y: 400 },
+          "speaker-diarization": { x: 800, y: 400 },
+          "speaker-asr": { x: 1080, y: 400 },
+          "speaker-clustering": { x: 1080, y: 560 },
         } : {}),
       },
     };

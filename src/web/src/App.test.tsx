@@ -375,7 +375,7 @@ describe("typed audio workflow control plane", () => {
     await waitFor(() => expect(saveAudioWorkflowDraft).toHaveBeenCalled(), { timeout: 2_000 });
     const savedDocument = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
     expect(savedDocument.nodes.map((node) => node.kind)).toEqual([
-      "physical_vad", "semantic_vad", "asr", "physical_vad", "asr", "audio_embedding", "vector_search", "speaker_diarization", "speaker_clustering",
+      "physical_vad", "semantic_vad", "asr", "physical_vad", "asr", "audio_embedding", "vector_search", "speaker_diarization", "asr", "speaker_clustering",
     ]);
     expect(savedDocument.nodes.find((node) => node.kind === "vector_search")?.config).toMatchObject({
       collection_name: "voiceprints",
