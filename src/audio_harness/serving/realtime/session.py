@@ -763,7 +763,11 @@ class RealtimeTranscriptionSession:
         await self._emit_committed_item(committed_item)
         await self._start_workflow()
         assert self._transcription is not None
-        await self._transcription.append(audio)
+        chunk_bytes = self._workflow_config.min_chunk_bytes
+        for offset in range(0, len(audio), chunk_bytes):
+            await self._transcription.append(
+                audio[offset : offset + chunk_bytes]
+            )
         await self._finish_workflow(send_results=True)
         self._active_item_id = None
 
