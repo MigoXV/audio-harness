@@ -51,6 +51,25 @@ class ImmediateVad(VadInferencer):
     async def close(self) -> None: pass
 
 
+class RecordingVad(ImmediateVad):
+    def __init__(self) -> None:
+        self.chunk_sizes: list[int] = []
+
+    async def stream_detect(
+        self,
+        audio_chunks: AsyncIterator[bytes],
+        sample_rate: int,
+    ) -> AsyncIterator[VadInferencer.Update]:
+        processed_samples = 0
+        async for chunk in audio_chunks:
+            self.chunk_sizes.append(len(chunk))
+            processed_samples += len(chunk) // 2
+        yield VadInferencer.Update(
+            boundaries=((0, processed_samples),),
+            processed_samples=processed_samples,
+        )
+
+
 class TwoSegmentVad(ImmediateVad):
     async def stream_detect(
         self,
@@ -715,6 +734,64 @@ def test_realtime_manual_commit_finishes_buffer_when_vad_is_disabled() -> None:
         "conversation.item.input_audio_transcription.delta",
         "conversation.item.input_audio_transcription.completed",
     ]
+
+
+def test_realtime_manual_commit_chunks_audio_larger_than_grpc_limit() -> None:
+    vad = RecordingVad()
+    with TestClient(build_app(vad=vad)) as client:
+        with client.websocket_connect(
+            "/v1/realtime?intent=transcription"
+        ) as websocket:
+            assert receive_official_event(websocket).type == "session.created"
+            websocket.send_json(
+                {
+                    "type": "session.update",
+                    "event_id": "manual-session",
+                    "session": {
+                        "type": "transcription",
+                        "audio": {
+                            "input": {
+                                "format": {
+                                    "type": "audio/pcm",
+                                    "rate": 24_000,
+                                },
+                                "transcription": {
+                                    "model": "gpt-4o-transcribe",
+                                    "language": "zh-CN",
+                                },
+                                "turn_detection": None,
+                            }
+                        },
+                    },
+                }
+            )
+            assert receive_official_event(websocket).type == "session.updated"
+
+            input_audio = np.zeros(24_000 * 132, dtype="<i2").tobytes()
+            input_chunk_bytes = 24_000 * 2
+            for offset in range(0, len(input_audio), input_chunk_bytes):
+                websocket.send_json(
+                    {
+                        "type": "input_audio_buffer.append",
+                        "audio": base64.b64encode(
+                            input_audio[offset : offset + input_chunk_bytes]
+                        ).decode("ascii"),
+                    }
+                )
+            websocket.send_json(
+                {
+                    "type": "input_audio_buffer.commit",
+                    "event_id": "manual-commit",
+                }
+            )
+            events = [receive_official_event(websocket) for _ in range(5)]
+
+    assert events[-1].type == (
+        "conversation.item.input_audio_transcription.completed"
+    )
+    assert sum(vad.chunk_sizes) > 4 * 1024 * 1024
+    assert len(vad.chunk_sizes) > 1
+    assert max(vad.chunk_sizes) <= 6400
 
 
 def test_soxr_online_resampler_preserves_one_second_duration() -> None:
