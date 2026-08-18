@@ -53,6 +53,9 @@ gRPC / Realtime / WebRTC 数据面 ─────┘
 包括概率平滑、判定阈值、起点前补以及语音/静音帧数限制。未启用自定义配置时，
 流式首包不会发送 `postprocessing` 字段，继续使用 VAD 服务端默认值；参数修改随
 工作流重新发布后生效，不会热更新已经运行的会话。旧 VAD 服务可以忽略新增字段。
+主物理 VAD 还可以用 `progress_interval_seconds` 控制 AHA v1 处理进度，默认按墙钟
+最多 5 Hz，设为 `0` 时关闭；正常 commit 排空会发送覆盖完整输入（含尾部静音）的
+最终进度，并在全部聚类完成后发送最终全量聚类快照。
 
 工作流编辑器另提供“物理双路 VAD + ASR”和“物理双路 + 语义 VAD + ASR”模板。
 两者都使用独立的敏感物理 VAD 与 ASR 生成 `interim_transcript` Realtime 预览结果；
@@ -63,8 +66,9 @@ VAD 带有一组偏敏感的初始参数，但所有参数和引擎绑定都可�
 
 “会议系统完全体”模板建立在双路物理与语义 VAD 模板之上，并把正式语义 VAD 输出的
 音频片段并联到“语音特征向量提取 → 人物搜索”，增加 `vector_search` 命名出口；
-主链路为“物理 VAD → 语义 VAD → 说话人分离 → ASR”，并增加
-`diarization_local` 与 `speaker_transcript` 命名出口。原低延迟 interim ASR 分支继续并行工作。
+正式语义 VAD 同时直连主 ASR，并经“说话人分离 → 说话人 ASR”产生分角色转写，
+增加 `diarization_local` 与 `speaker_transcript` 命名出口。主转写不等待说话人分离，
+原低延迟 interim ASR 分支也继续并行工作。
 模板优先选择带语音特征向量提取模板标记的 Qdrant Collection，并据其首个 Named
 Vector 初始化算法和维度；没有可用空间时使用 `voiceprints`、`eres2netv2`、192 维
 作为待确认配置。再次应用模板会保留已经选择的提取引擎、Collection 和检索参数。

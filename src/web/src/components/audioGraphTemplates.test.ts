@@ -6,7 +6,7 @@ import { applyAudioGraphTemplate } from "./audioGraphTemplates";
 const existing: AudioWorkflowDocument = {
   schema_version: 1,
   nodes: [
-    { id: "custom-vad", kind: "physical_vad", engine_id: "vad-1", config: { min_segment_seconds: 1, max_segment_seconds: 30, audio_buffer_seconds: 40, speech_pre_roll_seconds: 0.2 } },
+    { id: "custom-vad", kind: "physical_vad", engine_id: "vad-1", config: { min_segment_seconds: 1, max_segment_seconds: 30, audio_buffer_seconds: 40, speech_pre_roll_seconds: 0.2, progress_interval_seconds: 0.2 } },
     { id: "custom-semantic", kind: "semantic_vad", engine_id: "semantic-1", config: { max_buffer_seconds: 20 }, failure_policy: "fail_pipeline" },
     { id: "custom-asr", kind: "asr", engine_id: "asr-1", config: { remove_punctuation: false } },
   ],
@@ -143,6 +143,7 @@ describe("audio graph templates", () => {
       "audio-embedding",
       "vector-search",
       "speaker-diarization",
+      "speaker-asr",
       "speaker-clustering",
     ]);
     expect(result.edges).toContainEqual({
@@ -161,9 +162,14 @@ describe("audio graph templates", () => {
       target: { node_id: "speaker-diarization", port: "segments" },
     });
     expect(result.edges).toContainEqual({
-      id: "speaker-diarization-to-asr",
-      source: { kind: "node", node_id: "speaker-diarization", port: "segments" },
+      id: "semantic-vad-to-asr",
+      source: { kind: "node", node_id: "semantic-vad", port: "segments" },
       target: { node_id: "asr", port: "segments" },
+    });
+    expect(result.edges).toContainEqual({
+      id: "speaker-diarization-to-speaker-asr",
+      source: { kind: "node", node_id: "speaker-diarization", port: "segments" },
+      target: { node_id: "speaker-asr", port: "segments" },
     });
     expect(result.nodes.find((node) => node.id === "audio-embedding")).toMatchObject({
       kind: "audio_embedding",
@@ -203,7 +209,28 @@ describe("audio graph templates", () => {
     });
     expect(result.outputs).toContainEqual({
       name: "speaker_transcript",
-      source: { kind: "node", node_id: "asr", port: "speaker_transcripts" },
+      source: { kind: "node", node_id: "speaker-asr", port: "speaker_transcripts" },
+    });
+    expect(result.nodes.find((node) => node.id === "speaker-asr")).toMatchObject({
+      kind: "asr",
+      engine_id: "asr-1",
+    });
+  });
+
+  it("preserves the speaker ASR configuration when reapplying the complete meeting template", () => {
+    const first = applyAudioGraphTemplate(existing, "meeting_complete");
+    const speakerRecognition = first.nodes.find((node) => node.id === "speaker-asr");
+    if (!speakerRecognition || speakerRecognition.kind !== "asr") {
+      throw new Error("speaker ASR missing");
+    }
+    speakerRecognition.engine_id = "speaker-asr-1";
+    speakerRecognition.config = { remove_punctuation: true };
+
+    const result = applyAudioGraphTemplate(first, "meeting_complete");
+
+    expect(result.nodes.find((node) => node.id === "speaker-asr")).toMatchObject({
+      engine_id: "speaker-asr-1",
+      config: { remove_punctuation: true },
     });
   });
 

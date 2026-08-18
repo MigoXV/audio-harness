@@ -75,6 +75,7 @@ from audio_harness.workflows.events import (
     SpeakerTranscriptionResult,
     SpeechStarted,
     SpeechStopped,
+    VadProgress,
     VectorSearchResult,
 )
 
@@ -393,6 +394,14 @@ class RealtimeTranscriptionSession:
         self._manual_audio_buffer = bytearray()
         self._audio_started = False
         self._closed = False
+        self._discard_workflow_outputs = False
+        self._workflow_failure: BaseException | None = None
+        self._cluster_latest_result: DiarizationClusterResult | None = None
+        self._cluster_last_completed: DiarizationClusterResult | None = None
+        self._cluster_output_enabled = any(
+            output.name == "diarization_cluster"
+            for output in self._workflow.plan.definition.outputs
+        )
 
     @property
     def audio_started(self) -> bool:
@@ -854,6 +863,10 @@ class RealtimeTranscriptionSession:
         )
 
     async def _start_workflow(self) -> None:
+        self._discard_workflow_outputs = False
+        self._workflow_failure = None
+        self._cluster_latest_result = None
+        self._cluster_last_completed = None
         options = AsrInferencer.Options(
             sample_rate=ENGINE_SAMPLE_RATE,
             language_code=self.language,
@@ -895,10 +908,15 @@ class RealtimeTranscriptionSession:
         try:
             assert self._transcription is not None
             async for output in self._transcription.outputs():
+                if self._discard_workflow_outputs:
+                    continue
                 await self._handle_workflow_event(output.name, output.payload)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            self._workflow_failure = exc
+            if self._discard_workflow_outputs:
+                return
             logger.exception("Realtime 工作流失败")
             if self._pending_items:
                 item = self._pending_items[0]
@@ -927,6 +945,20 @@ class RealtimeTranscriptionSession:
                 )
 
     async def _handle_workflow_event(self, output_name: str, event: Any) -> None:
+        if output_name == "vad_progress" and isinstance(event, VadProgress):
+            if self._aha_version != "v1":
+                return
+            payload = {
+                "type": "x_aha.vad.progress",
+                "event_id": event_id(),
+                "processed_audio_ms": round(
+                    event.processed_samples * 1000 / event.sample_rate
+                ),
+            }
+            if event.final:
+                payload["final"] = True
+            await self._send_event(payload)
+            return
         if output_name == "diarization_local" and isinstance(
             event,
             DiarizationLocalResult,
@@ -1038,6 +1070,13 @@ class RealtimeTranscriptionSession:
         ):
             if self._aha_version != "v1":
                 return
+            latest = getattr(self, "_cluster_latest_result", None)
+            if latest is None or event.revision > latest.revision:
+                self._cluster_latest_result = event
+            if event.phase == "completed":
+                completed = getattr(self, "_cluster_last_completed", None)
+                if completed is None or event.revision > completed.revision:
+                    self._cluster_last_completed = event
             event_type = f"x_aha.diarization.cluster.{event.phase}"
             if event_type not in DIARIZATION_CLUSTER_EVENT_TYPES:
                 raise RuntimeError(f"未知聚类事件阶段: {event.phase}")
@@ -1375,33 +1414,112 @@ class RealtimeTranscriptionSession:
         if task is None:
             return
         failure: BaseException | None = None
+        transcription = self._transcription
         try:
+            if not send_results:
+                self._discard_workflow_outputs = True
             if self._transcription is not None:
                 await self._transcription.finish()
             if send_results:
                 await task
         except BaseException as exc:
             failure = exc
-        finally:
-            if not task.done():
-                task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+        if send_results and not isinstance(failure, asyncio.CancelledError):
+            if failure is not None:
+                self._workflow_failure = failure
             try:
-                if self._session_context is not None:
-                    await self._session_context.__aexit__(None, None, None)
-                elif self._reservation is not None:
-                    await self._reservation.close_session()
+                await self._emit_final_cluster_snapshot(
+                    transcription.processed_samples
+                    if transcription is not None
+                    else 0
+                )
             except BaseException as exc:
                 if failure is None:
                     failure = exc
                 else:
                     logger.error(
-                        "Realtime 工作流失败后的资源释放也发生异常",
+                        "Realtime 工作流失败后的最终聚类事件发送也发生异常",
                         exc_info=(type(exc), exc, exc.__traceback__),
                     )
-            finally:
-                self._workflow_task = None
-                self._session_context = None
-                self._transcription = None
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        try:
+            if self._session_context is not None:
+                await self._session_context.__aexit__(None, None, None)
+            elif self._reservation is not None:
+                await self._reservation.close_session()
+        except BaseException as exc:
+            if failure is None:
+                failure = exc
+            else:
+                logger.error(
+                    "Realtime 工作流失败后的资源释放也发生异常",
+                    exc_info=(type(exc), exc, exc.__traceback__),
+                )
+        finally:
+            self._workflow_task = None
+            self._session_context = None
+            self._transcription = None
         if failure is not None:
             raise failure
+
+    async def _emit_final_cluster_snapshot(
+        self,
+        processed_samples: int,
+    ) -> None:
+        if (
+            self._aha_version != "v1"
+            or not self._cluster_output_enabled
+            or self._discard_workflow_outputs
+        ):
+            return
+        latest = self._cluster_latest_result
+        completed = self._cluster_last_completed
+        revision = (latest.revision if latest is not None else 0) + 1
+        replaces_revision = completed.revision if completed is not None else None
+        processed_audio_ms = round(
+            processed_samples * 1000 / ENGINE_SAMPLE_RATE
+        )
+        failed = self._workflow_failure is not None or (
+            latest is not None and latest.phase == "failed"
+        )
+        common = {
+            "event_id": event_id(),
+            "revision": revision,
+            "replaces_revision": replaces_revision,
+            "final": True,
+            "processed_audio_ms": processed_audio_ms,
+        }
+        if failed:
+            if self._workflow_failure is not None:
+                code = "workflow_failed"
+                message = str(self._workflow_failure)
+            else:
+                assert latest is not None
+                code = latest.error_code or "diarization_cluster_failed"
+                message = latest.error_message or "说话人聚类失败"
+            await self._send_event(
+                {
+                    "type": "x_aha.diarization.cluster.failed",
+                    **common,
+                    "error": {"code": code, "message": message},
+                }
+            )
+            return
+        assignments = completed.assignments if completed is not None else ()
+        await self._send_event(
+            {
+                "type": "x_aha.diarization.cluster.completed",
+                **common,
+                "full_snapshot": True,
+                "assignments": [
+                    {
+                        "segment_id": assignment.segment_id,
+                        "local_speaker_id": assignment.local_speaker_id,
+                        "speaker_id": assignment.speaker_id,
+                    }
+                    for assignment in assignments
+                ],
+            }
+        )

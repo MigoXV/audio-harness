@@ -1652,6 +1652,11 @@ export interface components {
              * @default 0.3
              */
             speech_pre_roll_seconds: number;
+            /**
+             * Progress Interval Seconds
+             * @default 0.2
+             */
+            progress_interval_seconds: number;
             postprocessing?: components["schemas"]["FireRedPostprocessingOptions"] | null;
         };
         /** PhysicalVadNode */

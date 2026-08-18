@@ -17,6 +17,19 @@ class SpeechStopped(NamedTuple):
 
 
 @dataclass(frozen=True)
+class VadProgress:
+    processed_samples: int
+    sample_rate: int
+    final: bool = False
+
+    def __post_init__(self) -> None:
+        if self.processed_samples < 0:
+            raise ValueError("VAD 已处理采样数不能小于 0")
+        if self.sample_rate <= 0:
+            raise ValueError("VAD 进度采样率必须大于 0")
+
+
+@dataclass(frozen=True)
 class AudioEmbeddingResult:
     start_sample: int
     end_sample: int

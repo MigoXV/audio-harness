@@ -584,10 +584,11 @@ def test_realtime_x_aha_reports_pending_semantic_turn() -> None:
                     "audio": base64.b64encode(audio).decode("ascii"),
                 }
             )
-            events = [websocket.receive_json() for _ in range(8)]
+            events = [websocket.receive_json() for _ in range(9)]
 
     assert [event["type"] for event in events] == [
         "input_audio_buffer.speech_started",
+        "x_aha.vad.progress",
         "x_aha.vad.physical_speech_stopped",
         "input_audio_buffer.speech_stopped",
         "input_audio_buffer.committed",
@@ -596,7 +597,10 @@ def test_realtime_x_aha_reports_pending_semantic_turn() -> None:
         "conversation.item.input_audio_transcription.delta",
         "conversation.item.input_audio_transcription.completed",
     ]
-    extension = events[1]
+    progress = events[1]
+    assert progress["processed_audio_ms"] == 200
+    assert "final" not in progress
+    extension = events[2]
     assert extension["turn_completed"] is False
     assert extension["audio_start_ms"] == 0
     assert extension["audio_end_ms"] > 0

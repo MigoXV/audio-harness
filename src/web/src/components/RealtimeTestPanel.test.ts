@@ -102,6 +102,34 @@ describe("eventDetail", () => {
     })).toBe("物理停顿 1200–2380 ms；语义轮次未结束");
   });
 
+  it("distinguishes streaming and final VAD progress", () => {
+    expect(eventDetail({
+      type: "x_aha.vad.progress",
+      processed_audio_ms: 82400,
+    })).toBe("VAD 处理中 · 82400 ms");
+    expect(eventDetail({
+      type: "x_aha.vad.progress",
+      processed_audio_ms: 187765,
+      final: true,
+    })).toBe("VAD 处理完成 · 187765 ms");
+  });
+
+  it("describes final clustering outcomes", () => {
+    expect(eventDetail({
+      type: "x_aha.diarization.cluster.completed",
+      revision: 6,
+      processed_audio_ms: 187765,
+      final: true,
+      assignments: [{ segment_id: "segment-1" }],
+    })).toBe("最终聚类快照 r6 · 1 个片段 · 已处理 187765 ms");
+    expect(eventDetail({
+      type: "x_aha.diarization.cluster.failed",
+      processed_audio_ms: 187765,
+      final: true,
+      error: { message: "聚类服务不可用" },
+    })).toBe("最终聚类失败 · 已处理 187765 ms · 聚类服务不可用");
+  });
+
   it("describes interim transcript snapshots and clearing", () => {
     expect(eventDetail({
       type: "x_aha.input_audio_transcription.interim",
@@ -184,6 +212,8 @@ describe("RealtimeTestPanel", () => {
     renderPanel("transcription");
     expect(screen.getByRole("button", { name: "WSS" })).toHaveClass("active");
     expect(screen.getByRole("checkbox", { name: "启用 AHA 扩展协议" })).toBeChecked();
+    expect(screen.getByRole("region", { name: "AHA 处理状态" })).toHaveTextContent("VAD 处理位置等待进度");
+    expect(screen.getByRole("region", { name: "AHA 处理状态" })).toHaveTextContent("最终聚类状态等待最终快照");
   });
 
   it("defaults voice-agent tests to native WSS with optional AHA", () => {

@@ -52,6 +52,12 @@ class PhysicalVadConfig(StrictModel):
     max_segment_seconds: float = Field(default=60.0, gt=0)
     audio_buffer_seconds: float = Field(default=120.0, gt=0)
     speech_pre_roll_seconds: float = Field(default=0.3, ge=0)
+    progress_interval_seconds: float = Field(
+        default=0.2,
+        ge=0,
+        allow_inf_nan=False,
+        strict=True,
+    )
     postprocessing: FireRedPostprocessingOptions | None = None
 
     @model_validator(mode="after")

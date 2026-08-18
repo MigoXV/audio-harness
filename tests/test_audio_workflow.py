@@ -39,7 +39,7 @@ from audio_harness.workflows import (
     SemanticVadNode,
     compile_audio_graph,
 )
-from audio_harness.workflows.events import VectorSearchResult
+from audio_harness.workflows.events import VadProgress, VectorSearchResult
 from audio_harness.workflows.models import (
     AudioEmbeddingNode,
     AudioEmbeddingNodeConfig,
@@ -48,6 +48,7 @@ from audio_harness.workflows.models import (
     VectorSearchNode,
     VectorSearchNodeConfig,
 )
+from audio_harness.workflows.runtime import VadProgressLimiter
 from audio_harness.vectors.models import SpeakerMatch, VectorObservation
 
 
@@ -175,6 +176,30 @@ def test_physical_vad_rejects_invalid_postprocessing(parameters: dict) -> None:
                 }
             }
         )
+
+
+@pytest.mark.parametrize("value", [-0.1, float("inf"), float("nan"), True])
+def test_physical_vad_rejects_invalid_progress_interval(value: object) -> None:
+    with pytest.raises(ValidationError):
+        PhysicalVadConfig(progress_interval_seconds=value)
+
+
+def test_vad_progress_limiter_coalesces_and_normalizes_updates() -> None:
+    limiter = VadProgressLimiter(interval_seconds=0.2, sample_rate=1_000)
+
+    first = limiter.update(100, available_samples=90, now=0)
+    throttled = limiter.update(150, available_samples=150, now=0.1)
+    second = limiter.update(120, available_samples=200, now=0.2)
+    final = limiter.finish(187)
+
+    assert first == VadProgress(processed_samples=90, sample_rate=1_000)
+    assert throttled is None
+    assert second == VadProgress(processed_samples=150, sample_rate=1_000)
+    assert final == VadProgress(
+        processed_samples=187,
+        sample_rate=1_000,
+        final=True,
+    )
 
 
 def test_speaker_clustering_uses_safe_hdbscan_defaults() -> None:
@@ -644,6 +669,117 @@ async def test_dual_graph_only_runs_interim_branch_when_requested(
 
     assert sorted(output.name for output in outputs) == sorted(expected_names)
     assert preview_physical.stream_calls == expected_preview_calls
+
+
+@pytest.mark.asyncio
+async def test_vad_progress_uses_only_primary_physical_vad_without_binding(
+    assets: dict[str, EngineAssetData],
+) -> None:
+    update = VadInferencer.Update(boundaries=((0, 8),), processed_samples=8)
+    runtime = AudioWorkflowRuntime(
+        plan=compile_audio_graph(_dual_definition(), assets=assets),
+        inferencers={
+            "physical": _Vad([update]),
+            "asr": _Asr(),
+            "interim-physical": _Vad([update]),
+            "interim-asr": _Asr(),
+        },
+        runtime_config=AudioRuntimeConfig(2, 8),
+        asr_semaphore=asyncio.Semaphore(2),
+    )
+
+    outputs = [
+        output
+        async for output in runtime.stream(
+            _chunks(),
+            AudioInferenceRequest(
+                recognition=AsrInferencer.Options(
+                    sample_rate=4,
+                    language_code="zh-CN",
+                ),
+                include_interim_transcripts=True,
+                include_vad_progress=True,
+            ),
+        )
+    ]
+
+    progress = [
+        output.payload for output in outputs if output.name == "vad_progress"
+    ]
+    assert progress == [
+        VadProgress(processed_samples=8, sample_rate=4),
+        VadProgress(processed_samples=8, sample_rate=4, final=True),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_vad_progress_can_be_disabled(
+    assets: dict[str, EngineAssetData],
+) -> None:
+    definition = _definition(semantic=False)
+    physical = definition.nodes[0]
+    assert isinstance(physical, PhysicalVadNode)
+    physical.config.progress_interval_seconds = 0
+    update = VadInferencer.Update(boundaries=((0, 8),), processed_samples=8)
+    runtime = AudioWorkflowRuntime(
+        plan=compile_audio_graph(definition, assets=assets),
+        inferencers={"physical": _Vad([update]), "asr": _Asr()},
+        runtime_config=AudioRuntimeConfig(2, 8),
+        asr_semaphore=asyncio.Semaphore(1),
+    )
+
+    outputs = [
+        output
+        async for output in runtime.stream(
+            _chunks(),
+            AudioInferenceRequest(
+                recognition=AsrInferencer.Options(
+                    sample_rate=4,
+                    language_code="zh-CN",
+                ),
+                include_vad_progress=True,
+            ),
+        )
+    ]
+
+    assert all(output.name != "vad_progress" for output in outputs)
+
+
+@pytest.mark.asyncio
+async def test_final_vad_progress_includes_trailing_silence(
+    assets: dict[str, EngineAssetData],
+) -> None:
+    runtime = AudioWorkflowRuntime(
+        plan=compile_audio_graph(_definition(semantic=False), assets=assets),
+        inferencers={
+            "physical": _Vad(
+                [VadInferencer.Update(boundaries=(), processed_samples=4)]
+            ),
+            "asr": _Asr(),
+        },
+        runtime_config=AudioRuntimeConfig(2, 8),
+        asr_semaphore=asyncio.Semaphore(1),
+    )
+
+    progress = [
+        output.payload
+        async for output in runtime.stream(
+            _chunks(),
+            AudioInferenceRequest(
+                recognition=AsrInferencer.Options(
+                    sample_rate=4,
+                    language_code="zh-CN",
+                ),
+                include_vad_progress=True,
+            ),
+        )
+        if output.name == "vad_progress"
+    ]
+
+    assert progress == [
+        VadProgress(processed_samples=4, sample_rate=4),
+        VadProgress(processed_samples=8, sample_rate=4, final=True),
+    ]
 
 
 @pytest.mark.asyncio

@@ -45,6 +45,7 @@ from audio_harness.workflows.events import (
     DiarizationLocalResult,
     DiarizationSegment,
     SpeakerTranscriptionResult,
+    VadProgress,
 )
 from audio_harness.workflows.models import (
     SpeakerClusteringNodeConfig,
@@ -940,3 +941,232 @@ async def test_realtime_cluster_completed_is_a_full_snapshot() -> None:
             "speaker_id": 1,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_realtime_maps_normal_and_final_vad_progress() -> None:
+    sent: list[dict] = []
+
+    async def send(event) -> None:
+        sent.append(event)
+
+    session = object.__new__(RealtimeTranscriptionSession)
+    session._aha_version = "v1"
+    session._send_event = send
+
+    await session._handle_workflow_event(
+        "vad_progress",
+        VadProgress(processed_samples=1_600, sample_rate=16_000),
+    )
+    await session._handle_workflow_event(
+        "vad_progress",
+        VadProgress(
+            processed_samples=3_004_240,
+            sample_rate=16_000,
+            final=True,
+        ),
+    )
+
+    assert [event["processed_audio_ms"] for event in sent] == [100, 187_765]
+    assert "final" not in sent[0]
+    assert sent[1]["final"] is True
+
+
+@pytest.mark.asyncio
+async def test_realtime_final_cluster_snapshot_advances_revision_and_duration() -> None:
+    sent: list[dict] = []
+
+    async def send(event) -> None:
+        sent.append(event)
+
+    result = DiarizationClusterResult(
+        phase="completed",
+        revision=3,
+        replaces_revision=2,
+        assignments=(
+            DiarizationClusterAssignment(
+                segment_id="dseg-1",
+                local_speaker_id="batch-1:2",
+                speaker_id=1,
+            ),
+        ),
+    )
+    session = object.__new__(RealtimeTranscriptionSession)
+    session._aha_version = "v1"
+    session._send_event = send
+    session._cluster_output_enabled = True
+    session._discard_workflow_outputs = False
+    session._workflow_failure = None
+    session._cluster_latest_result = result
+    session._cluster_last_completed = result
+
+    await session._emit_final_cluster_snapshot(3_004_240)
+
+    assert sent == [
+        {
+            "type": "x_aha.diarization.cluster.completed",
+            "event_id": sent[0]["event_id"],
+            "revision": 4,
+            "replaces_revision": 3,
+            "final": True,
+            "processed_audio_ms": 187_765,
+            "full_snapshot": True,
+            "assignments": [
+                {
+                    "segment_id": "dseg-1",
+                    "local_speaker_id": "batch-1:2",
+                    "speaker_id": 1,
+                }
+            ],
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_realtime_final_cluster_snapshot_can_be_empty() -> None:
+    sent: list[dict] = []
+
+    async def send(event) -> None:
+        sent.append(event)
+
+    session = object.__new__(RealtimeTranscriptionSession)
+    session._aha_version = "v1"
+    session._send_event = send
+    session._cluster_output_enabled = True
+    session._discard_workflow_outputs = False
+    session._workflow_failure = None
+    session._cluster_latest_result = None
+    session._cluster_last_completed = None
+
+    await session._emit_final_cluster_snapshot(16_000)
+
+    assert sent[0]["type"] == "x_aha.diarization.cluster.completed"
+    assert sent[0]["revision"] == 1
+    assert sent[0]["replaces_revision"] is None
+    assert sent[0]["processed_audio_ms"] == 1_000
+    assert sent[0]["final"] is True
+    assert sent[0]["full_snapshot"] is True
+    assert sent[0]["assignments"] == []
+
+
+@pytest.mark.asyncio
+async def test_realtime_final_cluster_snapshot_preserves_cluster_failure() -> None:
+    sent: list[dict] = []
+
+    async def send(event) -> None:
+        sent.append(event)
+
+    completed = DiarizationClusterResult(
+        phase="completed",
+        revision=2,
+        replaces_revision=1,
+        assignments=(),
+    )
+    failed = DiarizationClusterResult(
+        phase="failed",
+        revision=3,
+        replaces_revision=2,
+        assignments=(),
+        error_code="cluster_rpc_failed",
+        error_message="unavailable",
+    )
+    session = object.__new__(RealtimeTranscriptionSession)
+    session._aha_version = "v1"
+    session._send_event = send
+    session._cluster_output_enabled = True
+    session._discard_workflow_outputs = False
+    session._workflow_failure = None
+    session._cluster_latest_result = failed
+    session._cluster_last_completed = completed
+
+    await session._emit_final_cluster_snapshot(8_000)
+
+    assert sent[0]["type"] == "x_aha.diarization.cluster.failed"
+    assert sent[0]["revision"] == 4
+    assert sent[0]["replaces_revision"] == 2
+    assert sent[0]["processed_audio_ms"] == 500
+    assert sent[0]["final"] is True
+    assert sent[0]["error"] == {
+        "code": "cluster_rpc_failed",
+        "message": "unavailable",
+    }
+    assert "assignments" not in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_finish_workflow_waits_for_outputs_before_final_cluster() -> None:
+    order: list[str] = []
+    finished = asyncio.Event()
+
+    class Transcription:
+        processed_samples = 16_000
+
+        async def finish(self) -> None:
+            order.append("finish")
+            finished.set()
+
+    async def drain_outputs() -> None:
+        await finished.wait()
+        order.append("vad-final")
+
+    async def send(event) -> None:
+        if event["type"] == "x_aha.diarization.cluster.completed":
+            order.append("cluster-final")
+
+    session = object.__new__(RealtimeTranscriptionSession)
+    session._aha_version = "v1"
+    session._send_event = send
+    session._transcription = Transcription()
+    session._workflow_task = asyncio.create_task(drain_outputs())
+    session._session_context = None
+    session._reservation = None
+    session._cluster_output_enabled = True
+    session._discard_workflow_outputs = False
+    session._workflow_failure = None
+    session._cluster_latest_result = None
+    session._cluster_last_completed = None
+
+    await session._finish_workflow(send_results=True)
+
+    assert order == ["finish", "vad-final", "cluster-final"]
+
+
+@pytest.mark.asyncio
+async def test_finish_workflow_emits_final_cluster_failure_when_finish_fails() -> None:
+    sent: list[dict] = []
+
+    class Transcription:
+        processed_samples = 8_000
+
+        async def finish(self) -> None:
+            raise RuntimeError("flush failed")
+
+    async def wait_forever() -> None:
+        await asyncio.Event().wait()
+
+    async def send(event) -> None:
+        sent.append(event)
+
+    session = object.__new__(RealtimeTranscriptionSession)
+    session._aha_version = "v1"
+    session._send_event = send
+    session._transcription = Transcription()
+    session._workflow_task = asyncio.create_task(wait_forever())
+    session._session_context = None
+    session._reservation = None
+    session._cluster_output_enabled = True
+    session._discard_workflow_outputs = False
+    session._workflow_failure = None
+    session._cluster_latest_result = None
+    session._cluster_last_completed = None
+
+    with pytest.raises(RuntimeError, match="flush failed"):
+        await session._finish_workflow(send_results=True)
+
+    assert sent[0]["type"] == "x_aha.diarization.cluster.failed"
+    assert sent[0]["final"] is True
+    assert sent[0]["processed_audio_ms"] == 500
+    assert sent[0]["error"] == {
+        "code": "workflow_failed",
+        "message": "flush failed",
+    }

@@ -27,6 +27,17 @@ interface Latencies {
   audio?: number;
 }
 
+interface VadProgressView {
+  processedAudioMs: number;
+  final: boolean;
+}
+
+interface FinalClusterView {
+  status: "completed" | "failed";
+  revision: number;
+  assignments: number;
+}
+
 interface VectorSearchMatchView {
   speakerId: string;
   score: number;
@@ -100,6 +111,11 @@ export function eventDetail(event: Record<string, unknown>): string {
   if (event.type === "response.output_audio.delta") {
     return "音频数据已省略";
   }
+  if (event.type === "x_aha.vad.progress") {
+    return event.final === true
+      ? `VAD 处理完成 · ${String(event.processed_audio_ms ?? "—")} ms`
+      : `VAD 处理中 · ${String(event.processed_audio_ms ?? "—")} ms`;
+  }
   if (event.type === "x_aha.vad.physical_speech_stopped") {
     return `物理停顿 ${String(event.audio_start_ms)}–${String(event.audio_end_ms)} ms；语义轮次未结束`;
   }
@@ -138,10 +154,16 @@ export function eventDetail(event: Record<string, unknown>): string {
   }
   if (event.type === "x_aha.diarization.cluster.completed") {
     const assignments = Array.isArray(event.assignments) ? event.assignments.length : 0;
+    if (event.final === true) {
+      return `最终聚类快照 r${String(event.revision)} · ${assignments} 个片段 · 已处理 ${String(event.processed_audio_ms ?? "—")} ms`;
+    }
     return `聚类快照 r${String(event.revision)} · ${assignments} 个片段`;
   }
   if (event.type === "x_aha.diarization.cluster.failed") {
-    return String((event.error as { message?: string } | undefined)?.message ?? "说话人聚类失败");
+    const message = String((event.error as { message?: string } | undefined)?.message ?? "说话人聚类失败");
+    return event.final === true
+      ? `最终聚类失败 · 已处理 ${String(event.processed_audio_ms ?? "—")} ms · ${message}`
+      : message;
   }
   return String(
     event.delta
@@ -263,6 +285,8 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
   const [events, setEvents] = useState<EventLine[]>([]);
   const [eventTotal, setEventTotal] = useState(0);
   const [vectorSearch, setVectorSearch] = useState<VectorSearchEventView | null>(null);
+  const [vadProgress, setVadProgress] = useState<VadProgressView | null>(null);
+  const [finalCluster, setFinalCluster] = useState<FinalClusterView | null>(null);
   const [latencies, setLatencies] = useState<Latencies>({});
   const socketRef = useRef<WebSocket | null>(null);
   const microphoneRef = useRef<MicrophoneCapture | null>(null);
@@ -293,6 +317,26 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
   const handleServerEvent = (event: Record<string, unknown>) => {
     appendEvent(event);
     const type = String(event.type ?? "");
+    if (type === "x_aha.vad.progress") {
+      const processedAudioMs = Number(event.processed_audio_ms);
+      if (Number.isFinite(processedAudioMs)) {
+        setVadProgress({
+          processedAudioMs,
+          final: event.final === true,
+        });
+      }
+    }
+    if (
+      event.final === true
+      && (type === "x_aha.diarization.cluster.completed"
+        || type === "x_aha.diarization.cluster.failed")
+    ) {
+      setFinalCluster({
+        status: type.endsWith(".completed") ? "completed" : "failed",
+        revision: Number(event.revision ?? 0),
+        assignments: Array.isArray(event.assignments) ? event.assignments.length : 0,
+      });
+    }
     const vectorSearchUpdate = vectorSearchEventView(
       event,
       new Date().toLocaleTimeString("zh-CN", { hour12: false }),
@@ -389,6 +433,8 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
     setConnection("idle");
     setTranscriptView(EMPTY_TRANSCRIPT_VIEW);
     setVectorSearch(null);
+    setVadProgress(null);
+    setFinalCluster(null);
     interimRevisionRef.current = 0;
     interimItemRef.current = null;
     setNotice("测试已停止；本次文本和音频不会写入数据库");
@@ -474,6 +520,8 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
     setEvents([]);
     setEventTotal(0);
     setVectorSearch(null);
+    setVadProgress(null);
+    setFinalCluster(null);
     setTranscriptView(EMPTY_TRANSCRIPT_VIEW);
     setAssistant("");
     setLatencies({});
@@ -527,6 +575,11 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
         <div className="metric-card"><span>话音结束 → 最终转写</span><strong>{displayMs(latencies.transcription, "等待最终转写")}</strong></div>
         {workflowKind === "voice_agent" && <><div className="metric-card"><span>转写 → 模型首字</span><strong>{displayMs(latencies.model, "等待模型首字")}</strong></div><div className="metric-card"><span>模型首字 → TTS 首个音频块</span><strong>{displayMs(latencies.audio, "等待 TTS 音频")}</strong></div></>}
       </section>
+
+      {ahaEnabled && <section className="latency-grid transcription-only" aria-label="AHA 处理状态">
+        <div className="metric-card"><span>VAD 处理位置</span><strong>{vadProgress ? `${vadProgress.final ? "100% · " : "处理中 · "}${displayMs(vadProgress.processedAudioMs, "等待进度")}` : "等待进度"}</strong></div>
+        <div className="metric-card"><span>最终聚类状态</span><strong>{finalCluster ? finalCluster.status === "completed" ? `完成 r${finalCluster.revision} · ${finalCluster.assignments} 个片段` : `失败 r${finalCluster.revision}` : "等待最终快照"}</strong></div>
+      </section>}
 
       {vectorSearch && <section className="panel realtime-vector-results" aria-label="人物搜索结果">
         <header><span>人物搜索结果</span></header>
