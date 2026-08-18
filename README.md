@@ -53,6 +53,9 @@ gRPC / Realtime / WebRTC 数据面 ─────┘
 包括概率平滑、判定阈值、起点前补以及语音/静音帧数限制。未启用自定义配置时，
 流式首包不会发送 `postprocessing` 字段，继续使用 VAD 服务端默认值；参数修改随
 工作流重新发布后生效，不会热更新已经运行的会话。旧 VAD 服务可以忽略新增字段。
+主物理 VAD 还可以用 `progress_interval_seconds` 控制 AHA v1 处理进度，默认按墙钟
+最多 5 Hz，设为 `0` 时关闭；正常 commit 排空会发送覆盖完整输入（含尾部静音）的
+最终进度，并在全部聚类完成后发送最终全量聚类快照。
 
 工作流编辑器另提供“物理双路 VAD + ASR”和“物理双路 + 语义 VAD + ASR”模板。
 两者都使用独立的敏感物理 VAD 与 ASR 生成 `interim_transcript` Realtime 预览结果；

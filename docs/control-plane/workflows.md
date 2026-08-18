@@ -71,7 +71,7 @@ curl -sS -X POST "http://localhost:8000/api/v1/audio-workflows/$WORKFLOW_ID/publ
 
 | kind | 输入 | 输出 | Engine API | 关键配置 |
 | --- | --- | --- | --- | --- |
-| `physical_vad` | `audio: pcm_chunk` | `segments: audio_segment`、`speech_started`、`speech_stopped` | `ux_vad` | 分段时长、缓冲、pre-roll、FireRed 后处理 |
+| `physical_vad` | `audio: pcm_chunk` | `segments: audio_segment`、`speech_started`、`speech_stopped` | `ux_vad` | 分段时长、缓冲、pre-roll、进度间隔、FireRed 后处理 |
 | `semantic_vad` | `segments: audio_segment` | `segments`、`speech_stopped`、`turn_progress` | `ux_vad` | `max_buffer_seconds`，默认 `fail_open` |
 | `asr` | `segments: audio_segment`，也接受 `diarization_segment` | `transcripts`、`speaker_transcripts` | `ux_speech` | `remove_punctuation` |
 | `audio_embedding` | `segments` | `embeddings` | `engine_feature` | 算法、维度、归一化 |
@@ -91,6 +91,8 @@ curl -sS -X POST "http://localhost:8000/api/v1/audio-workflows/$WORKFLOW_ID/publ
 
 可选出口：`interim_transcript`、`turn_progress`、`vector_search`、`diarization_local`、`speaker_transcript`、`diarization_cluster`。它们分别驱动 AHA 扩展；不存在或未协商 `x_aha=v1` 时不会产生对应扩展事件。
 
+物理 VAD 的 `progress_interval_seconds` 控制 AHA v1 进度的墙钟限频，默认 `0.2` 秒，`0` 表示关闭，必须是有限非负数。Harness 自动选择 `speech_started` 出口绑定的物理 VAD 作为唯一进度源，因此旧工作流无需增加进度出口或重新发布，双 VAD 工作流的预览分支也不会重复发送。
+
 ## 编译校验
 
 校验检查节点/端口存在、类型兼容、单输入 fan-in、环、不可达节点、断开输出、Engine 存在且启用、API 能力、稳定出口及节点配置。业务编译失败通常由 validate 接口以 `200 valid=false` 返回诊断；在发布等需要异常的路径中返回 `422 audio_graph_invalid`。
@@ -103,4 +105,3 @@ curl -sS -X POST "http://localhost:8000/api/v1/audio-workflows/$WORKFLOW_ID/publ
 - `engine_revisions` 以 node ID 为 key，值为发布时 Engine revision。
 - active 读取在未发布时返回 `412 precondition_failed`。
 - restore 不修改 active；它占用一个新的 draft revision，因此仍需 validate 和 publish。
-

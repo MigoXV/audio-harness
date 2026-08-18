@@ -11,12 +11,13 @@ AHA v1 为 OpenAI Realtime 事件流追加 Audio Harness 特有的中间转写�
 - 客户端应先按原始 JSON 的 `type` 分派 `x_aha.*`，再把其他事件交给 OpenAI SDK 类型解析。
 - 新增可选字段不视为破坏性变更；客户端必须忽略未知字段。事件名、既有字段含义或覆盖规则变化需要新版本。
 
-所有事件都带服务端唯一 `event_id`。带 `item_id` 的事件与同一轮 OpenAI speech/transcription item 对齐；毫秒时间均为会话输入音频的绝对时间。
+所有事件都带服务端唯一 `event_id`。带 `item_id` 的事件与同一轮 OpenAI speech/transcription item 对齐；除 `x_aha.vad.progress.processed_audio_ms` 外，毫秒时间均为会话输入音频的绝对时间。
 
 ## 事件总表
 
 | 事件 | 产生条件 | 失败影响 |
 | --- | --- | --- |
+| `x_aha.vad.progress` | 主物理 VAD 正在处理或已正常排空 | 观测事件，无失败变体 |
 | `x_aha.vad.physical_speech_stopped` | 物理 VAD 停止，但语义 VAD 判定轮次未结束 | 观测事件，无失败变体 |
 | `x_aha.input_audio_transcription.interim` | Workflow 有 interim 出口、自动 VAD、AHA 已协商 | 可跳过，不影响正式转写 |
 | `x_aha.input_audio_transcription.interim_cleared` | 正式转写开始或预览被替代 | 客户端清空临时文本 |
@@ -25,7 +26,32 @@ AHA v1 为 OpenAI Realtime 事件流追加 Audio Harness 特有的中间转写�
 | `x_aha.input_audio_transcription.speaker.delta/completed/failed` | ASR 消费 diarization segment | 单片段失败，不替代标准聚合转写 |
 | `x_aha.diarization.cluster.completed/failed` | Workflow 有 speaker clustering 出口 | 保留上一成功 revision，后续重连重放 |
 
-## 物理 VAD 进度
+## 物理 VAD 状态
+
+Harness 从稳定 `speech_started` 出口自动确定唯一的主物理 VAD，并根据下游单调采样游标生成进度；不会透传 VAD 引擎的原始事件、频率或额外字段。普通事件按物理 VAD 节点的 `progress_interval_seconds` 使用墙钟限频，默认最多 5 Hz；设为 `0` 时关闭。预览 VAD 不会重复报告。
+
+```json
+{
+  "type":"x_aha.vad.progress",
+  "event_id":"event_xxx",
+  "processed_audio_ms":82400
+}
+```
+
+正常排空时绕过限频并且只发送一次终值：
+
+```json
+{
+  "type":"x_aha.vad.progress",
+  "event_id":"event_xxx",
+  "processed_audio_ms":187765,
+  "final":true
+}
+```
+
+`processed_audio_ms` 是当前一次 commit 实际消费的完整 PCM 时长，包含尾部静音，不是连接累计值。普通事件省略 `final`，等同于 false。clear、异常取消、未协商 AHA v1 或节点配置为 `0` 时不会发送正常终值。
+
+物理停顿但语义轮次尚未完成时还会发送：
 
 ```json
 {
@@ -173,6 +199,23 @@ Workflow 的 `include_embedding=true` 时额外返回 `embedding:number[]`，可
 
 客户端只接受比当前 revision 新的 completed，并整体覆盖 assignments，绝不能按增量合并。`speaker_id=-1` 表示数据不足以形成稳定聚类。失败事件包含 `revision/replaces_revision/error`，不含 full snapshot；收到失败后保留上一成功快照。
 
+commit 完成全部 Workflow 输出后，会再发送一个更高 revision 的最终全量快照。即使没有说话人，`assignments` 也会是空数组；其 `processed_audio_ms` 与最终 VAD 进度相同并包含尾部静音。
+
+```json
+{
+  "type":"x_aha.diarization.cluster.completed",
+  "event_id":"event_xxx",
+  "revision":6,
+  "replaces_revision":5,
+  "full_snapshot":true,
+  "final":true,
+  "processed_audio_ms":187765,
+  "assignments":[]
+}
+```
+
+如果最近一次聚类或 Workflow 失败，终止事件为 `x_aha.diarization.cluster.failed`，带 `final:true`、`processed_audio_ms` 和 `error`，不会伪造成功快照。最终 VAD 进度先于最终聚类快照产生；其他并行分支仍不承诺全局事件顺序。
+
 引擎流失败后，节点会在下一批次重连并重放历史 embedding，因此后续成功 revision 仍可能重新分配所有历史 speaker ID。
 
 ## 客户端状态建议
@@ -185,4 +228,3 @@ vector item_id -> groups
 ```
 
 不同分支并行执行，跨分支事件没有全局顺序保证；只能依赖各自的 ID、revision/sequence 和原生 item 生命周期。
-

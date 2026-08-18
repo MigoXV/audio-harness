@@ -44,6 +44,7 @@ function physicalVad(document: AudioWorkflowDocument) {
         max_segment_seconds: 60,
         audio_buffer_seconds: 120,
         speech_pre_roll_seconds: 0.3,
+        progress_interval_seconds: 0.2,
         postprocessing: null,
       },
     };
@@ -122,6 +123,7 @@ function interimPhysicalVad(
       max_segment_seconds: 2,
       audio_buffer_seconds: 10,
       speech_pre_roll_seconds: 0,
+      progress_interval_seconds: 0.2,
       postprocessing: {
         processor: "firered.stream_vad" as const,
         version: 1 as const,

@@ -34,6 +34,7 @@ from audio_harness.workflows.events import (
     SpeakerTranscriptionResult,
     SpeechStarted,
     SpeechStopped,
+    VadProgress,
     VectorSearchResult,
 )
 from audio_harness.workflows.models import (
@@ -89,6 +90,7 @@ def _join_transcript_parts(parts: list[str]) -> str:
 AudioOutputPayload = (
     SpeechStarted
     | SpeechStopped
+    | VadProgress
     | AsrInferencer.Result
     | VectorSearchResult
     | DiarizationLocalResult
@@ -518,7 +520,61 @@ class RollingPcmBuffer:
         return bytes(self._storage[read_at:]) + bytes(self._storage[: size - first])
 
 
-PhysicalEmission = tuple[str, _SegmentCandidate | SpeechStarted | SpeechStopped]
+PhysicalEmission = tuple[
+    str,
+    _SegmentCandidate | SpeechStarted | SpeechStopped,
+]
+
+
+class VadProgressLimiter:
+    """将下游 VAD 游标归一化为受墙钟频率限制的进度事件。"""
+
+    def __init__(
+        self,
+        *,
+        interval_seconds: float,
+        sample_rate: int,
+    ) -> None:
+        if interval_seconds <= 0:
+            raise ValueError("VAD 进度间隔必须大于 0")
+        if sample_rate <= 0:
+            raise ValueError("VAD 进度采样率必须大于 0")
+        self._interval_seconds = interval_seconds
+        self._sample_rate = sample_rate
+        self._latest_samples = 0
+        self._last_emitted_at: float | None = None
+
+    def update(
+        self,
+        processed_samples: int,
+        *,
+        available_samples: int,
+        now: float | None = None,
+    ) -> VadProgress | None:
+        normalized = max(
+            self._latest_samples,
+            min(max(processed_samples, 0), max(available_samples, 0)),
+        )
+        self._latest_samples = normalized
+        observed_at = time.monotonic() if now is None else now
+        if (
+            self._last_emitted_at is not None
+            and observed_at - self._last_emitted_at < self._interval_seconds
+        ):
+            return None
+        self._last_emitted_at = observed_at
+        return VadProgress(
+            processed_samples=normalized,
+            sample_rate=self._sample_rate,
+        )
+
+    def finish(self, processed_samples: int) -> VadProgress:
+        self._latest_samples = max(processed_samples, 0)
+        return VadProgress(
+            processed_samples=self._latest_samples,
+            sample_rate=self._sample_rate,
+            final=True,
+        )
 
 
 class PhysicalVadSession:
@@ -533,6 +589,10 @@ class PhysicalVadSession:
         self._audio = RollingPcmBuffer(capacity)
         self._active_start: int | None = None
         self._last_processed = 0
+
+    @property
+    def end_sample(self) -> int:
+        return self._audio.end_sample
 
     def append(self, chunk: PcmChunk) -> None:
         if chunk.start_sample != self._audio.end_sample:
@@ -749,6 +809,7 @@ class _EdgeRouter:
         output: asyncio.Queue[AudioWorkflowOutput | BaseException | object],
         active_nodes: set[str],
         active_outputs: set[str],
+        implicit_bindings: Mapping[tuple[str, str], tuple[str, ...]] | None = None,
     ) -> None:
         self._output = output
         self._sequence = 0
@@ -791,6 +852,12 @@ class _EdgeRouter:
             self._bindings.setdefault(
                 (binding.source.node_id, binding.source.port), []
             ).append(binding.name)
+        for source, names in (implicit_bindings or {}).items():
+            self._bindings.setdefault(source, []).extend(names)
+
+    def has_consumers(self, node_id: str, port: str) -> bool:
+        source = (node_id, port)
+        return bool(self._outgoing.get(source) or self._bindings.get(source))
 
     def input(self, node_id: str, port: str) -> asyncio.Queue[object]:
         try:
@@ -807,6 +874,7 @@ class _EdgeRouter:
                 (
                     SpeechStarted,
                     SpeechStopped,
+                    VadProgress,
                     AsrInferencer.Result,
                     VectorSearchResult,
                     DiarizationLocalResult,
@@ -993,6 +1061,28 @@ class AudioWorkflowRuntime:
             active_outputs.add("speaker_transcript")
             active_outputs.add("diarization_cluster")
         active_nodes = _output_ancestors(self._plan, active_outputs)
+        implicit_bindings: dict[tuple[str, str], tuple[str, ...]] = {}
+        if request.include_vad_progress:
+            speech_started = next(
+                (
+                    binding
+                    for binding in self._plan.definition.outputs
+                    if binding.name == "speech_started"
+                ),
+                None,
+            )
+            if speech_started is not None:
+                source_node = self._plan.nodes.get(
+                    speech_started.source.node_id
+                )
+                if (
+                    source_node is not None
+                    and isinstance(source_node.definition, PhysicalVadNode)
+                    and source_node.definition.config.progress_interval_seconds > 0
+                ):
+                    implicit_bindings[
+                        (speech_started.source.node_id, "progress")
+                    ] = ("vad_progress",)
         protected_nodes = _output_ancestors(
             self._plan,
             available_outputs.difference({"interim_transcript"}),
@@ -1007,6 +1097,7 @@ class AudioWorkflowRuntime:
             output=output,
             active_nodes=active_nodes,
             active_outputs=active_outputs,
+            implicit_bindings=implicit_bindings,
         )
         tasks = [
             asyncio.create_task(
@@ -1175,12 +1266,23 @@ class AudioWorkflowRuntime:
         state = PhysicalVadSession(definition.config, request.recognition.sample_rate)
         inferencer = self._vad_inferencers[node_id]
         queue = router.input(node_id, "audio")
+        progress = (
+            VadProgressLimiter(
+                interval_seconds=definition.config.progress_interval_seconds,
+                sample_rate=request.recognition.sample_rate,
+            )
+            if router.has_consumers(node_id, "progress")
+            else None
+        )
+        input_drained = False
 
         async def recorded() -> AsyncIterator[bytes]:
+            nonlocal input_drained
             async for item in _items(queue):
                 chunk = cast(PcmChunk, item)
                 state.append(chunk)
                 yield chunk.pcm_s16le
+            input_drained = True
 
         async def publish(values: list[PhysicalEmission]) -> None:
             for port, payload in values:
@@ -1214,7 +1316,20 @@ class AudioWorkflowRuntime:
             if not isinstance(update, VadInferencer.Update):
                 raise TypeError(f"非法 VAD 更新类型: {type(update)!r}")
             await publish(state.update(update))
+            if progress is not None:
+                event = progress.update(
+                    update.processed_samples,
+                    available_samples=state.end_sample,
+                )
+                if event is not None:
+                    await router.emit(node_id, "progress", event)
         await publish(state.finish())
+        if progress is not None and input_drained:
+            await router.emit(
+                node_id,
+                "progress",
+                progress.finish(state.end_sample),
+            )
 
     async def _semantic_vad(
         self,

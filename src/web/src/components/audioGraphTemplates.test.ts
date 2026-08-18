@@ -6,7 +6,7 @@ import { applyAudioGraphTemplate } from "./audioGraphTemplates";
 const existing: AudioWorkflowDocument = {
   schema_version: 1,
   nodes: [
-    { id: "custom-vad", kind: "physical_vad", engine_id: "vad-1", config: { min_segment_seconds: 1, max_segment_seconds: 30, audio_buffer_seconds: 40, speech_pre_roll_seconds: 0.2 } },
+    { id: "custom-vad", kind: "physical_vad", engine_id: "vad-1", config: { min_segment_seconds: 1, max_segment_seconds: 30, audio_buffer_seconds: 40, speech_pre_roll_seconds: 0.2, progress_interval_seconds: 0.2 } },
     { id: "custom-semantic", kind: "semantic_vad", engine_id: "semantic-1", config: { max_buffer_seconds: 20 }, failure_policy: "fail_pipeline" },
     { id: "custom-asr", kind: "asr", engine_id: "asr-1", config: { remove_punctuation: false } },
   ],

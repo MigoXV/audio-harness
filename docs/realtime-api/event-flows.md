@@ -29,11 +29,16 @@ input_audio_buffer.append *
 input_audio_buffer.commit
   <- input_audio_buffer.committed
   <- conversation.item.added/done
+  <- x_aha.vad.progress *
   <- transcription.delta *
   <- transcription.completed
+  <- x_aha.vad.progress(final=true, full input duration)
+  <- x_aha.diarization.cluster.completed(final=true, full snapshot)
 ```
 
 空 buffer commit 返回 error，连接仍可使用。`input_audio_buffer.clear` 会丢弃未提交音频并返回 cleared。手动模式不发送 speech started/stopped，也不执行 AHA interim 分支。
+
+最终 VAD 进度只表示主物理 VAD 已正常消费并排空完整 PCM，包含尾部静音。最终聚类快照要等重采样器、VAD、局部分离和聚类均完成后才发送；没有说话人时 assignments 为空。聚类或 Workflow 失败时最后一项改为 `x_aha.diarization.cluster.failed(final=true)`。
 
 ## AHA interim 到正式结果
 
@@ -103,3 +108,4 @@ VAD audio segment
 
 三条分支并行，没有固定先后。主 ASR 的完成不代表人物检索/聚类一定完成；客户端按 item/batch/revision 分别维护状态，并允许 fail-open 分支缺失。
 
+commit 的尾部排空是例外：主物理 VAD 的 `x_aha.vad.progress(final=true)` 一定先于最终聚类完成/失败快照；其他并行分支之间仍没有固定先后。

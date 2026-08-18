@@ -9,7 +9,7 @@ import type { AudioHarnessApi, AudioWorkflowDocument, VoiceAgentDefinition } fro
 const document: AudioWorkflowDocument = {
   schema_version: 1,
   nodes: [
-    { id: "physical-vad", kind: "physical_vad", engine_id: "vad-1", config: { min_segment_seconds: .5, max_segment_seconds: 60, audio_buffer_seconds: 120, speech_pre_roll_seconds: .3 } },
+    { id: "physical-vad", kind: "physical_vad", engine_id: "vad-1", config: { min_segment_seconds: .5, max_segment_seconds: 60, audio_buffer_seconds: 120, speech_pre_roll_seconds: .3, progress_interval_seconds: .2 } },
     { id: "asr", kind: "asr", engine_id: "asr-1", config: { remove_punctuation: false } },
   ],
   edges: [

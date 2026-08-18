@@ -71,12 +71,17 @@ class AudioWorkflowSession:
         )
         self._finished = False
         self._closed = False
+        self._processed_samples = 0
         self._vectors = vectors
         self._task: asyncio.Task[None] | None = None
 
     @property
     def workflow(self) -> ActiveAudioWorkflow:
         return self._workflow
+
+    @property
+    def processed_samples(self) -> int:
+        return self._processed_samples
 
     async def start(self) -> None:
         if self._closed:
@@ -149,6 +154,7 @@ class AudioWorkflowSession:
                 start_sample=start_sample,
             )
             start_sample = chunk.end_sample
+            self._processed_samples = start_sample
             yield chunk
 
     async def _run(self, runtime: AudioWorkflowRuntime) -> None:
