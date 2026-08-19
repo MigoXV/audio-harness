@@ -14,12 +14,14 @@ def test_load_config_from_environment(
         "sqlite+aiosqlite:///./data/test.db",
     )
     monkeypatch.setenv("VOICE_STORAGE_DIR", "./data/test-voices")
+    monkeypatch.setenv("RECEIVED_AUDIO_CACHE_DIR", "./data/test-cache")
 
     config = AppConfig.from_environment()
 
     assert config.database.url == "sqlite+aiosqlite:///./data/test.db"
     assert config.voices.storage_dir == Path("data/test-voices")
     assert config.voices.max_upload_bytes == 20 * 1024 * 1024
+    assert config.received_audio_cache.storage_dir == Path("data/test-cache")
     assert config.workflow.min_chunk_bytes == 640
     assert config.http.port == 8000
     assert config.limits.max_message_bytes == 4 * 1024 * 1024
@@ -46,6 +48,18 @@ def test_rejects_odd_pcm_chunk_size() -> None:
         AppConfig.model_validate(
             {
                 "workflow": {"min_chunk_bytes": 3},
+            }
+        )
+
+
+def test_rejects_invalid_received_audio_cache_periods() -> None:
+    with pytest.raises(ValidationError, match="整数倍"):
+        AppConfig.model_validate(
+            {
+                "workflow": {
+                    "received_audio_cache_block_seconds": 6,
+                    "received_audio_cache_file_seconds": 10,
+                }
             }
         )
 

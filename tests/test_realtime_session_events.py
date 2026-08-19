@@ -30,11 +30,74 @@ _SERVER_EVENTS = TypeAdapter(RealtimeServerEvent)
 
 
 class _Settings:
-    def __init__(self) -> None:
-        self.snapshot = SimpleNamespace(config=WorkflowRuntimeConfig())
+    def __init__(self, config: WorkflowRuntimeConfig | None = None) -> None:
+        self.snapshot = SimpleNamespace(
+            config=config or WorkflowRuntimeConfig()
+        )
 
     def current(self):
         return self.snapshot
+
+
+@pytest.mark.asyncio
+async def test_realtime_session_uses_received_audio_cache_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    calls: list[tuple] = []
+
+    class _Cache:
+        def __init__(
+            self,
+            session_id: str,
+            *,
+            block_seconds: int,
+            file_seconds: int,
+            root,
+        ) -> None:
+            calls.append(
+                ("create", session_id, block_seconds, file_seconds, root)
+            )
+
+        def append(self, audio: bytes) -> None:
+            calls.append(("append", audio))
+
+        async def close(self) -> None:
+            calls.append(("close",))
+
+    monkeypatch.setattr(
+        "audio_harness.serving.realtime.session.ReceivedAudioCache",
+        _Cache,
+    )
+
+    async def send_event(_event) -> None:
+        return None
+
+    session = RealtimeTranscriptionSession(
+        send_event=send_event,
+        session_service=object(),  # type: ignore[arg-type]
+        workflow_settings=_Settings(
+            WorkflowRuntimeConfig(
+                received_audio_cache_enabled=True,
+                received_audio_cache_block_seconds=7,
+                received_audio_cache_file_seconds=21,
+            )
+        ),  # type: ignore[arg-type]
+        model="audio",
+        target=_profile().audio_workflow,
+        session_identifier="sess_cache",
+        received_audio_cache_dir=tmp_path,
+    )
+    session._turn_detection = None
+
+    await session.append_engine_audio(b"\x00\x00\x01\x00")
+    await session.close()
+
+    assert calls == [
+        ("create", "sess_cache", 7, 21, tmp_path),
+        ("append", b"\x00\x00\x01\x00"),
+        ("close",),
+    ]
 
 
 class _AgentRoute:

@@ -118,6 +118,34 @@ def engine_payload(
     return payload
 
 
+@pytest.mark.asyncio
+async def test_received_audio_cache_settings_are_persisted(
+    control_plane: ControlPlane,
+) -> None:
+    current = await control_plane.client.get("/api/v1/settings/workflow")
+    assert current.status_code == 200
+    payload = current.json()
+    assert payload["received_audio_cache_enabled"] is False
+    assert payload["received_audio_cache_block_seconds"] == 5
+    assert payload["received_audio_cache_file_seconds"] == 300
+
+    payload.update(
+        received_audio_cache_enabled=True,
+        received_audio_cache_block_seconds=10,
+        received_audio_cache_file_seconds=600,
+    )
+    payload.pop("updated_at")
+    updated = await control_plane.client.put(
+        "/api/v1/settings/workflow",
+        json=payload,
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["received_audio_cache_enabled"] is True
+    assert updated.json()["received_audio_cache_block_seconds"] == 10
+    assert updated.json()["received_audio_cache_file_seconds"] == 600
+
+
 async def create_audio_engines(client: httpx.AsyncClient) -> tuple[str, str]:
     vad = await client.post(
         "/api/v1/engines",
@@ -561,7 +589,7 @@ def test_vector_space_registry_revision_can_be_cleaned_up(tmp_path: Path) -> Non
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
     assert "vector_spaces" not in tables
-    assert revision == ("0004_remove_grpc_server",)
+    assert revision == ("0005_received_audio_cache",)
 
 
 def test_grpc_server_columns_are_removed_without_losing_settings(

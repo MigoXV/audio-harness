@@ -2193,6 +2193,21 @@ export interface components {
              * @default 32
              */
             result_queue_capacity: number;
+            /**
+             * Received Audio Cache Enabled
+             * @default false
+             */
+            received_audio_cache_enabled: boolean;
+            /**
+             * Received Audio Cache Block Seconds
+             * @default 5
+             */
+            received_audio_cache_block_seconds: number;
+            /**
+             * Received Audio Cache File Seconds
+             * @default 300
+             */
+            received_audio_cache_file_seconds: number;
             /** Revision */
             revision: number;
             /**
@@ -2228,6 +2243,21 @@ export interface components {
              * @default 32
              */
             result_queue_capacity: number;
+            /**
+             * Received Audio Cache Enabled
+             * @default false
+             */
+            received_audio_cache_enabled: boolean;
+            /**
+             * Received Audio Cache Block Seconds
+             * @default 5
+             */
+            received_audio_cache_block_seconds: number;
+            /**
+             * Received Audio Cache File Seconds
+             * @default 300
+             */
+            received_audio_cache_file_seconds: number;
             /** Revision */
             revision: number;
         };

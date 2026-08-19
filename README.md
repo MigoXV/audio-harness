@@ -146,6 +146,7 @@ poetry run audio-harness serve
 | `DATABASE_URL` | `sqlite+aiosqlite:///./data-bin/sqlite/audio-harness.db` | SQLite 数据库 |
 | `HTTP_HOST` / `HTTP_PORT` | `0.0.0.0` / `8000` | HTTP、WSS 与 WebRTC 信令地址 |
 | `VOICE_STORAGE_DIR` | `./data-bin/voices` | 参考音频目录 |
+| `RECEIVED_AUDIO_CACHE_DIR` | `./data-bin/cache` | 接收音频缓存根目录 |
 | `QDRANT_GRPC_TARGET` | 未配置 | Qdrant 正式数据面，例如 `192.168.0.222:16334` |
 | `QDRANT_HTTP_URL` | 未配置 | Qdrant Dashboard 与健康检查，例如 `http://192.168.0.222:16333` |
 
@@ -180,6 +181,24 @@ Qdrant 是 Collection、Named Vector、Point 和 payload 的唯一事实来源�
 - [WebRTC 接入](docs/realtime-api/webrtc.md)
 - [下游推理引擎协议](docs/engine-integration/README.md)
 - [机器可读 OpenAPI](docs/reference/openapi.json)
+
+## 接收音频缓存
+
+“接入与运行”的高级设置可以为新建的 Realtime WSS 和 WebRTC 会话开启
+接收音频缓存。缓存记录服务端重采样后实际送入工作流的 16 kHz、单声道、
+PCM S16LE 音频；默认每 5 秒提交一个后台写入块，每 300 秒发布一个 WAV 文件，
+会话关闭时也会发布不足一个完整周期的尾文件。
+
+缓存根目录由 `RECEIVED_AUDIO_CACHE_DIR` 环境变量配置，默认是
+`./data-bin/cache`。文件写入该目录下的
+`<UTC 日期>/<session-id>/<缓存实例>/`。当前文件使用
+`.wav.part` 后缀，正常收口后原子改名为 `.wav`；异常退出遗留的临时文件原样
+保留。缓存队列拥塞或磁盘写入失败只会停用当前会话的后续缓存，不会中断实时
+处理。设置更新只影响新会话，已建立的会话继续使用创建时的配置快照。
+
+主程序不会删除任何历史缓存，也不提供缓存浏览、下载或保留期清理 API。
+生产环境应把该目录放在独立缓存卷中，并由具有独立、受限权限的运维设施负责
+容量监控和生命周期管理。
 
 ## OpenAPI 与前端类型
 
