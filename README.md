@@ -38,6 +38,7 @@ Realtime / WebRTC 数据面 ───────────┘
 | Speaker Diarization | `audio_segment` | `audio_segment`、`diarization_local_result` | `ux_speaker_diarization` |
 | Audio Embedding | `audio_segment` | `embedding` | `engine_feature` |
 | Vector Search | `embedding` | `vector_search_result` | 无 |
+| Speaker Filter | `audio_segment`、`vector_search_result` | `audio_segment`、`speaker_filter_result`、VAD 事件 | 无 |
 
 节点类型不是动态插件。编译器会统一检查：
 
@@ -155,6 +156,8 @@ poetry run audio-harness serve
 Qdrant 是 Collection、Named Vector、Point 和 payload 的唯一事实来源；Audio Harness
 不在 SQLite 中复制向量空间注册表。系统支持通用 Collection、voiceprint 模板、音频
 登记、VAD 预处理、按人物分组搜索，以及工作流内的 Embedding → Vector Search 分支。
+人物搜索后还可以连接“说话人过滤”节点：它同时接收原始语音片段和检索结果，
+只有白名单人物达到门控分数时才将音频送入 ASR；未匹配、低分和检索失败均静默拒绝。
 完整字段、curl 示例和 `x_aha.vector.*` 事件分别见[向量检索接口](docs/control-plane/vectors.md)
 与 [AHA v1 协议](docs/realtime-api/aha-v1.md)。
 

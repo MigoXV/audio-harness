@@ -66,7 +66,7 @@ class AhaVectorSearchGroup(AhaProtocolModel):
 
 
 class AhaVectorSearchEventBase(AhaV1ServerEventBase):
-    item_id: str
+    item_id: str | None = None
     audio_start_ms: NonNegativeInt
     audio_end_ms: NonNegativeInt
     collection_name: str
@@ -82,6 +82,27 @@ class AhaVectorSearchCompletedEvent(AhaVectorSearchEventBase):
 
 class AhaVectorSearchFailedEvent(AhaVectorSearchEventBase):
     type: Literal["x_aha.vector.search.failed"]
+    error: AhaError
+
+
+class AhaSpeakerFilterEventBase(AhaV1ServerEventBase):
+    audio_start_ms: NonNegativeInt
+    audio_end_ms: NonNegativeInt
+
+
+class AhaSpeakerFilterMatchedEvent(AhaSpeakerFilterEventBase):
+    type: Literal["x_aha.speaker_filter.matched"]
+    speaker_id: str
+    score: float
+
+
+class AhaSpeakerFilterRejectedEvent(AhaSpeakerFilterEventBase):
+    type: Literal["x_aha.speaker_filter.rejected"]
+    reason: Literal["no_match", "speaker_not_allowed", "score_too_low"]
+
+
+class AhaSpeakerFilterFailedEvent(AhaSpeakerFilterEventBase):
+    type: Literal["x_aha.speaker_filter.failed"]
     error: AhaError
 
 
@@ -190,6 +211,9 @@ AhaV1ServerEvent: TypeAlias = (
     | AhaInputAudioTranscriptionInterimClearedEvent
     | AhaVectorSearchCompletedEvent
     | AhaVectorSearchFailedEvent
+    | AhaSpeakerFilterMatchedEvent
+    | AhaSpeakerFilterRejectedEvent
+    | AhaSpeakerFilterFailedEvent
     | AhaDiarizationLocalDeltaEvent
     | AhaDiarizationLocalCompletedEvent
     | AhaDiarizationLocalFailedEvent

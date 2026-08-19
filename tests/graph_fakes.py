@@ -13,6 +13,8 @@ from audio_harness.engines.models import (
 from audio_harness.workflows.compiler import compile_audio_graph
 from audio_harness.workflows.models import (
     AsrNode,
+    AudioEmbeddingNode,
+    AudioEmbeddingNodeConfig,
     AudioEdge,
     AudioWorkflowDocument,
     GraphInputRef,
@@ -22,6 +24,10 @@ from audio_harness.workflows.models import (
     PhysicalVadConfig,
     PhysicalVadNode,
     SemanticVadNode,
+    SpeakerFilterNode,
+    SpeakerFilterNodeConfig,
+    VectorSearchNode,
+    VectorSearchNodeConfig,
 )
 from audio_harness.workflows.service import ActiveAudioWorkflow
 
@@ -105,6 +111,7 @@ def static_audio_workflow(
     vad: object,
     semantic_vad: object | None = None,
     physical_config: PhysicalVadConfig | None = None,
+    speaker_filter: bool = False,
 ) -> tuple[StaticInferencerPool, StaticAudioWorkflowService, ActiveAudioWorkflow]:
     config = physical_config or PhysicalVadConfig(
         min_segment_seconds=0,
@@ -128,6 +135,7 @@ def static_audio_workflow(
         )
     ]
     segment_source = "physical-vad"
+    start_source = "physical-vad"
     stop_source = "physical-vad"
     inferencers: dict[tuple[str, int], object] = {
         ("vad-engine", 1): vad,
@@ -168,13 +176,107 @@ def static_audio_workflow(
             kind=EngineKind.VAD,
             api=EngineApi.UX_VAD,
         )
-    edges.append(
-        AudioEdge(
-            id="segments-asr",
-            source=NodeOutputRef(node_id=segment_source, port="segments"),
-            target=NodeInputRef(node_id="asr", port="segments"),
+    if speaker_filter:
+        nodes.extend(
+            [
+                AudioEmbeddingNode(
+                    id="embedding",
+                    engine_id="embedding-engine",
+                    config=AudioEmbeddingNodeConfig(
+                        algorithm="test",
+                        expected_dimension=2,
+                    ),
+                ),
+                VectorSearchNode(
+                    id="vector-search",
+                    config=VectorSearchNodeConfig(
+                        collection_name="voiceprints",
+                        vector_name="test",
+                    ),
+                ),
+                SpeakerFilterNode(
+                    id="speaker-filter",
+                    config=SpeakerFilterNodeConfig(
+                        allowed_speaker_ids=["speaker-1"],
+                    ),
+                ),
+            ]
         )
-    )
+        edges.extend(
+            [
+                AudioEdge(
+                    id="segments-embedding",
+                    source=NodeOutputRef(
+                        node_id=segment_source,
+                        port="segments",
+                    ),
+                    target=NodeInputRef(
+                        node_id="embedding",
+                        port="segments",
+                    ),
+                ),
+                AudioEdge(
+                    id="embedding-search",
+                    source=NodeOutputRef(
+                        node_id="embedding",
+                        port="embeddings",
+                    ),
+                    target=NodeInputRef(
+                        node_id="vector-search",
+                        port="embeddings",
+                    ),
+                ),
+                AudioEdge(
+                    id="segments-filter",
+                    source=NodeOutputRef(
+                        node_id=segment_source,
+                        port="segments",
+                    ),
+                    target=NodeInputRef(
+                        node_id="speaker-filter",
+                        port="segments",
+                    ),
+                ),
+                AudioEdge(
+                    id="search-filter",
+                    source=NodeOutputRef(
+                        node_id="vector-search",
+                        port="results",
+                    ),
+                    target=NodeInputRef(
+                        node_id="speaker-filter",
+                        port="results",
+                    ),
+                ),
+                AudioEdge(
+                    id="filter-asr",
+                    source=NodeOutputRef(
+                        node_id="speaker-filter",
+                        port="segments",
+                    ),
+                    target=NodeInputRef(node_id="asr", port="segments"),
+                ),
+            ]
+        )
+        inferencers[("embedding-engine", 1)] = object()
+        assets["embedding-engine"] = _asset(
+            "embedding-engine",
+            kind=EngineKind.EMBEDDING,
+            api=EngineApi.ENGINE_FEATURE,
+        )
+        start_source = "speaker-filter"
+        stop_source = "speaker-filter"
+    else:
+        edges.append(
+            AudioEdge(
+                id="segments-asr",
+                source=NodeOutputRef(
+                    node_id=segment_source,
+                    port="segments",
+                ),
+                target=NodeInputRef(node_id="asr", port="segments"),
+            )
+        )
     document = AudioWorkflowDocument(
         nodes=nodes,
         edges=edges,
@@ -185,7 +287,10 @@ def static_audio_workflow(
             ),
             NamedOutputBinding(
                 name="speech_started",
-                source=NodeOutputRef(node_id="physical-vad", port="speech_started"),
+                source=NodeOutputRef(
+                    node_id=start_source,
+                    port="speech_started",
+                ),
             ),
             NamedOutputBinding(
                 name="speech_stopped",
@@ -202,6 +307,19 @@ def static_audio_workflow(
                     )
                 ]
                 if semantic_vad is not None
+                else []
+            ),
+            *(
+                [
+                    NamedOutputBinding(
+                        name="speaker_filter",
+                        source=NodeOutputRef(
+                            node_id="speaker-filter",
+                            port="decisions",
+                        ),
+                    )
+                ]
+                if speaker_filter
                 else []
             ),
         ],

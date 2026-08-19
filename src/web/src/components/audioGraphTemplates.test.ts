@@ -127,6 +127,39 @@ describe("audio graph templates", () => {
     expect(result.nodes.find((node) => node.id === "asr")?.config).toMatchObject({ remove_punctuation: false });
   });
 
+  it("builds a fail-closed vector unlock graph", () => {
+    const result = applyAudioGraphTemplate(existing, "vector_unlock", [{
+      collection_name: "voiceprints",
+      vectors: [{ name: "eres2netv2", size: 192, distance: "cosine" }],
+      template: "voiceprint",
+    }]);
+
+    expect(result.nodes.find((node) => node.kind === "speaker_filter")).toMatchObject({
+      id: "speaker-filter",
+      config: { allowed_speaker_ids: ["speaker-001"], min_score: 0.75 },
+    });
+    expect(result.edges).toContainEqual({
+      id: "semantic-vad-to-speaker-filter",
+      source: { kind: "node", node_id: "semantic-vad", port: "segments" },
+      target: { node_id: "speaker-filter", port: "segments" },
+    });
+    expect(result.edges).toContainEqual({
+      id: "vector-search-to-speaker-filter",
+      source: { kind: "node", node_id: "vector-search", port: "results" },
+      target: { node_id: "speaker-filter", port: "results" },
+    });
+    expect(result.outputs).toContainEqual({
+      name: "speaker_filter",
+      source: { kind: "node", node_id: "speaker-filter", port: "decisions" },
+    });
+    expect(result.outputs).toContainEqual({
+      name: "turn_progress",
+      source: { kind: "node", node_id: "semantic-vad", port: "turn_progress" },
+    });
+    expect(result.outputs.find((output) => output.name === "speech_started")?.source.node_id).toBe("speaker-filter");
+    expect(result.outputs.find((output) => output.name === "speech_stopped")?.source.node_id).toBe("speaker-filter");
+  });
+
   it("builds the complete meeting graph with vector search on semantic segments", () => {
     const result = applyAudioGraphTemplate(existing, "meeting_complete", [{
       collection_name: "meeting-features",

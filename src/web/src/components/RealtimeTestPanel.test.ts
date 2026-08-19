@@ -8,10 +8,13 @@ import {
   isResponseTextDelta,
   isTtsFirstAudio,
   appendGroupedEvent,
+  completedTranscriptIsSuperseded,
   eventDetail,
   nextTranscriptView,
   realtimeEndpoint,
   realtimeSessionUpdate,
+  speakerFilterEventView,
+  speakerFilterReasonLabel,
   vectorSearchEventView,
   type TranscriptView,
 } from "./RealtimeTestPanel";
@@ -159,6 +162,28 @@ describe("eventDetail", () => {
       error: { code: "vector_search_failed", message: "Qdrant 不可用" },
     })).toBe("Qdrant 不可用");
   });
+
+  it("describes speaker filter decisions", () => {
+    expect(eventDetail({
+      type: "x_aha.speaker_filter.matched",
+      speaker_id: "speaker-1",
+      score: 0.9321,
+      audio_start_ms: 100,
+      audio_end_ms: 2300,
+    })).toBe("已放行 speaker-1 · 分数 0.9321 · 100–2300 ms");
+    expect(eventDetail({
+      type: "x_aha.speaker_filter.rejected",
+      reason: "speaker_not_allowed",
+      audio_start_ms: 100,
+      audio_end_ms: 2300,
+    })).toBe("已拒绝 · 说话人不在允许列表 · 100–2300 ms");
+    expect(eventDetail({
+      type: "x_aha.speaker_filter.failed",
+      error: { message: "人物检索不可用" },
+      audio_start_ms: 100,
+      audio_end_ms: 2300,
+    })).toBe("过滤失败 · 人物检索不可用 · 100–2300 ms");
+  });
 });
 
 describe("vectorSearchEventView", () => {
@@ -196,6 +221,58 @@ describe("vectorSearchEventView", () => {
       status: "failed",
       groups: [],
       error: "Qdrant 不可用",
+    });
+  });
+});
+
+describe("speakerFilterEventView", () => {
+  it("parses a matched decision", () => {
+    expect(speakerFilterEventView({
+      type: "x_aha.speaker_filter.matched",
+      speaker_id: "speaker-1",
+      score: 0.9321,
+      audio_start_ms: 100,
+      audio_end_ms: 2300,
+    })).toEqual({
+      status: "matched",
+      speakerId: "speaker-1",
+      score: 0.9321,
+      reason: null,
+      error: null,
+      audioStartMs: 100,
+      audioEndMs: 2300,
+    });
+  });
+
+  it.each([
+    ["no_match", "未检索到匹配说话人"],
+    ["speaker_not_allowed", "说话人不在允许列表"],
+    ["score_too_low", "匹配分数低于门槛"],
+  ])("maps the rejected reason %s", (reason, label) => {
+    expect(speakerFilterReasonLabel(reason)).toBe(label);
+    expect(speakerFilterEventView({
+      type: "x_aha.speaker_filter.rejected",
+      reason,
+      audio_start_ms: 0,
+      audio_end_ms: 1000,
+    })).toMatchObject({ status: "rejected", reason: label });
+  });
+
+  it("parses failures and ignores unrelated events", () => {
+    expect(speakerFilterEventView({ type: "response.done" })).toBeNull();
+    expect(speakerFilterEventView({
+      type: "x_aha.speaker_filter.failed",
+      error: { message: "人物检索不可用" },
+      audio_start_ms: 0,
+      audio_end_ms: 1000,
+    })).toEqual({
+      status: "failed",
+      speakerId: null,
+      score: null,
+      reason: null,
+      error: "人物检索不可用",
+      audioStartMs: 0,
+      audioEndMs: 1000,
     });
   });
 });
@@ -313,6 +390,41 @@ describe("nextTranscriptView", () => {
       item_id: "old",
       transcript: "迟到的上一轮最终结果",
     })).toEqual(current);
+  });
+
+  it("keeps delayed transcription visible while the next filtered turn is only listening", () => {
+    let view: TranscriptView = { phase: "idle", text: "", itemId: null };
+
+    view = nextTranscriptView(view, {
+      type: "input_audio_buffer.speech_started",
+      item_id: "item-1",
+    });
+    view = nextTranscriptView(view, {
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "item-1",
+      delta: "第一",
+    });
+    view = nextTranscriptView(view, {
+      type: "input_audio_buffer.speech_started",
+      item_id: "item-2",
+    });
+    view = nextTranscriptView(view, {
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "item-1",
+      delta: "轮",
+    });
+    view = nextTranscriptView(view, {
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "item-1",
+      transcript: "第一轮。",
+    });
+
+    expect(view).toEqual({ phase: "final", text: "第一轮。", itemId: "item-1" });
+    expect(completedTranscriptIsSuperseded("item-1", "item-2", 0)).toBe(false);
+  });
+
+  it("still protects a newer interim transcript from an older completion", () => {
+    expect(completedTranscriptIsSuperseded("item-1", "item-2", 1)).toBe(true);
   });
 });
 

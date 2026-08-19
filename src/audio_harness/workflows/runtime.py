@@ -7,7 +7,7 @@ import time
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
-from typing import Any, NamedTuple, cast
+from typing import Any, Literal, NamedTuple, cast
 from uuid import uuid4
 
 from audio_harness.errors import CapacityExceededError
@@ -27,6 +27,7 @@ from audio_harness.workflows.compiler import (
     CompiledAudioGraph,
     CompiledAudioNode,
     PortKind,
+    speech_started_physical_vad,
 )
 from audio_harness.workflows.events import (
     AudioEmbeddingResult,
@@ -34,6 +35,7 @@ from audio_harness.workflows.events import (
     DiarizationClusterResult,
     DiarizationLocalResult,
     DiarizationSegment,
+    SpeakerFilterResult,
     SpeakerTranscriptionResult,
     SpeechStarted,
     SpeechStopped,
@@ -53,6 +55,7 @@ from audio_harness.workflows.models import (
     SemanticVadConfig,
     SemanticVadNode,
     AudioEmbeddingNode,
+    SpeakerFilterNode,
     VectorSearchNode,
 )
 from audio_harness.vectors.service import VectorService
@@ -96,6 +99,7 @@ AudioOutputPayload = (
     | VadProgress
     | AsrInferencer.Result
     | VectorSearchResult
+    | SpeakerFilterResult
     | DiarizationLocalResult
     | SpeakerTranscriptionResult
     | DiarizationClusterResult
@@ -109,6 +113,7 @@ class AudioInferenceRequest:
     include_vad_progress: bool = False
     include_interim_transcripts: bool = False
     include_vector_search: bool = False
+    include_speaker_filter: bool = False
     include_diarization: bool = False
 
 
@@ -982,6 +987,7 @@ class _EdgeRouter:
                     VadProgress,
                     AsrInferencer.Result,
                     VectorSearchResult,
+                    SpeakerFilterResult,
                     DiarizationLocalResult,
                     SpeakerTranscriptionResult,
                     DiarizationClusterResult,
@@ -1152,6 +1158,7 @@ class AudioWorkflowRuntime:
             {
                 "interim_transcript",
                 "vector_search",
+                "speaker_filter",
                 "diarization_local",
                 "speaker_transcript",
                 "diarization_cluster",
@@ -1161,6 +1168,8 @@ class AudioWorkflowRuntime:
             active_outputs.add("interim_transcript")
         if request.include_vector_search:
             active_outputs.add("vector_search")
+        if request.include_speaker_filter:
+            active_outputs.add("speaker_filter")
         if request.include_diarization:
             active_outputs.add("diarization_local")
             active_outputs.add("speaker_transcript")
@@ -1168,26 +1177,14 @@ class AudioWorkflowRuntime:
         active_nodes = _output_ancestors(self._plan, active_outputs)
         implicit_bindings: dict[tuple[str, str], tuple[str, ...]] = {}
         if request.include_vad_progress:
-            speech_started = next(
-                (
-                    binding
-                    for binding in self._plan.definition.outputs
-                    if binding.name == "speech_started"
-                ),
-                None,
-            )
-            if speech_started is not None:
-                source_node = self._plan.nodes.get(
-                    speech_started.source.node_id
+            physical_vad = speech_started_physical_vad(self._plan)
+            if (
+                physical_vad is not None
+                and physical_vad[1].config.progress_interval_seconds > 0
+            ):
+                implicit_bindings[(physical_vad[0], "progress")] = (
+                    "vad_progress",
                 )
-                if (
-                    source_node is not None
-                    and isinstance(source_node.definition, PhysicalVadNode)
-                    and source_node.definition.config.progress_interval_seconds > 0
-                ):
-                    implicit_bindings[
-                        (speech_started.source.node_id, "progress")
-                    ] = ("vad_progress",)
         protected_nodes = _output_ancestors(
             self._plan,
             available_outputs.difference({"interim_transcript"}),
@@ -1340,6 +1337,8 @@ class AudioWorkflowRuntime:
                 )
             elif node.spec.kind == "vector_search":
                 await self._vector_search(node_id, node, router)
+            elif node.spec.kind == "speaker_filter":
+                await self._speaker_filter(node_id, node, request, router)
             else:
                 raise RuntimeError(f"没有节点执行器: {node.spec.kind}")
         except asyncio.CancelledError:
@@ -2181,6 +2180,161 @@ class AudioWorkflowRuntime:
                 embedding=embedded.embedding if definition.config.include_embedding and code is None else None,
                 error_code=code, error_message=message,
             ))
+
+    async def _speaker_filter(
+        self,
+        node_id: str,
+        node: CompiledAudioNode,
+        request: AudioInferenceRequest,
+        router: _EdgeRouter,
+    ) -> None:
+        definition = cast(SpeakerFilterNode, node.definition)
+        incoming: asyncio.Queue[tuple[str, object | None]] = asyncio.Queue()
+
+        async def pump(port: str) -> None:
+            try:
+                async for value in _items(router.input(node_id, port)):
+                    await incoming.put((port, value))
+            finally:
+                await incoming.put((port, None))
+
+        pumps = [
+            asyncio.create_task(pump("segments"), name=f"{node_id}-segments"),
+            asyncio.create_task(pump("results"), name=f"{node_id}-results"),
+        ]
+        segments: dict[tuple[int, int, int], _SegmentCandidate] = {}
+        results: dict[tuple[int, int, int], VectorSearchResult] = {}
+        order: list[tuple[int, int, int]] = []
+        completed: set[str] = set()
+
+        async def emit_decision(
+            candidate: _SegmentCandidate,
+            result: VectorSearchResult | None,
+        ) -> None:
+            speaker_id: str | None = None
+            score: float | None = None
+            status: Literal["matched", "rejected", "failed"] = "rejected"
+            reason: Literal[
+                "matched",
+                "no_match",
+                "speaker_not_allowed",
+                "score_too_low",
+                "vector_search_failed",
+                "input_mismatch",
+            ] = "no_match"
+            if result is None or result.error_code is not None:
+                status = "failed"
+                reason = (
+                    "input_mismatch"
+                    if result is None
+                    else "vector_search_failed"
+                )
+            else:
+                allowed = set(definition.config.allowed_speaker_ids)
+                allowed_groups = [
+                    group
+                    for group in result.groups
+                    if str(group.get("speaker_id", "")) in allowed
+                ]
+                eligible = [
+                    group
+                    for group in allowed_groups
+                    if float(group.get("score", float("-inf")))
+                    >= definition.config.min_score
+                ]
+                if eligible:
+                    matched = max(
+                        eligible,
+                        key=lambda group: float(group["score"]),
+                    )
+                    speaker_id = str(matched["speaker_id"])
+                    score = float(matched["score"])
+                    status = "matched"
+                    reason = "matched"
+                elif allowed_groups:
+                    best = max(
+                        allowed_groups,
+                        key=lambda group: float(group.get("score", float("-inf"))),
+                    )
+                    speaker_id = str(best["speaker_id"])
+                    score = float(best.get("score", float("-inf")))
+                    reason = "score_too_low"
+                elif result.groups:
+                    reason = "speaker_not_allowed"
+            decision = SpeakerFilterResult(
+                start_sample=candidate.start_sample,
+                end_sample=candidate.end_sample,
+                sample_rate=request.recognition.sample_rate,
+                status=status,
+                reason=reason,
+                speaker_id=speaker_id,
+                score=score,
+            )
+            await router.emit(node_id, "decisions", decision)
+            if status != "matched":
+                return
+            if request.include_vad_events:
+                await router.emit(
+                    node_id,
+                    "speech_started",
+                    SpeechStarted(candidate.start_sample, request.recognition.sample_rate),
+                )
+                await router.emit(
+                    node_id,
+                    "speech_stopped",
+                    SpeechStopped(
+                        candidate.start_sample,
+                        candidate.end_sample,
+                        request.recognition.sample_rate,
+                    ),
+                )
+            await router.emit(node_id, "segments", candidate)
+
+        try:
+            while len(completed) < 2:
+                port, value = await incoming.get()
+                if value is None:
+                    completed.add(port)
+                elif port == "segments":
+                    candidate = cast(_SegmentCandidate, value)
+                    key = (
+                        candidate.start_sample,
+                        candidate.end_sample,
+                        request.recognition.sample_rate,
+                    )
+                    if key in segments:
+                        raise ValueError(f"说话人过滤收到重复音频区间: {key}")
+                    segments[key] = candidate
+                    order.append(key)
+                else:
+                    result = cast(VectorSearchResult, value)
+                    key = (result.start_sample, result.end_sample, result.sample_rate)
+                    if key in results:
+                        raise ValueError(f"说话人过滤收到重复检索区间: {key}")
+                    results[key] = result
+                while order and order[0] in results:
+                    ready = order.pop(0)
+                    await emit_decision(segments.pop(ready), results.pop(ready))
+
+            for key in order:
+                await emit_decision(segments[key], None)
+            for result in results.values():
+                await router.emit(
+                    node_id,
+                    "decisions",
+                    SpeakerFilterResult(
+                        start_sample=result.start_sample,
+                        end_sample=result.end_sample,
+                        sample_rate=result.sample_rate,
+                        status="failed",
+                        reason="input_mismatch",
+                    ),
+                )
+        finally:
+            for task in pumps:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*pumps, return_exceptions=True)
 
     @asynccontextmanager
     async def _asr_slot(self, *, best_effort: bool) -> AsyncIterator[None]:

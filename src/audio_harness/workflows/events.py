@@ -56,6 +56,24 @@ class VectorSearchResult:
 
 
 @dataclass(frozen=True)
+class SpeakerFilterResult:
+    start_sample: int
+    end_sample: int
+    sample_rate: int
+    status: Literal["matched", "rejected", "failed"]
+    reason: Literal[
+        "matched",
+        "no_match",
+        "speaker_not_allowed",
+        "score_too_low",
+        "vector_search_failed",
+        "input_mismatch",
+    ]
+    speaker_id: str | None = None
+    score: float | None = None
+
+
+@dataclass(frozen=True)
 class DiarizationSegment:
     segment_id: str
     start_sample: int

@@ -199,6 +199,28 @@ class VectorSearchNode(StrictModel):
     config: VectorSearchNodeConfig
 
 
+class SpeakerFilterNodeConfig(StrictModel):
+    allowed_speaker_ids: list[str] = Field(min_length=1, max_length=100)
+    min_score: float = Field(default=0.75, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_speaker_ids(self) -> "SpeakerFilterNodeConfig":
+        normalized = [value.strip() for value in self.allowed_speaker_ids]
+        if any(not value or len(value) > 128 for value in normalized):
+            raise ValueError("allowed_speaker_ids 必须为长度 1..128 的非空字符串")
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("allowed_speaker_ids 不能重复")
+        self.allowed_speaker_ids = normalized
+        return self
+
+
+class SpeakerFilterNode(StrictModel):
+    id: str = Field(min_length=1, max_length=100, pattern=_IDENTIFIER)
+    kind: Literal["speaker_filter"] = "speaker_filter"
+    engine_id: None = None
+    config: SpeakerFilterNodeConfig
+
+
 AudioNode = Annotated[
     PhysicalVadNode
     | SemanticVadNode
@@ -206,7 +228,8 @@ AudioNode = Annotated[
     | AudioEmbeddingNode
     | SpeakerDiarizationNode
     | SpeakerClusteringNode
-    | VectorSearchNode,
+    | VectorSearchNode
+    | SpeakerFilterNode,
     Field(discriminator="kind"),
 ]
 
