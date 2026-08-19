@@ -35,6 +35,7 @@ import type {
   AudioNodeType,
   AudioWorkflowDocument,
   EngineAsset,
+  GraphDiagnostic,
   NodePosition,
   VectorSpace,
 } from "../api/types";
@@ -47,7 +48,7 @@ interface Props {
   nodeTypes: AudioNodeType[];
   engines: EngineAsset[];
   vectorSpaces?: VectorSpace[];
-  diagnostics: Array<{ message: string; node_id?: string | null; edge_id?: string | null }>;
+  diagnostics: GraphDiagnostic[];
   sidebarOpen: boolean;
   sidebarContent?: ReactNode;
   sidebarFooter?: ReactNode;
@@ -104,6 +105,13 @@ const ROLE_COLORS = {
 
 const GRAPH_NODE_WIDTH = 244;
 const BOUNDARY_GAP = 120;
+const ENGINE_DIAGNOSTIC_CODES = new Set([
+  "missing_engine",
+  "engine_not_found",
+  "engine_disabled",
+  "engine_api_mismatch",
+  "engine_capability_mismatch",
+]);
 
 const FIRERED_POSTPROCESSING_DEFAULTS = {
   processor: "firered.stream_vad" as const,
@@ -161,6 +169,19 @@ function portMeta(kind: string): { label: string; color: string } {
   return PORT_META[kind] ?? { label: kind, color: "#69716c" };
 }
 
+function hasConfiguredEngine(
+  node: AudioNode,
+  spec: AudioNodeType | undefined,
+  engines: readonly EngineAsset[],
+): boolean {
+  if (spec?.required_api == null) return true;
+  const engine = engines.find((item) => item.id === node.engine_id);
+  if (!engine?.enabled || engine.api !== spec.required_api) return false;
+  if (!spec.required_capability) return true;
+  const capabilities = engine.details?.capabilities;
+  return Array.isArray(capabilities) && capabilities.includes(spec.required_capability);
+}
+
 function PortRow({ port, direction }: { port: { name: string; kind: string; label?: string }; direction: "input" | "output" }) {
   const meta = portMeta(port.kind);
   return <li className={`audio-port-row port-${direction}`}>
@@ -199,10 +220,22 @@ function AudioGraphNode({ data, selected }: NodeProps<GraphNode>) {
 
 const flowNodeTypes = { audio: AudioGraphNode };
 
-function RoutedAudioEdge({ data, markerEnd, style }: EdgeProps<GraphEdge>) {
-  const route = data?.route ?? [];
-  const path = route.length >= 2 ? orthogonalPath(route) : "";
-  if (!path) return null;
+function RoutedAudioEdge({ data, markerEnd, sourceX, sourceY, style, targetX, targetY }: EdgeProps<GraphEdge>) {
+  const sourceStubX = sourceX + 36;
+  const targetStubX = targetX - 36;
+  const middleX = targetX >= sourceStubX + 72
+    ? (sourceStubX + targetStubX) / 2
+    : sourceStubX;
+  const route = data?.route?.length && data.route.length >= 2
+    ? data.route
+    : [
+      { x: sourceX, y: sourceY },
+      { x: sourceStubX, y: sourceY },
+      { x: middleX, y: sourceY },
+      { x: middleX, y: targetY },
+      { x: targetX, y: targetY },
+    ];
+  const path = orthogonalPath(route);
   return <>
     <BaseEdge path={path} className="audio-edge-casing" />
     <BaseEdge path={path} markerEnd={markerEnd} style={style} />
@@ -359,7 +392,10 @@ function AudioGraphEditorInner({
       },
       ...document.nodes.map((node, index) => {
         const spec = specs.get(node.kind);
-        const invalid = diagnostics.some((item) => item.node_id === node.id);
+        const configured = hasConfiguredEngine(node, spec, engines);
+        const invalid = diagnostics.some((item) =>
+          item.node_id === node.id && !ENGINE_DIAGNOSTIC_CODES.has(item.code),
+        );
         return {
           id: node.id,
           type: "audio",
@@ -379,7 +415,7 @@ function AudioGraphEditorInner({
                     : undefined,
             })),
             role: "processor",
-            state: invalid ? "invalid" : node.engine_id || spec?.required_api == null ? "configured" : "unconfigured",
+            state: invalid ? "invalid" : configured ? "configured" : "unconfigured",
           },
         } satisfies GraphNode;
       }),
@@ -403,7 +439,7 @@ function AudioGraphEditorInner({
       },
     ];
     return values;
-  }, [diagnostics, document.edges, document.layout, document.nodes, document.outputs, specs]);
+  }, [diagnostics, document.edges, document.layout, document.nodes, document.outputs, engines, specs]);
   const initialEdges = useMemo<GraphEdge[]>(() => {
     const outputKind = (nodeId: string, portName: string): string => {
       const node = document.nodes.find((item) => item.id === nodeId);
@@ -447,6 +483,8 @@ function AudioGraphEditorInner({
   const { fitView, getInternalNode } = useReactFlow<GraphNode, GraphEdge>();
   const updateNodeInternals = useUpdateNodeInternals();
   const checkedInitialLayout = useRef(false);
+  const routingVersion = useRef(0);
+  const fitAfterGraphChange = useRef(false);
 
   const readPortOffsets = useCallback((nodes: GraphNode[]): PortOffsets => {
     const offsets = new Map<string, { x: number; y: number; width: number; height: number }>();
@@ -464,29 +502,68 @@ function AudioGraphEditorInner({
     return offsets;
   }, [getInternalNode]);
 
-  const applyRoutes = useCallback((nodes: GraphNode[], edges: GraphEdge[]): GraphEdge[] => {
+  const applyRoutes = useCallback((nodes: GraphNode[], edges: GraphEdge[]) => {
     const routes = routeAudioGraph(nodes, edges, readPortOffsets(nodes));
-    return edges.map((edge) => ({ ...edge, data: { ...(edge.data ?? {}), route: routes.get(edge.id) } }));
+    return {
+      complete: routes.size === edges.length,
+      edges: edges.map((edge) => ({ ...edge, data: { ...(edge.data ?? {}), route: routes.get(edge.id) } })),
+    };
   }, [readPortOffsets]);
 
-  const rerouteAfterRender = useCallback((nodes: GraphNode[], edges: GraphEdge[], remeasure = false) => {
-    window.requestAnimationFrame(() => {
-      if (remeasure && typeof window.DOMMatrixReadOnly === "function") updateNodeInternals(nodes.map((node) => node.id));
-      window.requestAnimationFrame(() => setFlowEdges(applyRoutes(nodes, edges)));
-    });
+  const rerouteAfterRender = useCallback((
+    nodes: GraphNode[],
+    edges: GraphEdge[],
+    remeasure = false,
+    onComplete?: () => void,
+  ) => {
+    const version = ++routingVersion.current;
+    const route = (attempt: number) => {
+      window.requestAnimationFrame(() => {
+        if (version !== routingVersion.current) return;
+        if (remeasure && typeof window.DOMMatrixReadOnly === "function") {
+          updateNodeInternals(nodes.map((node) => node.id));
+        }
+        window.requestAnimationFrame(() => {
+          if (version !== routingVersion.current) return;
+          const result = applyRoutes(nodes, edges);
+          setFlowEdges(result.edges);
+          if (!result.complete && attempt < 4) {
+            route(attempt + 1);
+            return;
+          }
+          if (onComplete) window.requestAnimationFrame(onComplete);
+        });
+      });
+    };
+    route(0);
   }, [applyRoutes, updateNodeInternals]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setFlowNodes(initialNodes);
       setFlowEdges(initialEdges);
-      rerouteAfterRender(initialNodes, initialEdges, true);
+      const shouldFitView = fitAfterGraphChange.current;
+      fitAfterGraphChange.current = false;
+      rerouteAfterRender(
+        initialNodes,
+        initialEdges,
+        true,
+        shouldFitView
+          ? () => void fitView({ padding: 0.18, duration: 260, minZoom: 0.55, maxZoom: 1 })
+          : undefined,
+      );
     }, 0);
-    return () => window.clearTimeout(timer);
-  }, [initialEdges, initialNodes, rerouteAfterRender]);
+    return () => {
+      window.clearTimeout(timer);
+      routingVersion.current += 1;
+    };
+  }, [fitView, initialEdges, initialNodes, rerouteAfterRender]);
 
   const selected = document.nodes.find((node) => node.id === selectedId) ?? null;
   const selectedSpec = selected ? specs.get(selected.kind) : undefined;
+  const selectedEngineConfigured = selected
+    ? hasConfiguredEngine(selected, selectedSpec, engines)
+    : false;
   const selectedPhysicalConfig = selected?.kind === "physical_vad" ? {
     min_segment_seconds: selected.config?.min_segment_seconds ?? 0.5,
     max_segment_seconds: selected.config?.max_segment_seconds ?? 60,
@@ -675,8 +752,8 @@ function AudioGraphEditorInner({
     setSelectedId(null);
     setConnectionError(null);
     setPendingTemplate(null);
+    fitAfterGraphChange.current = true;
     onChange(next);
-    window.requestAnimationFrame(() => void fitView({ padding: 0.18, duration: 260, minZoom: 0.55, maxZoom: 1 }));
   };
 
   const onNodesChange = (changes: NodeChange<GraphNode>[]) =>
@@ -712,7 +789,7 @@ function AudioGraphEditorInner({
             <button onClick={() => setPendingTemplate("physical_semantic_asr")}><strong>物理 + 语义 VAD + ASR</strong><small>PCM → 物理 VAD → 语义 VAD → ASR</small></button>
             <button onClick={() => setPendingTemplate("dual_physical_asr")}><strong>物理双路 VAD + ASR</strong><small>正式转写 + AHA 中间结果预览</small></button>
             <button onClick={() => setPendingTemplate("dual_physical_semantic_asr")}><strong>双路物理 + 语义 VAD + ASR</strong><small>正式分支语义判停 + AHA 中间结果预览</small></button>
-            <button onClick={() => setPendingTemplate("vector_unlock")}><strong>向量解锁</strong><small>仅允许声纹白名单中的说话人进入转写和智能体</small></button>
+            <button onClick={() => setPendingTemplate("voice_agent")}><strong>语音智能体</strong><small>仅允许声纹白名单中的说话人进入转写和智能体</small></button>
             <button onClick={() => setPendingTemplate("meeting_complete")}><strong>会议系统完全体</strong><small>双路语义判停、正式与预览转写、语音特征向量提取与搜索</small></button>
           </div>
         </details>
@@ -777,7 +854,7 @@ function AudioGraphEditorInner({
       {selected && selectedSpec && <aside className="audio-inspector panel" aria-label="节点配置面板">
         <header><div><span>节点配置</span><h2>{selected.id}</h2></div><button className="icon-button" aria-label="关闭节点配置" onClick={() => setSelectedId(null)}>×</button></header>
         <div className="audio-inspector-body">
-          <div className={`inspector-state ${selected.engine_id || selectedSpec.required_api == null ? "configured" : "unconfigured"}`}><strong>{selectedSpec.display_name}</strong><span>{selectedSpec.required_api == null ? "基础设施节点" : selected.engine_id ? "已绑定执行引擎" : "待绑定执行引擎"}</span></div>
+          <div className={`inspector-state ${selectedEngineConfigured ? "configured" : "unconfigured"}`}><strong>{selectedSpec.display_name}</strong><span>{selectedSpec.required_api == null ? "基础设施节点" : selectedEngineConfigured ? "已绑定执行引擎" : selected.engine_id ? "所选引擎不可用" : "待绑定执行引擎"}</span></div>
           <label><span>节点 ID</span><input value={selected.id} disabled /></label>
           {selectedSpec.required_api != null && <label><span>执行引擎</span><select value={selected.engine_id ?? ""} onChange={(event) => updateNode({ ...selected, engine_id: event.target.value || null } as AudioNode)}><option value="">未绑定</option>{engines.filter((engine) => engine.enabled && engine.api === selectedSpec.required_api && (!selectedSpec.required_capability || (Array.isArray(engine.details?.capabilities) && engine.details.capabilities.includes(selectedSpec.required_capability)))).map((engine) => <option key={engine.id} value={engine.id}>{engine.name} · {engine.status}</option>)}</select><small>需要 {selectedSpec.required_api}{selectedSpec.required_capability ? ` / ${selectedSpec.required_capability}` : ""} 能力</small></label>}
           {Object.entries(selected.config ?? {}).filter(([key]) => !["postprocessing", "parameters", "clustering_algorithm", "remove_punctuation", "normalize", "include_embedding", "filter", "collection_name", "vector_name", "progress_interval_seconds", "allowed_speaker_ids", "min_score"].includes(key)).map(([key, value]) => <label key={key}><span>{key}</span><input type={typeof value === "number" || value === null ? "number" : "text"} step="0.1" value={value == null ? "" : String(value)} onChange={(event) => updateNode({ ...selected, config: { ...(selected.config ?? {}), [key]: typeof value === "number" || value === null ? (event.target.value ? Number(event.target.value) : null) : event.target.value } } as AudioNode)} /></label>)}

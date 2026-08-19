@@ -57,10 +57,11 @@ function fakeApi() {
     validateAudioWorkflow: vi.fn().mockResolvedValue({ valid: true, diagnostics: [], topological_order: ["physical-vad", "asr"] }),
     listAudioNodeTypes: vi.fn().mockResolvedValue([
       { kind: "physical_vad", display_name: "物理 VAD", required_api: "ux_vad", inputs: [{ name: "audio", kind: "pcm_chunk" }], outputs: [{ name: "segments", kind: "audio_segment" }, { name: "speech_started", kind: "speech_started" }, { name: "speech_stopped", kind: "speech_stopped" }], config_schema: {} },
-      { kind: "semantic_vad", display_name: "语义 VAD", required_api: "ux_vad", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "segments", kind: "audio_segment" }], config_schema: {} },
+      { kind: "semantic_vad", display_name: "语义 VAD", required_api: "ux_vad", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "segments", kind: "audio_segment" }, { name: "speech_stopped", kind: "speech_stopped" }, { name: "turn_progress", kind: "transcription" }], config_schema: {} },
       { kind: "asr", display_name: "语音识别", required_api: "ux_speech", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "transcripts", kind: "transcription" }, { name: "speaker_transcripts", kind: "speaker_transcription" }], config_schema: {} },
       { kind: "audio_embedding", display_name: "语音特征向量提取", required_api: "engine_feature", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "embeddings", kind: "embedding" }], config_schema: {} },
       { kind: "vector_search", display_name: "人物搜索", required_api: null, inputs: [{ name: "embeddings", kind: "embedding" }], outputs: [{ name: "results", kind: "vector_search_result" }], config_schema: {} },
+      { kind: "speaker_filter", display_name: "说话人过滤", required_api: null, inputs: [{ name: "segments", kind: "audio_segment" }, { name: "results", kind: "vector_search_result" }], outputs: [{ name: "segments", kind: "audio_segment" }, { name: "speech_started", kind: "speech_started" }, { name: "speech_stopped", kind: "speech_stopped" }, { name: "decisions", kind: "speaker_filter_result" }], config_schema: {} },
       { kind: "speaker_diarization", display_name: "说话人分离", required_api: "ux_speaker_diarization", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "segments", kind: "diarization_segment" }, { name: "local_results", kind: "diarization_local_result" }], config_schema: {} },
       { kind: "speaker_clustering", display_name: "说话人聚类", required_api: "engine_feature", inputs: [{ name: "segments", kind: "diarization_segment" }], outputs: [{ name: "results", kind: "diarization_cluster_result" }], config_schema: {} },
     ]),
@@ -169,6 +170,90 @@ describe("typed audio workflow control plane", () => {
     expect(screen.getByDisplayValue("physical-vad")).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "关闭节点配置" }));
     expect(screen.queryByLabelText("节点配置面板")).not.toBeInTheDocument();
+  });
+
+  it("updates engine configuration colors before the draft is saved", async () => {
+    const { api, saveAudioWorkflowDraft } = fakeApi();
+    const unconfiguredDocument: AudioWorkflowDocument = {
+      ...structuredClone(document),
+      nodes: document.nodes.map((node) => ({ ...node, engine_id: null })),
+    };
+    api.getAudioWorkflowDraft = vi.fn().mockResolvedValue({
+      id: "wf-1",
+      slug: "audio-main",
+      name: "主语音图",
+      description: null,
+      document: unconfiguredDocument,
+      revision: 2,
+      active_revision: null,
+      updated_at: "2026-08-09T00:00:00Z",
+    });
+    api.validateAudioWorkflow = vi.fn().mockResolvedValue({
+      valid: false,
+      diagnostics: [
+        { code: "missing_engine", message: "物理 VAD尚未绑定引擎", node_id: "physical-vad" },
+        { code: "missing_engine", message: "语音识别尚未绑定引擎", node_id: "asr" },
+      ],
+      topological_order: ["physical-vad", "asr"],
+    });
+    renderApp(api, "/audio-workflows/wf-1/build");
+
+    const physicalNode = await screen.findByLabelText("节点 physical-vad");
+    const asrNode = screen.getByLabelText("节点 asr");
+    expect(physicalNode).toHaveAttribute("data-node-state", "unconfigured");
+    expect(asrNode).toHaveAttribute("data-node-state", "unconfigured");
+
+    fireEvent.click(physicalNode);
+    fireEvent.change(screen.getByRole("combobox", { name: /^执行引擎/ }), { target: { value: "vad-1" } });
+    await waitFor(() => expect(physicalNode).toHaveAttribute("data-node-state", "configured"));
+
+    fireEvent.click(screen.getByRole("button", { name: "关闭节点配置" }));
+    fireEvent.click(asrNode);
+    const engineSelect = screen.getByRole("combobox", { name: /^执行引擎/ });
+    fireEvent.change(engineSelect, { target: { value: "asr-1" } });
+    await waitFor(() => expect(asrNode).toHaveAttribute("data-node-state", "configured"));
+
+    fireEvent.change(engineSelect, { target: { value: "" } });
+    await waitFor(() => expect(asrNode).toHaveAttribute("data-node-state", "unconfigured"));
+    expect(saveAudioWorkflowDraft).not.toHaveBeenCalled();
+    expect(api.validateAudioWorkflow).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies the voice agent template with every connection visible", async () => {
+    const { api } = fakeApi();
+    const { container } = renderApp(api, "/audio-workflows/wf-1/build");
+    fireEvent.click(await screen.findByRole("button", { name: /^语音智能体/ }));
+    expect(screen.queryByRole("button", { name: /^向量解锁/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "确认应用" }));
+
+    for (const nodeId of ["physical-vad", "semantic-vad", "audio-embedding", "vector-search", "speaker-filter", "asr"]) {
+      expect(await screen.findByLabelText(`节点 ${nodeId}`)).toBeVisible();
+    }
+
+    const expectedEdgeIds = [
+      "edge:audio-to-physical-vad",
+      "edge:physical-vad-to-semantic-vad",
+      "edge:semantic-vad-to-audio-embedding",
+      "edge:audio-embedding-to-vector-search",
+      "edge:semantic-vad-to-speaker-filter",
+      "edge:vector-search-to-speaker-filter",
+      "edge:speaker-filter-to-asr",
+      "output:primary_transcript",
+      "output:speech_started",
+      "output:speech_stopped",
+      "output:turn_progress",
+      "output:vector_search",
+      "output:speaker_filter",
+    ];
+    await waitFor(() => {
+      for (const edgeId of expectedEdgeIds) {
+        const edge = container.querySelector(`[data-testid="rf__edge-${edgeId}"]`);
+        expect(edge, edgeId).not.toBeNull();
+        const paths = edge!.querySelectorAll("path.react-flow__edge-path");
+        expect(paths.length, edgeId).toBeGreaterThan(0);
+        for (const path of paths) expect(path.getAttribute("d"), edgeId).toMatch(/^M /);
+      }
+    }, { timeout: 3_000 });
   });
 
   it("configures FireRed postprocessing on physical VAD nodes", async () => {

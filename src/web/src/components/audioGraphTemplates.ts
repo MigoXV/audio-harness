@@ -5,7 +5,7 @@ export type AudioGraphTemplateId =
   | "physical_semantic_asr"
   | "dual_physical_asr"
   | "dual_physical_semantic_asr"
-  | "vector_unlock"
+  | "voice_agent"
   | "meeting_complete";
 
 type NodeKind = AudioNode["kind"];
@@ -306,7 +306,7 @@ export function applyAudioGraphTemplate(
   }
 
   const semantic = semanticVad(document);
-  if (template === "vector_unlock") {
+  if (template === "voice_agent") {
     const preferredVectorSpace = vectorSpaces.find((space) => space.template === "voiceprint");
     const embedding = audioEmbedding(document, preferredVectorSpace);
     const search = vectorSearch(document, preferredVectorSpace);
