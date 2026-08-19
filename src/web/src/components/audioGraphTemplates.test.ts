@@ -185,7 +185,15 @@ describe("audio graph templates", () => {
     });
     expect(result.nodes.find((node) => node.id === "speaker-diarization")).toMatchObject({
       kind: "speaker_diarization",
-      config: { min_batch_seconds: 60, max_batch_seconds: 120, min_asr_segment_seconds: 0.5 },
+      config: {
+        min_batch_seconds: 60,
+        max_batch_seconds: 120,
+        min_asr_segment_seconds: 0.5,
+        postprocessing: {
+          processor: "audio_harness.diarization.vad_coverage",
+          version: 1,
+        },
+      },
     });
     expect(result.nodes.find((node) => node.id === "speaker-clustering")).toMatchObject({
       kind: "speaker_clustering",

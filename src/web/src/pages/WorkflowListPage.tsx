@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import { errorMessage } from "../api/client";
 import type { AudioHarnessApi, AudioWorkflow, RealtimeRoute } from "../api/types";
+import { normalizeSlug } from "../features/forms/slug";
 
 interface Props { api: AudioHarnessApi; refreshVersion: number; }
 
@@ -15,6 +16,7 @@ export function WorkflowListPage({ api, refreshVersion }: Props) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
+  const [slugEdited, setSlugEdited] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -32,10 +34,13 @@ export function WorkflowListPage({ api, refreshVersion }: Props) {
     return () => window.clearTimeout(timer);
   }, [load, refreshVersion]);
 
-  const normalizedSlug = useMemo(
-    () => slug.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, ""),
-    [slug],
-  );
+  const normalizedSlug = useMemo(() => normalizeSlug(slug), [slug]);
+  const openCreate = () => {
+    setName("");
+    setSlug("");
+    setSlugEdited(false);
+    setCreating(true);
+  };
   const create = async () => {
     if (!name.trim() || !normalizedSlug) return;
     try {
@@ -47,9 +52,9 @@ export function WorkflowListPage({ api, refreshVersion }: Props) {
   };
 
   return <main className="workspace-page">
-    <header className="page-heading"><div><p className="eyebrow">AUDIO WORKFLOWS</p><h1>语音推理工作流</h1><p>使用类型化节点、端口与命名出口组织 VAD 和 ASR。</p></div><button className="primary-button" onClick={() => setCreating(true)}>新建语音工作流</button></header>
+    <header className="page-heading"><div><p className="eyebrow">AUDIO WORKFLOWS</p><h1>语音推理工作流</h1><p>使用类型化节点、端口与命名出口组织 VAD 和 ASR。</p></div><button className="primary-button" onClick={openCreate}>新建语音工作流</button></header>
     {error && <div className="alert alert-error">{error}</div>}
-    {creating && <section className="panel create-workflow-panel"><div className="panel-heading"><div><h2>创建语音工作流</h2><p>新草稿会从最小 Physical VAD → ASR 图开始。</p></div><button className="text-button" onClick={() => setCreating(false)}>取消</button></div><div className="form-grid two-columns"><label><span>名称</span><input value={name} onChange={(event) => setName(event.target.value)} /></label><label><span>Slug</span><input value={slug} onChange={(event) => setSlug(event.target.value)} /><small>{normalizedSlug || "小写字母、数字和连字符"}</small></label></div><div className="panel-actions"><button className="primary-button" disabled={!name.trim() || !normalizedSlug} onClick={() => void create()}>创建并编辑</button></div></section>}
+    {creating && <section className="panel create-workflow-panel"><div className="panel-heading"><div><h2>创建语音工作流</h2><p>新草稿会从最小 Physical VAD → ASR 图开始。</p></div><button className="text-button" onClick={() => setCreating(false)}>取消</button></div><div className="form-grid two-columns"><label><span>名称</span><input value={name} onChange={(event) => { const value = event.target.value; setName(value); if (!slugEdited) setSlug(normalizeSlug(value)); }} /></label><label><span>Slug</span><input value={slug} onChange={(event) => { setSlugEdited(true); setSlug(normalizeSlug(event.target.value)); }} /><small>{normalizedSlug || (name.trim() ? "名称无法生成英文 Slug，请手动填写" : "小写字母、数字和连字符")}</small></label></div><div className="panel-actions"><button className="primary-button" disabled={!name.trim() || !normalizedSlug} onClick={() => void create()}>创建并编辑</button></div></section>}
     <section className="panel"><div className="panel-heading"><div><h2>全部语音工作流</h2><p>{items.length} 个独立推理图；发布与对外接入分别管理。</p></div><button className="secondary-button" onClick={() => void load()}>刷新</button></div>
       {loading ? <div className="empty-state">正在加载…</div> : <div className="workflow-table" role="table">
         <div className="workflow-row table-header"><span>工作流</span><span>Slug</span><span>草稿</span><span>活动版本</span><span>接入</span><span /></div>

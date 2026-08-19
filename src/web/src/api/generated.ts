@@ -1920,6 +1920,22 @@ export interface components {
              * @default 0.5
              */
             min_asr_segment_seconds: number;
+            postprocessing?: components["schemas"]["SpeakerDiarizationPostprocessingOptions"] | null;
+        };
+        /** SpeakerDiarizationPostprocessingOptions */
+        SpeakerDiarizationPostprocessingOptions: {
+            /**
+             * Processor
+             * @default audio_harness.diarization.vad_coverage
+             * @constant
+             */
+            processor: "audio_harness.diarization.vad_coverage";
+            /**
+             * Version
+             * @default 1
+             * @constant
+             */
+            version: 1;
         };
         /** SpeakerMatchRead */
         SpeakerMatchRead: {

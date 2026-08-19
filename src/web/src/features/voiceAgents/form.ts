@@ -1,8 +1,5 @@
 import type { VoiceAgentDefinition } from "../../api/types";
-
-export function normalizeSlug(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
-}
+export { normalizeSlug } from "../forms/slug";
 
 export function defaultVoiceAgentDefinition(workflowId = ""): VoiceAgentDefinition {
   return {

@@ -5545,11 +5545,40 @@
             "minimum": 0.0,
             "title": "Min Asr Segment Seconds",
             "default": 0.5
+          },
+          "postprocessing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpeakerDiarizationPostprocessingOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
         "type": "object",
         "title": "SpeakerDiarizationNodeConfig"
+      },
+      "SpeakerDiarizationPostprocessingOptions": {
+        "properties": {
+          "processor": {
+            "type": "string",
+            "const": "audio_harness.diarization.vad_coverage",
+            "title": "Processor",
+            "default": "audio_harness.diarization.vad_coverage"
+          },
+          "version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Version",
+            "default": 1
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SpeakerDiarizationPostprocessingOptions"
       },
       "SpeakerMatchRead": {
         "properties": {

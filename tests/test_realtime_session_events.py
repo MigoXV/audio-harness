@@ -481,6 +481,100 @@ async def test_x_aha_turn_progress_starts_item_after_semantic_rollover() -> None
 
 
 @pytest.mark.asyncio
+async def test_semantic_vad_promotes_the_unconsumed_physical_start() -> None:
+    emitted: list[dict] = []
+
+    async def send_event(event) -> None:
+        emitted.append(
+            event.model_dump(mode="json", exclude_none=True)
+            if hasattr(event, "model_dump")
+            else event
+        )
+
+    session = RealtimeTranscriptionSession(
+        send_event=send_event,
+        session_service=object(),  # type: ignore[arg-type]
+        workflow_settings=_Settings(),  # type: ignore[arg-type]
+        model="voice-agent",
+        target=_profile(),
+        inferencer_pool=FakePool(),  # type: ignore[arg-type]
+        tool_registry=ToolRegistry(),
+        aha_version="v1",
+    )
+    await session.start()
+
+    async def started(start_sample: int) -> None:
+        await session._handle_workflow_event(
+            "speech_started",
+            SpeechStarted(start_sample=start_sample, sample_rate=1_000),
+        )
+
+    async def stopped(
+        start_sample: int,
+        end_sample: int,
+        last_segment_start_sample: int,
+    ) -> None:
+        await session._handle_workflow_event(
+            "speech_stopped",
+            SpeechStopped(
+                start_sample=start_sample,
+                end_sample=end_sample,
+                sample_rate=1_000,
+                last_segment_start_sample=last_segment_start_sample,
+            ),
+        )
+
+    await started(0)
+    await started(19_700)
+    await started(39_700)
+    await stopped(0, 40_280, 19_700)
+
+    await started(59_700)
+    await started(79_700)
+    await stopped(39_700, 80_280, 59_700)
+
+    await started(99_700)
+    await started(119_760)
+    await stopped(79_700, 120_340, 99_700)
+
+    await started(140_100)
+    await stopped(119_760, 140_390, 119_760)
+    await session.close()
+
+    speech_started = [
+        event
+        for event in emitted
+        if event["type"] == "input_audio_buffer.speech_started"
+    ]
+    speech_stopped = [
+        event
+        for event in emitted
+        if event["type"] == "input_audio_buffer.speech_stopped"
+    ]
+    assert [event["audio_start_ms"] for event in speech_started] == [
+        0,
+        39_700,
+        79_700,
+        119_760,
+        140_100,
+    ]
+    assert [event["audio_end_ms"] for event in speech_stopped] == [
+        40_280,
+        80_280,
+        120_340,
+        140_390,
+    ]
+    assert [event["item_id"] for event in speech_started[:4]] == [
+        event["item_id"] for event in speech_stopped
+    ]
+    assert all(
+        _SERVER_EVENTS.validate_python(event)
+        for event in emitted
+        if not event["type"].startswith("x_aha.")
+    )
+
+
+@pytest.mark.asyncio
 async def test_speech_stopped_starts_item_when_start_event_is_missing() -> None:
     emitted: list[dict] = []
 

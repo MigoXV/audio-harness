@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
@@ -89,7 +89,8 @@ function fakeApi() {
 
 function renderApp(api: AudioHarnessApi, path = "/") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><App api={api} /></MemoryRouter></QueryClientProvider>);
+  const router = createMemoryRouter([{ path: "*", element: <App api={api} /> }], { initialEntries: [path] });
+  return render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
 }
 
 describe("typed audio workflow control plane", () => {
@@ -103,10 +104,19 @@ describe("typed audio workflow control plane", () => {
   it("creates a standalone audio workflow", async () => {
     const { api, createAudioWorkflow } = fakeApi(); renderApp(api, "/audio-workflows");
     fireEvent.click(await screen.findByRole("button", { name: "新建语音工作流" }));
-    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "新语音图" } });
-    fireEvent.change(screen.getAllByRole("textbox")[1], { target: { value: "new-audio" } });
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "New Audio" } });
+    expect(screen.getByDisplayValue("new-audio")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "创建并编辑" }));
     await waitFor(() => expect(createAudioWorkflow).toHaveBeenCalledWith(expect.objectContaining({ slug: "new-audio" })));
+  });
+
+  it("stops syncing a workflow slug after manual editing", async () => {
+    const { api } = fakeApi(); renderApp(api, "/audio-workflows");
+    fireEvent.click(await screen.findByRole("button", { name: "新建语音工作流" }));
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "First Name" } });
+    fireEvent.change(screen.getByDisplayValue("first-name"), { target: { value: "custom-id" } });
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "Second Name" } });
+    expect(screen.getByDisplayValue("custom-id")).toBeVisible();
   });
 
   it("creates a collection from the voice feature extraction template", async () => {
@@ -178,6 +188,8 @@ describe("typed audio workflow control plane", () => {
     expect(screen.getByLabelText(/单段最长语音/)).toHaveValue(2000);
     expect(screen.getByLabelText(/结束所需静音/)).toHaveValue(20);
 
+    expect(saveAudioWorkflowDraft).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
     await waitFor(() => expect(saveAudioWorkflowDraft).toHaveBeenCalled());
     const saved = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
     const physical = saved.nodes.find((node) => node.kind === "physical_vad");
@@ -195,6 +207,35 @@ describe("typed audio workflow control plane", () => {
     });
   });
 
+  it("configures VAD coverage postprocessing on diarization nodes", async () => {
+    const { api, saveAudioWorkflowDraft } = fakeApi();
+    renderApp(api, "/audio-workflows/wf-1/build");
+    fireEvent.click(await screen.findByRole("button", { name: /^会议系统完全体/ }));
+    fireEvent.click(screen.getByRole("button", { name: "确认应用" }));
+    fireEvent.click(await screen.findByLabelText("节点 speaker-diarization"));
+
+    const toggle = screen.getByRole("checkbox", { name: /^启用 VAD 覆盖后处理/ });
+    expect(toggle).toBeChecked();
+    expect(screen.getByText("协议版本 v1 · 稳定片段流式提交")).toBeVisible();
+
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+    await waitFor(() => {
+      const saved = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
+      expect(saved.nodes.find((node) => node.kind === "speaker_diarization")?.config?.postprocessing).toBeNull();
+    });
+
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+    await waitFor(() => {
+      const saved = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
+      expect(saved.nodes.find((node) => node.kind === "speaker_diarization")?.config?.postprocessing).toEqual({
+        processor: "audio_harness.diarization.vad_coverage",
+        version: 1,
+      });
+    });
+  });
+
   it("configures punctuation removal on ASR nodes", async () => {
     const { api, saveAudioWorkflowDraft } = fakeApi();
     renderApp(api, "/audio-workflows/wf-1/build");
@@ -204,6 +245,8 @@ describe("typed audio workflow control plane", () => {
     expect(toggle).not.toBeChecked();
     fireEvent.click(toggle);
 
+    expect(saveAudioWorkflowDraft).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
     await waitFor(() => expect(saveAudioWorkflowDraft).toHaveBeenCalled());
     const saved = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
     const asr = saved.nodes.find((node) => node.kind === "asr");
@@ -231,6 +274,7 @@ describe("typed audio workflow control plane", () => {
     fireEvent.change(screen.getByLabelText(/簇选择距离容差/), { target: { value: "0.2" } });
     fireEvent.click(singleCluster);
 
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
     await waitFor(() => {
       const saved = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
       expect(saved.nodes.find((node) => node.kind === "speaker_clustering")?.config?.parameters).toEqual({
@@ -279,6 +323,7 @@ describe("typed audio workflow control plane", () => {
     expect(saveButton).toBeEnabled();
     fireEvent.click(saveButton);
     await waitFor(() => expect(saveVoiceAgentDraft).toHaveBeenCalled());
+    await waitFor(() => expect(saveButton).toBeDisabled());
 
     fireEvent.click(within(screen.getByRole("navigation", { name: "语音智能体页面" })).getByRole("link", { name: /接入/ }));
     expect(await screen.findByRole("heading", { name: "发布当前草稿" })).toBeVisible();
@@ -318,17 +363,20 @@ describe("typed audio workflow control plane", () => {
     expect(screen.getByRole("heading", { name: "给语音智能体一个清晰身份" })).toBeVisible();
     expect(screen.getByRole("button", { name: /语音工作流/ })).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "客服助手" } });
-    fireEvent.change(screen.getAllByRole("textbox")[1], { target: { value: "support-agent" } });
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "Support Agent" } });
+    expect(screen.getByDisplayValue("support-agent")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "下一步" }));
     expect(await screen.findByRole("heading", { name: "选择语音处理基础" })).toBeVisible();
     expect(screen.getByRole("button", { name: /基本信息/ })).toBeEnabled();
   });
 
-  it("persists an explicit automatic graph layout", async () => {
+  it("keeps an automatic graph layout local until it is saved", async () => {
     const { api, saveAudioWorkflowDraft } = fakeApi(); renderApp(api, "/audio-workflows/wf-1/build");
     fireEvent.click(await screen.findByRole("button", { name: "自动排列" }));
 
+    await waitFor(() => expect(screen.getByRole("button", { name: "保存草稿" })).toBeEnabled());
+    expect(saveAudioWorkflowDraft).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
     await waitFor(() => expect(saveAudioWorkflowDraft).toHaveBeenCalled(), { timeout: 2_000 });
     const savedDocument = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
     const physicalVadPosition = savedDocument.layout?.["physical-vad"];
@@ -346,10 +394,29 @@ describe("typed audio workflow control plane", () => {
     fireEvent.click(screen.getByRole("button", { name: /^物理 \+ 语义 VAD \+ ASR/ }));
     fireEvent.click(screen.getByRole("button", { name: "确认应用" }));
     expect(saveButton).toBeEnabled();
+    await new Promise((resolve) => window.setTimeout(resolve, 800));
+    expect(saveAudioWorkflowDraft).not.toHaveBeenCalled();
     fireEvent.click(saveButton);
 
     await waitFor(() => expect(saveAudioWorkflowDraft).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(saveButton).toBeDisabled());
+  });
+
+  it("guards navigation while a workflow has unsaved changes", async () => {
+    const { api, saveAudioWorkflowDraft } = fakeApi(); renderApp(api, "/audio-workflows/wf-1/build");
+    fireEvent.click(await screen.findByRole("button", { name: /^物理 \+ 语义 VAD \+ ASR/ }));
+    fireEvent.click(screen.getByRole("button", { name: "确认应用" }));
+
+    const access = within(screen.getByRole("navigation", { name: "工作流页面" })).getByRole("link", { name: /接入/ });
+    fireEvent.click(access);
+    expect(await screen.findByRole("alertdialog", { name: "还有未保存的修改" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "继续编辑" }));
+    expect(screen.getByRole("region", { name: "语音工作流画布" })).toBeVisible();
+
+    fireEvent.click(access);
+    fireEvent.click(await screen.findByRole("button", { name: "保存并离开" }));
+    await waitFor(() => expect(saveAudioWorkflowDraft).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("heading", { name: "发布当前草稿" })).toBeVisible();
   });
 
   it("applies a complete semantic VAD template and preserves engine choices", async () => {
@@ -358,6 +425,8 @@ describe("typed audio workflow control plane", () => {
     expect(screen.getByRole("alertdialog", { name: "应用快速模板？" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "确认应用" }));
 
+    expect(saveAudioWorkflowDraft).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
     await waitFor(() => expect(saveAudioWorkflowDraft).toHaveBeenCalled(), { timeout: 2_000 });
     const savedDocument = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
     expect(savedDocument.nodes.map((node) => node.kind)).toEqual(["physical_vad", "semantic_vad", "asr"]);
@@ -371,6 +440,8 @@ describe("typed audio workflow control plane", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^会议系统完全体/ }));
     fireEvent.click(screen.getByRole("button", { name: "确认应用" }));
 
+    expect(saveAudioWorkflowDraft).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
     await waitFor(() => expect(saveAudioWorkflowDraft).toHaveBeenCalled(), { timeout: 2_000 });
     const savedDocument = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
     expect(savedDocument.nodes.map((node) => node.kind)).toEqual([
@@ -398,6 +469,16 @@ describe("typed audio workflow control plane", () => {
     fireEvent.click(await screen.findByRole("button", { name: /VAD-1/ }));
     fireEvent.click(screen.getByRole("button", { name: /ASR-1/ }));
     expect(await screen.findAllByText("人工连通性校验通过")).toHaveLength(2);
+  });
+
+  it("fills a new engine slug from its name and preserves a manual override", async () => {
+    const { api } = fakeApi(); renderApp(api, "/engines");
+    fireEvent.click(await screen.findByRole("button", { name: "注册引擎" }));
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "Primary ASR" } });
+    expect(screen.getByDisplayValue("primary-asr")).toBeVisible();
+    fireEvent.change(screen.getByDisplayValue("primary-asr"), { target: { value: "custom-asr" } });
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "Renamed ASR" } });
+    expect(screen.getByDisplayValue("custom-asr")).toBeVisible();
   });
 
   it("provides safe engine lifecycle actions", async () => {

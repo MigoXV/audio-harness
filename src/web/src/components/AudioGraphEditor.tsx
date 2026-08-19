@@ -5,6 +5,7 @@ import {
   applyEdgeChanges,
   applyNodeChanges,
   Background,
+  BaseEdge,
   ConnectionLineType,
   ControlButton,
   Controls,
@@ -17,9 +18,12 @@ import {
   ReactFlowProvider,
   useNodesInitialized,
   useReactFlow,
+  useUpdateNodeInternals,
   type Connection,
+  type ConnectionLineComponentProps,
   type Edge,
   type EdgeChange,
+  type EdgeProps,
   type Node,
   type NodeChange,
   type NodeProps,
@@ -34,7 +38,7 @@ import type {
   NodePosition,
   VectorSpace,
 } from "../api/types";
-import { layoutAudioGraph, needsAutoLayout } from "./audioGraphLayout";
+import { layoutAudioGraph, needsAutoLayout, orderOutputPorts, orthogonalPath, routeAudioGraph, routingPortKey, type PortOffsets, type RoutePoint } from "./audioGraphLayout";
 import { applyAudioGraphTemplate, type AudioGraphTemplateId } from "./audioGraphTemplates";
 import { WorkbenchSidebar } from "./WorkbenchSidebar";
 
@@ -54,20 +58,22 @@ interface Props {
 interface GraphNodeData extends Record<string, unknown> {
   label: string;
   subtitle: string;
-  inputs: Array<{ name: string; kind: string; accepted_kinds?: string[] }>;
-  outputs: Array<{ name: string; kind: string }>;
+  inputs: Array<{ name: string; kind: string; accepted_kinds?: string[]; label?: string }>;
+  outputs: Array<{ name: string; kind: string; label?: string }>;
   role: "input" | "processor" | "output";
   state: "boundary" | "configured" | "unconfigured" | "invalid";
 }
 
 type GraphNode = Node<GraphNodeData>;
+interface GraphEdgeData extends Record<string, unknown> { route?: RoutePoint[] }
+type GraphEdge = Edge<GraphEdgeData>;
 
 const OUTPUTS = [
   { name: "primary_transcript", kind: "transcription" },
   { name: "interim_transcript", kind: "transcription" },
-  { name: "speech_started", kind: "speech_started" },
-  { name: "speech_stopped", kind: "speech_stopped" },
-  { name: "turn_progress", kind: "transcription" },
+  { name: "speech_started", kind: "speech_started", label: "开始事件" },
+  { name: "speech_stopped", kind: "speech_stopped", label: "最终停顿" },
+  { name: "turn_progress", kind: "transcription", label: "轮次未结束" },
   { name: "vector_search", kind: "vector_search_result" },
   { name: "diarization_local", kind: "diarization_local_result" },
   { name: "speaker_transcript", kind: "speaker_transcription" },
@@ -110,6 +116,11 @@ const FIRERED_POSTPROCESSING_DEFAULTS = {
   },
 };
 
+const DIARIZATION_POSTPROCESSING_DEFAULTS = {
+  processor: "audio_harness.diarization.vad_coverage" as const,
+  version: 1 as const,
+};
+
 const FIRERED_PARAMETER_META = [
   ["smooth_window_size", "概率平滑窗口", "帧", 1],
   ["speech_threshold", "语音判定阈值", "0–1", 0.01],
@@ -148,7 +159,7 @@ function portMeta(kind: string): { label: string; color: string } {
   return PORT_META[kind] ?? { label: kind, color: "#69716c" };
 }
 
-function PortRow({ port, direction }: { port: { name: string; kind: string }; direction: "input" | "output" }) {
+function PortRow({ port, direction }: { port: { name: string; kind: string; label?: string }; direction: "input" | "output" }) {
   const meta = portMeta(port.kind);
   return <li className={`audio-port-row port-${direction}`}>
     <Handle
@@ -159,7 +170,7 @@ function PortRow({ port, direction }: { port: { name: string; kind: string }; di
       title={`${port.name}: ${port.kind}`}
     />
     <span className="audio-port-name">{port.name}</span>
-    <code style={{ color: meta.color }}>{meta.label}</code>
+    <code style={{ color: meta.color }}>{port.label ?? meta.label}</code>
   </li>;
 }
 
@@ -185,6 +196,32 @@ function AudioGraphNode({ data, selected }: NodeProps<GraphNode>) {
 }
 
 const flowNodeTypes = { audio: AudioGraphNode };
+
+function RoutedAudioEdge({ data, markerEnd, style }: EdgeProps<GraphEdge>) {
+  const route = data?.route ?? [];
+  const path = route.length >= 2 ? orthogonalPath(route) : "";
+  if (!path) return null;
+  return <>
+    <BaseEdge path={path} className="audio-edge-casing" />
+    <BaseEdge path={path} markerEnd={markerEnd} style={style} />
+  </>;
+}
+
+const flowEdgeTypes = { routed: RoutedAudioEdge };
+
+function RoundedConnectionLine({ fromX, fromY, toX, toY, connectionLineStyle }: ConnectionLineComponentProps<GraphNode>) {
+  const sourceStubX = fromX + 36;
+  const targetStubX = toX - 36;
+  const middleX = toX >= sourceStubX + 72 ? (sourceStubX + targetStubX) / 2 : sourceStubX;
+  const path = orthogonalPath([
+    { x: fromX, y: fromY },
+    { x: sourceStubX, y: fromY },
+    { x: middleX, y: fromY },
+    { x: middleX, y: toY },
+    { x: toX, y: toY },
+  ]);
+  return <path d={path} fill="none" style={connectionLineStyle} />;
+}
 
 function nodeConfig(kind: string): AudioNode {
   const id = `${kind.replaceAll("_", "-")}-${crypto.randomUUID().slice(0, 8)}`;
@@ -220,7 +257,12 @@ function nodeConfig(kind: string): AudioNode {
       id,
       kind,
       engine_id: null,
-      config: { min_batch_seconds: 60, max_batch_seconds: 120, min_asr_segment_seconds: 0.5 },
+      config: {
+        min_batch_seconds: 60,
+        max_batch_seconds: 120,
+        min_asr_segment_seconds: 0.5,
+        postprocessing: structuredClone(DIARIZATION_POSTPROCESSING_DEFAULTS),
+      },
     } as AudioNode;
   }
   if (kind === "speaker_clustering") {
@@ -287,6 +329,11 @@ function AudioGraphEditorInner({
       const position = document.layout?.[output.source.node_id];
       return position ? [position] : [];
     });
+    const sourceYByOutput = new Map(document.outputs.flatMap((output) => {
+      const position = document.layout?.[output.source.node_id];
+      return position ? [[output.name, position.y] as const] : [];
+    }));
+    const outputPorts = orderOutputPorts(OUTPUTS, sourceYByOutput);
     const entryAnchor = entryPositions[0] ?? horizontalAnchor(positions, "left", { x: 384, y: 140 });
     const outputAnchor = horizontalAnchor(outputPositions.length ? outputPositions : positions, "right", { x: 196, y: 140 });
     const values: GraphNode[] = [
@@ -316,7 +363,16 @@ function AudioGraphEditorInner({
             label: node.id,
             subtitle: spec?.display_name ?? node.kind,
             inputs: spec?.inputs ?? [],
-            outputs: spec?.outputs ?? [],
+            outputs: (spec?.outputs ?? []).map((port) => ({
+              ...port,
+              label: node.kind === "physical_vad" && port.name === "speech_stopped"
+                ? "物理停顿"
+                : node.kind === "semantic_vad" && port.name === "speech_stopped"
+                  ? "最终停顿"
+                  : node.kind === "semantic_vad" && port.name === "turn_progress"
+                    ? "轮次未结束"
+                    : undefined,
+            })),
             role: "processor",
             state: invalid ? "invalid" : node.engine_id || spec?.required_api == null ? "configured" : "unconfigured",
           },
@@ -334,7 +390,7 @@ function AudioGraphEditorInner({
         data: {
           label: "命名出口",
           subtitle: "WORKFLOW OUTPUTS",
-          inputs: OUTPUTS,
+          inputs: outputPorts,
           outputs: [],
           role: "output",
           state: "boundary",
@@ -343,15 +399,24 @@ function AudioGraphEditorInner({
     ];
     return values;
   }, [diagnostics, document.edges, document.layout, document.nodes, document.outputs, specs]);
-  const initialEdges = useMemo<Edge[]>(() => {
+  const initialEdges = useMemo<GraphEdge[]>(() => {
     const outputKind = (nodeId: string, portName: string): string => {
       const node = document.nodes.find((item) => item.id === nodeId);
       return specs.get(node?.kind ?? "")?.outputs.find((port) => port.name === portName)?.kind ?? "unknown";
     };
     const edgeStyle = (kind: string) => {
       const color = portMeta(kind).color;
-      return { type: "smoothstep", className: `audio-edge edge-${kind}`, style: { stroke: color, strokeWidth: 2.25 }, markerEnd: { type: MarkerType.ArrowClosed, color } };
+      return { type: "routed", className: `audio-edge edge-${kind}`, style: { stroke: color, strokeWidth: 2.25 }, markerEnd: { type: MarkerType.ArrowClosed, color } };
     };
+    const outputEdges = document.outputs.map((output, index) => ({
+      id: `output:${output.name}`,
+      source: output.source.node_id,
+      sourceHandle: output.source.port,
+      target: "$outputs",
+      targetHandle: output.name,
+      ...edgeStyle(outputKind(output.source.node_id, output.source.port)),
+      data: { routeOrder: index },
+    }));
     return [
       ...document.edges.map((edge) => ({
         id: `edge:${edge.id}`,
@@ -361,36 +426,59 @@ function AudioGraphEditorInner({
         targetHandle: edge.target.port,
         ...edgeStyle(edge.source.kind === "input" ? "pcm_chunk" : outputKind(edge.source.node_id, edge.source.port)),
       })),
-      ...document.outputs.map((output) => ({
-        id: `output:${output.name}`,
-        source: output.source.node_id,
-        sourceHandle: output.source.port,
-        target: "$outputs",
-        targetHandle: output.name,
-        ...edgeStyle(outputKind(output.source.node_id, output.source.port)),
-      })),
+      ...outputEdges,
     ];
   }, [document.edges, document.nodes, document.outputs, specs]);
   const [flowNodes, setFlowNodes] = useState(initialNodes);
-  const [flowEdges, setFlowEdges] = useState(initialEdges);
+  const [flowEdges, setFlowEdges] = useState<GraphEdge[]>(initialEdges);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [connectingKind, setConnectingKind] = useState<string | null>(null);
   const [pendingTemplate, setPendingTemplate] = useState<AudioGraphTemplateId | null>(null);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [nodeCatalogOpen, setNodeCatalogOpen] = useState(false);
   const nodesInitialized = useNodesInitialized();
-  const { fitView } = useReactFlow<GraphNode, Edge>();
+  const { fitView, getInternalNode } = useReactFlow<GraphNode, GraphEdge>();
+  const updateNodeInternals = useUpdateNodeInternals();
   const checkedInitialLayout = useRef(false);
 
+  const readPortOffsets = useCallback((nodes: GraphNode[]): PortOffsets => {
+    const offsets = new Map<string, { x: number; y: number; width: number; height: number }>();
+    nodes.forEach((node) => {
+      const bounds = getInternalNode(node.id)?.internals.handleBounds;
+      bounds?.target?.forEach((handle) => offsets.set(
+        routingPortKey(node.id, "input", handle.id),
+        { x: handle.x + handle.width / 2, y: handle.y + handle.height / 2, width: handle.width, height: handle.height },
+      ));
+      bounds?.source?.forEach((handle) => offsets.set(
+        routingPortKey(node.id, "output", handle.id),
+        { x: handle.x + handle.width / 2, y: handle.y + handle.height / 2, width: handle.width, height: handle.height },
+      ));
+    });
+    return offsets;
+  }, [getInternalNode]);
+
+  const applyRoutes = useCallback((nodes: GraphNode[], edges: GraphEdge[]): GraphEdge[] => {
+    const routes = routeAudioGraph(nodes, edges, readPortOffsets(nodes));
+    return edges.map((edge) => ({ ...edge, data: { ...(edge.data ?? {}), route: routes.get(edge.id) } }));
+  }, [readPortOffsets]);
+
+  const rerouteAfterRender = useCallback((nodes: GraphNode[], edges: GraphEdge[], remeasure = false) => {
+    window.requestAnimationFrame(() => {
+      if (remeasure && typeof window.DOMMatrixReadOnly === "function") updateNodeInternals(nodes.map((node) => node.id));
+      window.requestAnimationFrame(() => setFlowEdges(applyRoutes(nodes, edges)));
+    });
+  }, [applyRoutes, updateNodeInternals]);
+
   useEffect(() => {
-    const timer = window.setTimeout(() => setFlowNodes(initialNodes), 0);
+    const timer = window.setTimeout(() => {
+      setFlowNodes(initialNodes);
+      setFlowEdges(initialEdges);
+      rerouteAfterRender(initialNodes, initialEdges, true);
+    }, 0);
     return () => window.clearTimeout(timer);
-  }, [initialNodes]);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setFlowEdges(initialEdges), 0);
-    return () => window.clearTimeout(timer);
-  }, [initialEdges]);
+  }, [initialEdges, initialNodes, rerouteAfterRender]);
 
   const selected = document.nodes.find((node) => node.id === selectedId) ?? null;
   const selectedSpec = selected ? specs.get(selected.kind) : undefined;
@@ -409,6 +497,14 @@ function AudioGraphEditorInner({
       ...(selectedPhysicalConfig.postprocessing.parameters ?? {}),
     },
   } : null;
+  const selectedDiarizationConfig = selected?.kind === "speaker_diarization" ? {
+    min_batch_seconds: selected.config?.min_batch_seconds ?? 60,
+    max_batch_seconds: selected.config?.max_batch_seconds ?? 120,
+    min_asr_segment_seconds: selected.config?.min_asr_segment_seconds ?? 0.5,
+    postprocessing: selected.config?.postprocessing === undefined
+      ? structuredClone(DIARIZATION_POSTPROCESSING_DEFAULTS)
+      : selected.config.postprocessing,
+  } : null;
   const selectedClusteringConfig = selected?.kind === "speaker_clustering" ? {
     embedding_algorithm: selected.config?.embedding_algorithm ?? "eres2netv2",
     expected_dimension: selected.config?.expected_dimension ?? 192,
@@ -422,22 +518,37 @@ function AudioGraphEditorInner({
     max_vectors: selected.config?.max_vectors ?? 10000,
   } : null;
 
-  const arrangeGraph = useCallback(() => {
+  const arrangeGraph = useCallback(async () => {
     try {
-      const layoutedNodes = layoutAudioGraph(flowNodes, flowEdges);
+      const offsets = readPortOffsets(flowNodes);
+      const { nodes: rawLayoutedNodes, outputOrder } = await layoutAudioGraph(flowNodes, flowEdges, offsets);
+      const outputByName = new Map(OUTPUTS.map((port) => [port.name, port]));
+      const orderedOutputPorts = [
+        ...outputOrder.flatMap((name) => {
+          const port = outputByName.get(name);
+          return port ? [port] : [];
+        }),
+        ...OUTPUTS.filter((port) => !outputOrder.includes(port.name)),
+      ];
+      const layoutedNodes = rawLayoutedNodes.map((node) => node.id === "$outputs"
+        ? { ...node, data: { ...node.data, inputs: orderedOutputPorts } }
+        : node);
       const layout = Object.fromEntries(
         layoutedNodes
           .filter((node) => node.data.role === "processor")
           .map((node) => [node.id, node.position]),
       );
       setFlowNodes(layoutedNodes);
+      const unroutedEdges = flowEdges.map((edge) => ({ ...edge, data: { ...(edge.data ?? {}), route: undefined } }));
+      setFlowEdges(unroutedEdges);
+      rerouteAfterRender(layoutedNodes, unroutedEdges, true);
       setConnectionError(null);
       onChange({ ...document, layout });
       window.requestAnimationFrame(() => void fitView({ padding: 0.18, duration: 260, minZoom: 0.55, maxZoom: 1 }));
     } catch (reason) {
       setConnectionError(reason instanceof Error ? `自动排列失败：${reason.message}` : "自动排列失败，请稍后重试。");
     }
-  }, [document, fitView, flowEdges, flowNodes, onChange]);
+  }, [document, fitView, flowEdges, flowNodes, onChange, readPortOffsets, rerouteAfterRender]);
 
   useEffect(() => {
     if (!nodesInitialized || checkedInitialLayout.current) return;
@@ -446,7 +557,7 @@ function AudioGraphEditorInner({
     checkedInitialLayout.current = true;
     const positionedNodeIds = new Set(Object.keys(document.layout ?? {}));
     if (needsAutoLayout(flowNodes, document.nodes.map((node) => node.id), positionedNodeIds)) {
-      const frame = window.requestAnimationFrame(arrangeGraph);
+      const frame = window.requestAnimationFrame(() => void arrangeGraph());
       return () => window.cancelAnimationFrame(frame);
     }
   }, [arrangeGraph, document.layout, document.nodes, flowNodes, nodesInitialized]);
@@ -565,8 +676,16 @@ function AudioGraphEditorInner({
 
   const onNodesChange = (changes: NodeChange<GraphNode>[]) =>
     setFlowNodes((current) => applyNodeChanges(changes, current));
-  const onEdgesChange = (changes: EdgeChange<Edge>[]) =>
+  const onEdgesChange = (changes: EdgeChange<GraphEdge>[]) =>
     setFlowEdges((current) => applyEdgeChanges(changes, current));
+
+  const focusedEdges = useMemo(() => {
+    const hasFocus = Boolean(selectedId || selectedEdgeId);
+    return flowEdges.map((edge) => {
+      const related = selectedEdgeId === edge.id || (selectedId != null && (edge.source === selectedId || edge.target === selectedId));
+      return { ...edge, className: `${edge.className ?? ""} ${hasFocus ? related ? "edge-focused" : "edge-dimmed" : ""}`.trim() };
+    });
+  }, [flowEdges, selectedEdgeId, selectedId]);
 
   const legendKinds = ["pcm_chunk", "audio_segment", "diarization_segment", "embedding", "vector_search_result", "diarization_local_result", "diarization_cluster_result", "speaker_transcription", "transcription", "speech_started", "speech_stopped"];
   return (
@@ -609,8 +728,9 @@ function AudioGraphEditorInner({
         {connectionError && <div className="graph-toast">{connectionError}</div>}
         <ReactFlow
           nodes={flowNodes}
-          edges={flowEdges}
+          edges={focusedEdges}
           nodeTypes={flowNodeTypes}
+          edgeTypes={flowEdgeTypes}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onEdgesDelete={removeEdges}
@@ -618,12 +738,16 @@ function AudioGraphEditorInner({
           onConnectStart={(_event, params) => setConnectingKind(portKind(params.nodeId ?? "", params.handleId, "out") ?? null)}
           onConnectEnd={() => setConnectingKind(null)}
           connectionLineType={ConnectionLineType.SmoothStep}
+          connectionLineComponent={RoundedConnectionLine}
           connectionLineStyle={{ stroke: portMeta(connectingKind ?? "").color, strokeWidth: 2.25 }}
           isValidConnection={validConnection}
-          onPaneClick={() => setSelectedId(null)}
-          onNodeClick={(_event, node) => setSelectedId(node.id.startsWith("$") ? null : node.id)}
+          onPaneClick={() => { setSelectedId(null); setSelectedEdgeId(null); }}
+          onNodeClick={(_event, node) => { setSelectedEdgeId(null); setSelectedId(node.id.startsWith("$") ? null : node.id); }}
+          onEdgeClick={(_event, edge) => { setSelectedId(null); setSelectedEdgeId(edge.id); }}
           onNodeDragStop={(_event, node) => {
             if (node.id.startsWith("$")) return;
+            const nextNodes = flowNodes.map((item) => item.id === node.id ? { ...item, position: node.position } : item);
+            rerouteAfterRender(nextNodes, flowEdges);
             onChange({ ...document, layout: { ...document.layout, [node.id]: node.position } });
           }}
           fitView
@@ -639,7 +763,7 @@ function AudioGraphEditorInner({
           </Panel>
           <MiniMap pannable zoomable nodeColor={(node) => ROLE_COLORS[node.data.role as keyof typeof ROLE_COLORS] ?? "#69716c"} />
           <Controls fitViewOptions={{ padding: 0.18, minZoom: 0.55, maxZoom: 1 }}>
-            <ControlButton aria-label="自动排列" title="自动排列" onClick={arrangeGraph}>↔</ControlButton>
+            <ControlButton aria-label="自动排列" title="自动排列" onClick={() => void arrangeGraph()}>↔</ControlButton>
           </Controls>
         </ReactFlow>
       </section>
@@ -661,6 +785,10 @@ function AudioGraphEditorInner({
               <div className="inspector-state configured"><strong>firered.stream_vad</strong><span>协议版本 v1 · 1 帧 = 10 ms</span></div>
               {FIRERED_PARAMETER_META.map(([key, label, unit, step]) => <label key={key}><span>{label}</span><input type="number" min={key === "speech_threshold" ? 0 : 1} max={key === "speech_threshold" ? 1 : undefined} step={step} value={selectedPostprocessing.parameters[key]} onChange={(event) => updateNode({ ...selected, config: { ...selectedPhysicalConfig, postprocessing: { ...selectedPostprocessing, parameters: { ...selectedPostprocessing.parameters, [key]: Number(event.target.value) } } } })} /><small>{unit}</small></label>)}
             </>}
+          </section>}
+          {selected.kind === "speaker_diarization" && selectedDiarizationConfig && <section className="diarization-postprocessing-settings">
+            <label className="switch-control"><input type="checkbox" checked={selectedDiarizationConfig.postprocessing != null} onChange={(event) => updateNode({ ...selected, config: { ...selectedDiarizationConfig, postprocessing: event.target.checked ? structuredClone(DIARIZATION_POSTPROCESSING_DEFAULTS) : null } })} /><span>启用 VAD 覆盖后处理</span><small>填充有效语音头尾与空洞，合并相邻同说话人片段，并在说话人切换后立即送入 ASR。</small></label>
+            {selectedDiarizationConfig.postprocessing && <div className="inspector-state configured"><strong>audio_harness.diarization.vad_coverage</strong><span>协议版本 v1 · 稳定片段流式提交</span></div>}
           </section>}
           {selected.kind === "speaker_clustering" && selectedClusteringConfig && <section className="clustering-parameters-settings">
             <label><span>聚类算法</span><select value={selectedClusteringConfig.clustering_algorithm} onChange={(event) => updateNode({ ...selected, config: { ...selectedClusteringConfig, clustering_algorithm: event.target.value as "hdbscan" } })}><option value="hdbscan">HDBSCAN</option></select></label>

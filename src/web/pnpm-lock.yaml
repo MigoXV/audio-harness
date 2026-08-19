@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@dagrejs/dagre':
-        specifier: 3.1.0
-        version: 3.1.0
       '@hookform/resolvers':
         specifier: ^5.7.1
         version: 5.7.1(@standard-schema/spec@1.1.0)(react-hook-form@7.84.0(react@19.2.8))(zod@4.4.3)
@@ -38,6 +35,9 @@ importers:
       '@xyflow/react':
         specifier: ^12.11.2
         version: 12.11.2(@types/react-dom@19.2.4(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      elkjs:
+        specifier: ^0.12.0
+        version: 0.12.0
       react:
         specifier: ^19.2.8
         version: 19.2.8
@@ -80,7 +80,7 @@ importers:
         version: 10.8.0(supports-color@10.2.2)
       eslint-plugin-react-hooks:
         specifier: ^7.1.1
-        version: 7.1.1(eslint@10.8.0(supports-color@10.2.2))(supports-color@10.2.2)
+        version: 7.1.1(eslint@10.8.0(supports-color@10.2.2))
       globals:
         specifier: ^17.8.0
         version: 17.8.0
@@ -239,12 +239,6 @@ packages:
   '@csstools/css-tokenizer@4.0.0':
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
-
-  '@dagrejs/dagre@3.1.0':
-    resolution: {integrity: sha512-22SWJOfiQVCSFF0qN43SMiYS7Ch9Z6HZoO8+5PycGzGgmtdXIvHoZ2DoT5BweVGf+wwHxBFZu4eO0do0RIYQaw==}
-
-  '@dagrejs/graphlib@4.0.3':
-    resolution: {integrity: sha512-9kvysNliOxG5m3lr1Qq5uCc+SYxx+BaLDM2SDGkgoZvKJ1bSESzbZ3gn4rSxqX1xR07swcSdeuGyKYQhAURxAA==}
 
   '@emnapi/core@1.11.1':
     resolution: {integrity: sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ==}
@@ -1540,6 +1534,9 @@ packages:
   electron-to-chromium@1.5.397:
     resolution: {integrity: sha512-khGTy9U9x02KEtsKM8vx5A62BsRmcOsIgDpWr1ImE32Ax8GxHGPHZf+Eu9H8zOOyHJnB0jTbseyTHbq2XCT8yw==}
 
+  elkjs@0.12.0:
+    resolution: {integrity: sha512-YZcKynxVxYoKIOEpywEPwCFdg+BTbxQRNf3pbwdDCvc8O3kQD8bmIwSxKU1eOTVc4Xo+VG9Te+575mlfvOrhEQ==}
+
   emoji-regex@8.0.0:
     resolution: {integrity: sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A==}
 
@@ -2501,7 +2498,7 @@ snapshots:
 
   '@babel/compat-data@7.29.7': {}
 
-  '@babel/core@7.29.7(supports-color@10.2.2)':
+  '@babel/core@7.29.7':
     dependencies:
       '@babel/code-frame': 7.29.7
       '@babel/generator': 7.29.7
@@ -2548,7 +2545,7 @@ snapshots:
 
   '@babel/helper-module-transforms@7.29.7(@babel/core@7.29.7)':
     dependencies:
-      '@babel/core': 7.29.7(supports-color@10.2.2)
+      '@babel/core': 7.29.7
       '@babel/helper-module-imports': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
       '@babel/traverse': 7.29.7
@@ -2574,7 +2571,7 @@ snapshots:
 
   '@babel/plugin-syntax-typescript@7.29.7(@babel/core@7.29.7)':
     dependencies:
-      '@babel/core': 7.29.7(supports-color@10.2.2)
+      '@babel/core': 7.29.7
       '@babel/helper-plugin-utils': 7.29.7
 
   '@babel/runtime@7.29.7': {}
@@ -2629,12 +2626,6 @@ snapshots:
       css-tree: 3.2.1
 
   '@csstools/css-tokenizer@4.0.0': {}
-
-  '@dagrejs/dagre@3.1.0':
-    dependencies:
-      '@dagrejs/graphlib': 4.0.3
-
-  '@dagrejs/graphlib@4.0.3': {}
 
   '@emnapi/core@1.11.1':
     dependencies:
@@ -2732,7 +2723,7 @@ snapshots:
   '@esbuild/win32-x64@0.28.1':
     optional: true
 
-  '@eslint-community/eslint-utils@4.10.1(eslint@10.8.0)':
+  '@eslint-community/eslint-utils@4.10.1(eslint@10.8.0(supports-color@10.2.2))':
     dependencies:
       eslint: 10.8.0(supports-color@10.2.2)
       eslint-visitor-keys: 3.4.3
@@ -3415,7 +3406,7 @@ snapshots:
 
   '@typescript-eslint/utils@8.65.0(eslint@10.8.0(supports-color@10.2.2))(typescript@6.0.3)':
     dependencies:
-      '@eslint-community/eslint-utils': 4.10.1(eslint@10.8.0)
+      '@eslint-community/eslint-utils': 4.10.1(eslint@10.8.0(supports-color@10.2.2))
       '@typescript-eslint/scope-manager': 8.65.0
       '@typescript-eslint/types': 8.65.0
       '@typescript-eslint/typescript-estree': 8.65.0(typescript@6.0.3)
@@ -3431,7 +3422,7 @@ snapshots:
 
   '@vanilla-extract/babel-plugin-debug-ids@1.2.2':
     dependencies:
-      '@babel/core': 7.29.7(supports-color@10.2.2)
+      '@babel/core': 7.29.7
     transitivePeerDependencies:
       - supports-color
 
@@ -3475,7 +3466,7 @@ snapshots:
 
   '@vanilla-extract/integration@8.0.10':
     dependencies:
-      '@babel/core': 7.29.7(supports-color@10.2.2)
+      '@babel/core': 7.29.7
       '@babel/plugin-syntax-typescript': 7.29.7(@babel/core@7.29.7)
       '@vanilla-extract/babel-plugin-debug-ids': 1.2.2
       '@vanilla-extract/css': 1.21.2
@@ -3787,6 +3778,8 @@ snapshots:
 
   electron-to-chromium@1.5.397: {}
 
+  elkjs@0.12.0: {}
+
   emoji-regex@8.0.0: {}
 
   emoji-regex@9.2.2: {}
@@ -3828,9 +3821,9 @@ snapshots:
 
   escape-string-regexp@4.0.0: {}
 
-  eslint-plugin-react-hooks@7.1.1(eslint@10.8.0(supports-color@10.2.2))(supports-color@10.2.2):
+  eslint-plugin-react-hooks@7.1.1(eslint@10.8.0(supports-color@10.2.2)):
     dependencies:
-      '@babel/core': 7.29.7(supports-color@10.2.2)
+      '@babel/core': 7.29.7
       '@babel/parser': 7.29.7
       eslint: 10.8.0(supports-color@10.2.2)
       hermes-parser: 0.25.1
@@ -3852,7 +3845,7 @@ snapshots:
 
   eslint@10.8.0(supports-color@10.2.2):
     dependencies:
-      '@eslint-community/eslint-utils': 4.10.1(eslint@10.8.0)
+      '@eslint-community/eslint-utils': 4.10.1(eslint@10.8.0(supports-color@10.2.2))
       '@eslint-community/regexpp': 4.12.2
       '@eslint/config-array': 0.23.5(supports-color@10.2.2)
       '@eslint/config-helpers': 0.7.0

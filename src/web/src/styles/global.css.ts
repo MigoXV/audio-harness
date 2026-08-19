@@ -389,7 +389,9 @@ globalStyle(".audio-canvas", { position: "relative", height: "max(620px, calc(10
 globalStyle(".audio-canvas .react-flow", { width: "100%", height: "100%", minHeight: 0 });
 globalStyle(".audio-canvas .react-flow__pane", { cursor: "grab" });
 globalStyle(".audio-canvas .react-flow__node", { borderRadius: vars.radius.md });
-globalStyle(".audio-graph-node", { width: 244, overflow: "hidden", border: `1px solid ${vars.color.lineStrong}`, borderRadius: vars.radius.md, background: vars.color.surface, boxShadow: "0 6px 18px rgba(32,37,34,.10)" });
+// React Flow 的端口位于卡片边缘之外；这里不能裁切溢出内容，
+// 否则端口会不可见，也无法作为拖拽连线的起止点。
+globalStyle(".audio-graph-node", { width: 244, overflow: "visible", border: `1px solid ${vars.color.lineStrong}`, borderRadius: vars.radius.md, background: vars.color.surface, boxShadow: "0 6px 18px rgba(32,37,34,.10)" });
 globalStyle(".audio-graph-node.role-input", { borderColor: "rgba(37,99,235,.34)" });
 globalStyle(".audio-graph-node.role-processor", { borderColor: "rgba(40,104,79,.34)" });
 globalStyle(".audio-graph-node.role-output", { borderColor: "rgba(124,58,237,.34)" });
@@ -421,6 +423,10 @@ globalStyle(".audio-canvas .react-flow__handle", { width: 12, height: 12, border
 globalStyle(".audio-port-row .react-flow__handle-left", { left: -18 });
 globalStyle(".audio-port-row .react-flow__handle-right", { right: -18 });
 globalStyle(".audio-canvas .react-flow__edge-path", { transition: `stroke-width ${vars.motion.fast} ease`, filter: "drop-shadow(0 1px 0 rgba(255,255,255,.85))" });
+globalStyle(".audio-canvas .audio-edge-casing", { stroke: "rgba(250,251,249,.96)", strokeWidth: 7, fill: "none", filter: "none" });
+globalStyle(".audio-canvas .react-flow__edge", { transition: `opacity ${vars.motion.fast} ease` });
+globalStyle(".audio-canvas .react-flow__edge.edge-dimmed", { opacity: 0.14 });
+globalStyle(".audio-canvas .react-flow__edge.edge-focused", { opacity: 1 });
 globalStyle(".audio-canvas .react-flow__edge.selected .react-flow__edge-path", { strokeWidth: "3.5px !important" });
 globalStyle(".audio-graph-legend", { display: "grid", gap: 5, padding: "7px 9px", border: `1px solid ${vars.color.lineStrong}`, borderRadius: vars.radius.md, background: "rgba(251,251,249,.94)", boxShadow: "0 3px 12px rgba(32,37,34,.08)", pointerEvents: "none" });
 globalStyle(".audio-graph-legend > div", { display: "flex", alignItems: "center", justifyContent: "center", gap: 9 });
