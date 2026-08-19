@@ -66,6 +66,7 @@ await pc.setRemoteDescription({ type: "answer", sdp: await response.text() });
 
 - label 必须为 `oai-events`，只接受 UTF-8 JSON 文本；binary message 返回 `invalid_event`。
 - DataChannel 打开后服务发送 `session.created`，随后接受与 [WebSocket 相同的客户端事件子集](openai-realtime.md)。
+- 建连表单和 DataChannel 的 Session 音频输入格式接受 16/24 kHz 并原样回显；RTP 音轨仍依据媒体帧自身采样率转换到内部 16 kHz，不依赖该声明解释 RTP 数据。
 - `input_audio_buffer.append` 在 WebRTC 返回 `unsupported_audio_event`；RTP 音轨是唯一输入。
 - Agent 音频通过服务端 output track 播放，不发送 `response.output_audio.delta`；仍发送 transcript 和 response lifecycle 事件。
 - `output_audio_buffer.clear` 只在 WebRTC Agent 有效，用于 barge-in 后丢弃待播音频。
@@ -89,4 +90,3 @@ await pc.setRemoteDescription({ type: "answer", sdp: await response.text() });
 | `408` | `negotiation_timeout` | set remote/create answer/set local 超时 |
 | `429` | `capacity_exceeded` | WebRTC/Workflow 会话容量已满 |
 | `404/412` | 通用错误 | model Route 不存在或目标未激活 |
-

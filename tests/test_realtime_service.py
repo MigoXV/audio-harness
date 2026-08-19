@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import base64
+import json
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 from fastapi import FastAPI, Query, WebSocket
 from fastapi.testclient import TestClient
-from openai.types.realtime import RealtimeServerEvent
-from pydantic import TypeAdapter
 from starlette.websockets import WebSocketDisconnect
 
 from audio_harness.serving.capacity import ServingCapacity
@@ -21,12 +21,15 @@ from audio_harness.serving.realtime.connection import (
     RealtimeTranscriptionService,
     _OnlinePcmResampler,
 )
+from audio_harness.serving.realtime.protocol import (
+    AHA_REALTIME_SERVER_EVENT_ADAPTER,
+)
 from audio_harness.api.routers.data_plane import create_data_plane_router
 from audio_harness.sessions import AudioWorkflowSessionService
 from audio_harness.workflows.settings import WorkflowSettingsSnapshot
 from tests.graph_fakes import StaticRouteService, static_audio_workflow
 
-_SERVER_EVENT_ADAPTER = TypeAdapter(RealtimeServerEvent)
+_SERVER_EVENT_ADAPTER = AHA_REALTIME_SERVER_EVENT_ADAPTER
 
 
 class ImmediateVad(VadInferencer):
@@ -127,7 +130,6 @@ class StaticSettings:
     def __init__(self, config: WorkflowRuntimeConfig) -> None:
         self._snapshot = WorkflowSettingsSnapshot(
             config=config,
-            grpc_audio_workflow_id="default-audio",
             revision=1,
             updated_at=datetime.now(timezone.utc),
         )
@@ -146,14 +148,13 @@ def build_app(
     settings = StaticSettings(config)
     capacity = ServingCapacity(CapacityConfig())
     selected_vad = vad or ImmediateVad()
-    inferencer_pool, workflows, workflow = static_audio_workflow(
+    inferencer_pool, _workflows, workflow = static_audio_workflow(
         asr=FinalAsr(),
         vad=selected_vad,
         semantic_vad=semantic_vad or selected_vad,
     )
     sessions = AudioWorkflowSessionService(
         inferencer_pool=inferencer_pool,
-        workflows=workflows,
         workflow_settings=settings,
         session_limiter=capacity.realtime_sessions,
         asr_limiter=capacity.asr,
@@ -190,7 +191,12 @@ def receive_official_event(websocket):
     return _SERVER_EVENT_ADAPTER.validate_python(websocket.receive_json())
 
 
-def configure_transcription(websocket, *, event_id: str = "client-session"):
+def configure_transcription(
+    websocket,
+    *,
+    event_id: str = "client-session",
+    sample_rate: int = 24_000,
+):
     websocket.send_json(
         {
             "type": "session.update",
@@ -201,7 +207,7 @@ def configure_transcription(websocket, *, event_id: str = "client-session"):
                     "input": {
                         "format": {
                             "type": "audio/pcm",
-                            "rate": 24000,
+                            "rate": sample_rate,
                         },
                         "transcription": {
                             "model": "gpt-4o-transcribe",
@@ -217,6 +223,17 @@ def configure_transcription(websocket, *, event_id: str = "client-session"):
     assert updated.type == "session.updated"
     assert updated.session.id is not None
     return updated
+
+
+def test_realtime_accepts_16_khz_transcription_session() -> None:
+    with TestClient(build_app()) as client:
+        with client.websocket_connect(
+            "/v1/realtime?intent=transcription"
+        ) as websocket:
+            assert receive_official_event(websocket).type == "session.created"
+            updated = configure_transcription(websocket, sample_rate=16_000)
+
+            assert updated.session.audio.input.format.rate == 16_000
 
 
 @pytest.mark.parametrize("format_type", ["audio/pcmu", "audio/pcma"])
@@ -272,6 +289,52 @@ class _RecordingRealtimeService:
         self.calls.append(kwargs)
         await websocket.accept()
         await websocket.close()
+
+
+class _RecordingWebRtcService:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    async def create_call(self, **kwargs):
+        self.calls.append(kwargs)
+        return SimpleNamespace(call_id="call-1", sdp="answer-sdp")
+
+    async def hangup(self, call_id: str) -> None:
+        del call_id
+
+
+def test_webrtc_session_form_accepts_16_khz_input() -> None:
+    app = FastAPI()
+    webrtc = _RecordingWebRtcService()
+    app.include_router(
+        create_data_plane_router(
+            realtime=_UnexpectedDataPlaneService(),  # type: ignore[arg-type]
+            webrtc=webrtc,  # type: ignore[arg-type]
+            max_message_bytes=4096,
+        )
+    )
+    session = {
+        "type": "transcription",
+        "audio": {
+            "input": {
+                "format": {"type": "audio/pcm", "rate": 16_000},
+                "transcription": {"model": "meeting-transcribe"},
+            }
+        },
+    }
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/realtime/calls",
+            files={
+                "sdp": (None, "offer-sdp"),
+                "session": (None, json.dumps(session)),
+            },
+        )
+
+    assert response.status_code == 201
+    configured = webrtc.calls[0]["session"]
+    assert configured.audio.input.format.rate == 16_000
 
 
 def test_realtime_does_not_require_bearer_token() -> None:
@@ -429,6 +492,55 @@ def test_realtime_rejects_session_update_with_resampler_audio_pending() -> None:
             assert receive_official_event(websocket).type == (
                 "input_audio_buffer.cleared"
             )
+
+
+def test_realtime_rejects_sample_rate_change_with_audio_pending() -> None:
+    with TestClient(build_app()) as client:
+        with client.websocket_connect(
+            "/v1/realtime?intent=transcription"
+        ) as websocket:
+            assert receive_official_event(websocket).type == "session.created"
+            configure_transcription(websocket)
+            websocket.send_json(
+                {
+                    "type": "input_audio_buffer.append",
+                    "audio": base64.b64encode(b"\0\0").decode("ascii"),
+                }
+            )
+            websocket.send_json(
+                {
+                    "type": "session.update",
+                    "event_id": "change-rate-with-pending-audio",
+                    "session": {
+                        "type": "transcription",
+                        "audio": {
+                            "input": {
+                                "transcription": {
+                                    "model": "gpt-4o-transcribe"
+                                },
+                                "format": {
+                                    "type": "audio/pcm",
+                                    "rate": 16_000,
+                                },
+                            }
+                        },
+                    },
+                }
+            )
+
+            error = receive_official_event(websocket)
+            assert error.type == "error"
+            assert error.error.code == "session_update_after_audio"
+            websocket.send_json({"type": "input_audio_buffer.clear"})
+            assert receive_official_event(websocket).type == (
+                "input_audio_buffer.cleared"
+            )
+            updated = configure_transcription(
+                websocket,
+                event_id="change-rate-after-clear",
+                sample_rate=16_000,
+            )
+            assert updated.session.audio.input.format.rate == 16_000
 
 
 def test_realtime_allows_safe_session_update_with_resampler_audio_pending() -> None:
@@ -794,10 +906,16 @@ def test_realtime_manual_commit_chunks_audio_larger_than_grpc_limit() -> None:
     assert max(vad.chunk_sizes) <= 6400
 
 
-def test_soxr_online_resampler_preserves_one_second_duration() -> None:
-    resampler = _OnlinePcmResampler(chunk_bytes=6400)
+@pytest.mark.parametrize("input_sample_rate", [16_000, 24_000])
+def test_online_pcm_processing_preserves_one_second_duration(
+    input_sample_rate: int,
+) -> None:
+    resampler = _OnlinePcmResampler(
+        chunk_bytes=6400,
+        input_sample_rate=input_sample_rate,
+    )
     chunks: list[bytes] = []
-    input_audio = np.arange(24_000, dtype=np.int16).tobytes()
+    input_audio = np.arange(input_sample_rate, dtype=np.int16).tobytes()
     for offset in range(0, len(input_audio), 4800):
         chunks.extend(resampler.append(input_audio[offset : offset + 4800]))
     chunks.extend(resampler.finish())

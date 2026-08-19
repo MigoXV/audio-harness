@@ -118,7 +118,6 @@ class _StaticSettings:
             config=WorkflowRuntimeConfig(
                 min_chunk_bytes=6400,
             ),
-            grpc_audio_workflow_id="default-audio",
             revision=1,
             updated_at=datetime.now(timezone.utc),
         )
@@ -158,14 +157,13 @@ def _build_service(
     settings = _StaticSettings()
     capacity = ServingCapacity(CapacityConfig())
     selected_vad = vad or _ImmediateVad()
-    inferencer_pool, workflows, workflow = static_audio_workflow(
+    inferencer_pool, _workflows, workflow = static_audio_workflow(
         asr=_FinalAsr(),
         vad=selected_vad,
         semantic_vad=semantic_vad or selected_vad,
     )
     sessions = AudioWorkflowSessionService(
         inferencer_pool=inferencer_pool,
-        workflows=workflows,
         workflow_settings=settings,
         session_limiter=capacity.webrtc_sessions,
         asr_limiter=capacity.asr,

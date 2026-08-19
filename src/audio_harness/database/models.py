@@ -104,7 +104,6 @@ class WorkflowSetting(Base):
     audio_queue_capacity: Mapped[int] = mapped_column(Integer, nullable=False)
     segment_queue_capacity: Mapped[int] = mapped_column(Integer, nullable=False)
     result_queue_capacity: Mapped[int] = mapped_column(Integer, nullable=False)
-    grpc_audio_workflow_id: Mapped[str | None] = mapped_column(String(100))
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -117,7 +116,6 @@ class CapacitySetting(Base):
     __tablename__ = "capacity_settings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    grpc_max_sessions: Mapped[int] = mapped_column(Integer, nullable=False)
     realtime_max_sessions: Mapped[int] = mapped_column(Integer, nullable=False)
     webrtc_max_sessions: Mapped[int] = mapped_column(Integer, nullable=False)
     max_asr_concurrency: Mapped[int] = mapped_column(Integer, nullable=False)

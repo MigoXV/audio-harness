@@ -5,8 +5,6 @@ from fastapi import APIRouter, File, Form, Response, UploadFile, status
 from audio_harness.schemas.runtime import (
     CapacitySettingsRead,
     CapacitySettingsUpdate,
-    GrpcWorkflowBindingUpdate,
-    GrpcOverviewRead,
     HealthResponse,
     RealtimeOverviewRead,
     RuntimeIssueRead,
@@ -26,13 +24,11 @@ from audio_harness.serving.capacity_settings import (
 from audio_harness.serving.status import RuntimeOverview, ServingStatusService
 from audio_harness.voice_agents.voices import VoiceAssetStore
 from audio_harness.workflows.settings import WorkflowSettingsSnapshot, WorkflowSettingsStore
-from audio_harness.workflows.service import AudioWorkflowService
 
 
 def workflow_settings_response(value: WorkflowSettingsSnapshot) -> WorkflowSettingsRead:
     return WorkflowSettingsRead(
         **value.config.model_dump(),
-        grpc_audio_workflow_id=value.grpc_audio_workflow_id,
         revision=value.revision,
         updated_at=value.updated_at,
     )
@@ -50,20 +46,16 @@ def readiness_response(overview: RuntimeOverview) -> HealthResponse:
     return HealthResponse(
         status="ready" if overview.ready else "not_ready",
         database="ready" if overview.control_plane == "ready" else "unavailable",
-        data_plane="ready" if overview.grpc.state == "ready" else "not_ready",
         problems=[
             issue.message
             for issue in overview.issues
-            if issue.scope in {"control_plane", "grpc"}
+            if issue.scope == "control_plane"
         ],
-        workflow_id=overview.grpc.workflow_id,
-        workflow_revision=overview.grpc.workflow_revision,
     )
 
 
 def create_runtime_router(
     *,
-    workflows: AudioWorkflowService,
     serving_status: ServingStatusService,
     workflow_settings: WorkflowSettingsStore,
     capacity_settings: CapacitySettingsStore,
@@ -87,18 +79,6 @@ def create_runtime_router(
             expected_revision=payload.revision,
         )
         return workflow_settings_response(snapshot)
-
-    @router.put("/settings/grpc-workflow", response_model=WorkflowSettingsRead)
-    async def update_grpc_workflow_binding(
-        payload: GrpcWorkflowBindingUpdate,
-    ) -> WorkflowSettingsRead:
-        workflows.current(payload.workflow_id)
-        return workflow_settings_response(
-            await workflow_settings.set_grpc_audio_workflow(
-                payload.workflow_id,
-                expected_revision=payload.expected_revision,
-            )
-        )
 
     @router.get("/settings/capacity", response_model=CapacitySettingsRead)
     async def get_capacity_settings() -> CapacitySettingsRead:
@@ -129,7 +109,6 @@ def create_runtime_router(
             )
 
         return RuntimeStatusRead(
-            grpc=read(capacity.grpc_sessions),
             realtime=read(capacity.realtime_sessions),
             webrtc=read(capacity.webrtc_sessions),
             asr=read(capacity.asr),
@@ -146,7 +125,6 @@ def create_runtime_router(
         return RuntimeOverviewRead(
             status=overview.status,
             control_plane=overview.control_plane,
-            grpc=GrpcOverviewRead(**overview.grpc.__dict__),
             realtime=RealtimeOverviewRead(**overview.realtime.__dict__),
             issues=[RuntimeIssueRead(**item.__dict__) for item in overview.issues],
         )
@@ -178,7 +156,7 @@ def create_runtime_router(
 
     @router.get("/health/live", response_model=HealthResponse)
     async def liveness() -> HealthResponse:
-        return HealthResponse(status="ok", database="not_checked", data_plane="not_checked")
+        return HealthResponse(status="ok", database="not_checked")
 
     @router.get("/health/ready", response_model=HealthResponse)
     async def readiness(response: Response) -> HealthResponse:

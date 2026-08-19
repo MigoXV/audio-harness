@@ -15,8 +15,11 @@ from sqlalchemy.ext.asyncio import (
 )
 
 
-DATABASE_BASELINE_REVISION = "0003_remove_vector_spaces"
-DATABASE_CLEANUP_REVISIONS = {"0002_vector_search"}
+DATABASE_BASELINE_REVISION = "0004_remove_grpc_server"
+DATABASE_CLEANUP_REVISIONS = {
+    "0002_vector_search",
+    "0003_remove_vector_spaces",
+}
 
 
 def _ensure_sqlite_parent(database_url: str) -> None:

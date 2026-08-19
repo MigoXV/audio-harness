@@ -1,6 +1,6 @@
 # Audio Harness
 
-Audio Harness 是一个面向实时语音推理的异步编排服务。它把推理引擎、语音工作流、语音智能体配置和协议接入拆成独立边界，同时保留 gRPC、OpenAI Realtime WebSocket 与 WebRTC 数据面。
+Audio Harness 是一个面向实时语音推理的异步编排服务。它把推理引擎、语音工作流、语音智能体配置和协议接入拆成独立边界，通过 OpenAI Realtime WebSocket 与 WebRTC 提供数据面。
 
 当前版本采用全新的数据库基线，不兼容旧版 Pipeline、Stage Workflow 或历史业务数据。
 
@@ -21,7 +21,7 @@ HTTP 控制面
     ├── VoiceAgentService            ├── InferencerPool
     └── RealtimeRouteService         │       │
                                       │       └── 不可变引擎快照租约
-gRPC / Realtime / WebRTC 数据面 ─────┘
+Realtime / WebRTC 数据面 ───────────┘
 ```
 
 协议层不读取数据库、不解析业务图，也不负责创建推理客户端。进程组合根在启动时装配服务；会话只持有活动工作流快照、容量租约和有界队列。
@@ -100,7 +100,6 @@ src/audio_harness/
 ├── media/              # PCM 等媒体数据类型
 ├── sessions/           # 协议无关会话生命周期与容量租约
 ├── serving/            # 进程容量、状态与协议服务
-│   ├── grpc/           # gRPC 数据面适配器
 │   ├── realtime/       # OpenAI Realtime WebSocket 适配器
 │   └── webrtc/         # WebRTC 适配器
 └── database/           # SQLAlchemy 模型与单一 Alembic 基线
@@ -115,12 +114,12 @@ src/web/
 
 ## 数据库策略
 
-数据库只支持 `sqlite+aiosqlite`。当前 Alembic head 为 `0003_remove_vector_spaces`。
+数据库只支持 `sqlite+aiosqlite`。当前 Alembic head 为 `0004_remove_grpc_server`。
 
 启动命令只接受：
 
 - 不存在或空的数据库；
-- 已处于 `0001_initial` 的当前数据库。
+- 已处于 `0002_vector_search`、`0003_remove_vector_spaces` 或当前 head 的数据库。
 
 发现旧 revision 时会直接拒绝启动。请先停止服务，人工移走 SQLite 主文件及对应的 `-wal`、`-shm` 文件，再启动服务创建干净数据库。系统不会隐式删除或转换旧业务数据。
 
@@ -140,7 +139,6 @@ poetry run audio-harness serve
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `DATABASE_URL` | `sqlite+aiosqlite:///./data-bin/sqlite/audio-harness.db` | SQLite 数据库 |
-| `GRPC_HOST` / `GRPC_PORT` | `0.0.0.0` / `50051` | gRPC 监听地址 |
 | `HTTP_HOST` / `HTTP_PORT` | `0.0.0.0` / `8000` | HTTP、WSS 与 WebRTC 信令地址 |
 | `VOICE_STORAGE_DIR` | `./data-bin/voices` | 参考音频目录 |
 | `QDRANT_GRPC_TARGET` | 未配置 | Qdrant 正式数据面，例如 `192.168.0.222:16334` |
@@ -158,13 +156,13 @@ Qdrant 是 Collection、Named Vector、Point 和 payload 的唯一事实来源�
 
 1. 在“推理引擎”中注册 VAD 与 ASR 引擎，并完成连通性校验。
 2. 打开默认语音工作流，在 DAG 画布绑定节点引擎、连线和命名出口。
-3. 校验并发布语音工作流，再在“接入”页显式绑定 gRPC 默认工作流或 Realtime model。
+3. 校验并发布语音工作流，再在“接入”页显式创建 Realtime model。
 4. 如需对话能力，通过四步向导创建语音智能体，依次选择语音工作流、Responses 引擎和 TTS 引擎。
 5. 发布语音智能体后显式创建公开 Realtime Route，再进入“测试”页发起连接。
 
 发布和接入是两个独立动作。发布只生成不可变活动版本，不会自动创建外部入口；Realtime model 冲突时接口返回 `409 realtime_route_conflict`，只有用户确认后才允许替换原目标。测试页会先读取路由并检查其可见性，避免把未部署资源误报为 WebSocket 故障。
 
-`GET /api/v1/runtime/overview` 始终返回 `200`，用于控制台展示“待配置”和可操作诊断；`/health/ready` 仍是部署探针，在 gRPC 默认工作流未就绪时返回 `503`。因此浏览器界面不再轮询 503 探针来判断管理服务是否在线。
+`GET /api/v1/runtime/overview` 始终返回 `200`，用于控制台展示“待配置”和可操作诊断；`/health/ready` 是部署探针，只检查数据库与控制面是否可用。缺少公开 Realtime 路由不会阻止部署就绪。
 
 ## 接口文档
 
@@ -175,7 +173,6 @@ Qdrant 是 Collection、Named Vector、Point 和 payload 的唯一事实来源�
 - [OpenAI Realtime 兼容子集](docs/realtime-api/openai-realtime.md)
 - [AHA Realtime 扩展协议 v1](docs/realtime-api/aha-v1.md)
 - [WebRTC 接入](docs/realtime-api/webrtc.md)
-- [gRPC ASR 数据面](docs/data-plane/grpc-asr.md)
 - [下游推理引擎协议](docs/engine-integration/README.md)
 - [机器可读 OpenAPI](docs/reference/openapi.json)
 
@@ -203,7 +200,7 @@ pnpm test
 pnpm build
 ```
 
-Python 测试覆盖编译诊断、typed DAG 流式执行、取消传播、发布快照、乐观锁、语音智能体组合、数据库基线以及 gRPC、Realtime、WebRTC 协议行为。前端测试覆盖 API 客户端、主要页面和端口型 DAG 编辑器入口。
+Python 测试覆盖编译诊断、typed DAG 流式执行、取消传播、发布快照、乐观锁、语音智能体组合、数据库迁移、下游 gRPC 推理适配器以及 Realtime、WebRTC 协议行为。前端测试覆盖 API 客户端、主要页面和端口型 DAG 编辑器入口。
 
 需要重新校准 OpenAI Realtime 实网行为时，可运行：
 

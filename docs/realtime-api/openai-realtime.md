@@ -1,6 +1,6 @@
 # OpenAI Realtime 兼容子集
 
-本页是 Audio Harness 的实际兼容契约，不是 OpenAI Realtime 完整 API 的镜像。所有非 `x_aha.*` 服务端事件在发送前都通过当前 `openai` Python SDK 的 `RealtimeServerEvent` 联合类型校验。
+本页是 Audio Harness 的实际兼容契约，不是 OpenAI Realtime 完整 API 的镜像。服务内建 `AhaRealtimeClientEvent`/`AhaRealtimeServerEvent` 协议模型：兼容事件复用 OpenAI Python SDK 类型，Session 音频输入和 `x_aha.*` 使用本地扩展类型。所有对外事件发送前都通过该联合类型校验。
 
 ## 能力矩阵
 
@@ -40,7 +40,7 @@
 
 - `session.type="transcription"`。
 - `audio.input.transcription.model` 非空，且能解析为 public、已激活 Audio Workflow Route。
-- 输入格式只支持 `{"type":"audio/pcm","rate":24000}`。
+- 输入格式支持 `{"type":"audio/pcm","rate":16000}` 和 `{"type":"audio/pcm","rate":24000}`；省略 rate 时仍默认 24000。
 - language 读取 `transcription.language`；若为空，兼容取 `languages[0]`，再回退 Workflow Settings 默认语言。
 - `turn_detection` 支持 `server_vad` 或 `null`。服务会将已发布 Workflow 的 physical VAD pre-roll 反映为 prefix padding，并对纯转写设置 `create_response=false`。
 
@@ -48,11 +48,11 @@
 
 ### Voice Agent
 
-Agent session 支持 instructions、tools、voice、输入/输出音频格式和 turn detection 的当前实现字段。model 由 URL Route 固定，不能通过 session.update 切换。首次输出音频后 voice 被锁定；响应参数只对本轮有效。
+Agent session 支持 instructions、tools、voice、输入/输出音频格式和 turn detection 的当前实现字段。输入 PCM 支持 16/24 kHz，WebSocket 输出 PCM 仍固定为 24 kHz。model 由 URL Route 固定，不能通过 session.update 切换。首次输出音频后 voice 被锁定；响应参数只对本轮有效。
 
 ## 音频缓冲与 VAD
 
-WebSocket `append.audio` 是 Base64 PCM S16LE 24 kHz mono。服务校验 Base64、偶数字节和 message 大小，并在线重采样为 16 kHz、按 `min_chunk_bytes` 投递 Workflow。
+WebSocket `append.audio` 是 Base64 PCM S16LE mono，采样率必须与 Session 协商的 16 kHz 或 24 kHz 一致。服务校验 Base64、偶数字节和 message 大小；24 kHz 在线重采样为 16 kHz，16 kHz 直接分块，最终均按 `min_chunk_bytes` 投递 Workflow。
 
 自动 VAD 时典型服务事件：
 
@@ -113,4 +113,3 @@ server VAD 检测新一轮语音时，若 Agent `interrupt_response=true`，活�
 ```
 
 大多数事件错误可恢复，服务不会主动断开。客户端应修正事件后继续；Workflow、Responses 或 TTS 失败可能同时产生细分 failed/done 事件和通用 error。关闭连接会取消任务、结束 Workflow、释放 Engine/会话容量。
-

@@ -631,23 +631,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/settings/grpc-workflow": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Update Grpc Workflow Binding */
-        put: operations["update_grpc_workflow_binding_api_v1_settings_grpc_workflow_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/settings/capacity": {
         parameters: {
             query?: never;
@@ -1073,7 +1056,6 @@ export interface components {
         };
         /** CapacitySettingsRead */
         CapacitySettingsRead: {
-            grpc?: components["schemas"]["ProtocolCapacityConfig"];
             realtime?: components["schemas"]["ProtocolCapacityConfig"];
             webrtc?: components["schemas"]["ProtocolCapacityConfig"];
             /**
@@ -1111,7 +1093,6 @@ export interface components {
         };
         /** CapacitySettingsUpdate */
         CapacitySettingsUpdate: {
-            grpc?: components["schemas"]["ProtocolCapacityConfig"];
             realtime?: components["schemas"]["ProtocolCapacityConfig"];
             webrtc?: components["schemas"]["ProtocolCapacityConfig"];
             /**
@@ -1465,25 +1446,6 @@ export interface components {
              */
             name: "audio";
         };
-        /** GrpcOverviewRead */
-        GrpcOverviewRead: {
-            /**
-             * State
-             * @enum {string}
-             */
-            state: "ready" | "needs_configuration" | "unavailable";
-            /** Workflow Id */
-            workflow_id: string | null;
-            /** Workflow Revision */
-            workflow_revision: number | null;
-        };
-        /** GrpcWorkflowBindingUpdate */
-        GrpcWorkflowBindingUpdate: {
-            /** Workflow Id */
-            workflow_id: string;
-            /** Expected Revision */
-            expected_revision: number;
-        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1518,14 +1480,8 @@ export interface components {
             status: string;
             /** Database */
             database: string;
-            /** Data Plane */
-            data_plane: string;
             /** Problems */
             problems?: string[];
-            /** Workflow Id */
-            workflow_id?: string | null;
-            /** Workflow Revision */
-            workflow_revision?: number | null;
         };
         /** InfrastructureRead */
         InfrastructureRead: {
@@ -1796,7 +1752,7 @@ export interface components {
              * Scope
              * @enum {string}
              */
-            scope: "control_plane" | "grpc" | "realtime";
+            scope: "control_plane" | "realtime";
             /** Message */
             message: string;
             /** Resource Id */
@@ -1823,14 +1779,12 @@ export interface components {
              * @enum {string}
              */
             control_plane: "ready" | "needs_configuration" | "unavailable";
-            grpc: components["schemas"]["GrpcOverviewRead"];
             realtime: components["schemas"]["RealtimeOverviewRead"];
             /** Issues */
             issues: components["schemas"]["RuntimeIssueRead"][];
         };
         /** RuntimeStatusRead */
         RuntimeStatusRead: {
-            grpc: components["schemas"]["RuntimeLimiterRead"];
             realtime: components["schemas"]["RuntimeLimiterRead"];
             webrtc: components["schemas"]["RuntimeLimiterRead"];
             asr: components["schemas"]["RuntimeLimiterRead"];
@@ -1961,6 +1915,11 @@ export interface components {
              * @default 120
              */
             max_batch_seconds: number;
+            /**
+             * Min Asr Segment Seconds
+             * @default 0.5
+             */
+            min_asr_segment_seconds: number;
         };
         /** SpeakerMatchRead */
         SpeakerMatchRead: {
@@ -2218,8 +2177,6 @@ export interface components {
              * @default 32
              */
             result_queue_capacity: number;
-            /** Grpc Audio Workflow Id */
-            grpc_audio_workflow_id: string | null;
             /** Revision */
             revision: number;
             /**
@@ -3810,39 +3767,6 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["WorkflowSettingsUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkflowSettingsRead"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_grpc_workflow_binding_api_v1_settings_grpc_workflow_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["GrpcWorkflowBindingUpdate"];
             };
         };
         responses: {

@@ -4,18 +4,15 @@ import { ApiError, errorMessage } from "../api/client";
 import type {
   AudioHarnessApi,
   RealtimeRoute,
-  WorkflowSettings,
 } from "../api/types";
 
 interface Props {
   api: AudioHarnessApi;
   targetType: "audio_workflow" | "voice_agent";
   targetId: string;
-  targetName: string;
   slug: string;
   activeRevision: number | null;
   routes: RealtimeRoute[];
-  workflowSettings?: WorkflowSettings | null;
   onChanged: () => Promise<void> | void;
 }
 
@@ -25,11 +22,9 @@ export function DeploymentPanel({
   api,
   targetType,
   targetId,
-  targetName,
   slug,
   activeRevision,
   routes,
-  workflowSettings,
   onChanged,
 }: Props) {
   const targetRoutes = useMemo(
@@ -74,22 +69,11 @@ export function DeploymentPanel({
     finally { setBusy(false); }
   };
 
-  const setGrpcDefault = async () => {
-    if (!workflowSettings) return;
-    setBusy(true); setError(null);
-    try {
-      await api.setGrpcAudioWorkflow(targetId, workflowSettings.revision);
-      await onChanged();
-    } catch (reason) { setError(errorMessage(reason, "gRPC 默认工作流设置失败。")); }
-    finally { setBusy(false); }
-  };
-
   if (activeRevision === null) {
     return <section className="panel deployment-empty"><strong>尚不能接入</strong><p>先发布一个活动版本，再配置稳定的对外入口。</p></section>;
   }
 
   const validModel = modelPattern.test(model.trim().toLowerCase());
-  const grpcDefault = workflowSettings?.grpc_audio_workflow_id === targetId;
   const publicRoute = targetRoutes.find((route) => route.visibility === "public");
   return <div className="deployment-stack">
     {error && <div className="alert alert-error"><span>{error}</span><button className="text-button" onClick={() => setError(null)}>关闭</button></div>}
@@ -100,6 +84,5 @@ export function DeploymentPanel({
       {conflict && <div className="alert alert-warning"><div><strong>这个 model 已被占用</strong><p>当前指向 {conflict.target_type} / {conflict.target_id}。替换后旧目标会立即失去该入口。</p></div><div className="inline-actions"><button className="secondary-button" onClick={() => setConflict(null)}>取消</button><button className="danger-button" disabled={busy} onClick={() => void saveRoute(true)}>确认替换</button></div></div>}
       {publicRoute && <div className="endpoint-examples"><label><span>WebSocket (WSS)</span><code>{targetType === "audio_workflow" ? "/v1/realtime?intent=transcription" : `/v1/realtime?model=${publicRoute.model}`}</code>{targetType === "audio_workflow" && <small>session.update model: {publicRoute.model}</small>}</label><label><span>WebRTC</span><code>/v1/realtime/calls?model={publicRoute.model}</code></label></div>}
     </section>
-    {targetType === "audio_workflow" && workflowSettings && <section className="panel deployment-card"><div className="panel-heading"><div><p className="eyebrow">GRPC</p><h2>gRPC 默认工作流</h2><p>gRPC 协议没有 model 字段，因此全局只能绑定一个活动工作流。</p></div><span className={`status-chip ${grpcDefault ? "status-published_healthy" : "status-unpublished"}`}>{grpcDefault ? "当前默认" : "未绑定"}</span></div><div className="panel-actions"><button className="primary-button" disabled={busy || grpcDefault} onClick={() => void setGrpcDefault()}>{grpcDefault ? `${targetName} 已是默认` : "设为 gRPC 默认"}</button><code>UxSpeech.StreamingRecognize</code></div></section>}
   </div>;
 }

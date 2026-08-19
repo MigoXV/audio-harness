@@ -16,13 +16,7 @@ from aiortc import (
     RTCPeerConnection,
     RTCSessionDescription,
 )
-from openai.types.realtime import (
-    RealtimeClientEvent,
-    RealtimeServerEvent,
-    RealtimeSessionCreateRequest,
-    RealtimeTranscriptionSessionCreateRequest,
-)
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from audio_harness.configs import WebRtcConfig
 from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
@@ -46,14 +40,17 @@ from audio_harness.sessions import (
 )
 from audio_harness.serving.realtime.tools import ToolRegistry
 from audio_harness.serving.realtime.agent import VoiceResolver
+from audio_harness.serving.realtime.protocol import (
+    AHA_REALTIME_CLIENT_EVENT_ADAPTER,
+    AHA_REALTIME_SERVER_EVENT_ADAPTER,
+    AhaRealtimeSession,
+    AhaV1ServerEventBase,
+)
 from audio_harness.workflows.settings import WorkflowSettingsStore
 from audio_harness.voice_agents.service import ActiveVoiceAgent
 from audio_harness.workflows.models import PhysicalVadNode
 
 logger = logging.getLogger(__name__)
-
-_CLIENT_EVENT_ADAPTER = TypeAdapter(RealtimeClientEvent)
-_SERVER_EVENT_ADAPTER = TypeAdapter(RealtimeServerEvent)
 
 
 @dataclass(frozen=True)
@@ -78,11 +75,7 @@ class WebRtcCall:
         workflow_settings: WorkflowSettingsStore,
         reservation: AudioWorkflowSessionReservation,
         reservation_context: Any,
-        initial_session: (
-            RealtimeTranscriptionSessionCreateRequest
-            | RealtimeSessionCreateRequest
-            | None
-        ),
+        initial_session: AhaRealtimeSession | None,
         target: RealtimeTarget,
         model: str,
         inferencer_pool: InferencerPool,
@@ -357,7 +350,7 @@ class WebRtcCall:
             return
         try:
             raw = json.loads(message)
-            event = _CLIENT_EVENT_ADAPTER.validate_python(raw)
+            event = AHA_REALTIME_CLIENT_EVENT_ADAPTER.validate_python(raw)
         except (json.JSONDecodeError, ValidationError) as exc:
             await self._realtime.send_error(
                 message=f"Realtime 事件格式不合法: {exc}",
@@ -394,12 +387,12 @@ class WebRtcCall:
             if hasattr(event, "model_dump")
             else event
         )
-        event_type = str(payload.get("type", ""))
-        if event_type.startswith("x_aha."):
-            if self._aha_version != "v1":
-                raise RuntimeError("AHA extension event was not negotiated")
-        else:
-            _SERVER_EVENT_ADAPTER.validate_python(payload)
+        validated = AHA_REALTIME_SERVER_EVENT_ADAPTER.validate_python(payload)
+        if (
+            isinstance(validated, AhaV1ServerEventBase)
+            and self._aha_version != "v1"
+        ):
+            raise RuntimeError("AHA extension event was not negotiated")
         channel.send(
             json.dumps(
                 payload,
@@ -475,11 +468,7 @@ class WebRtcCallService:
         self,
         *,
         offer_sdp: str,
-        session: (
-            RealtimeTranscriptionSessionCreateRequest
-            | RealtimeSessionCreateRequest
-            | None
-        ),
+        session: AhaRealtimeSession | None,
         model: str = "gpt-4o-transcribe",
         diagnostics_enabled: bool = False,
         aha_version: str | None = None,

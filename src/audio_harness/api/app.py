@@ -221,7 +221,6 @@ def create_http_app(
     app.include_router(create_realtime_route_router(routes))
     app.include_router(
         create_runtime_router(
-            workflows=workflows,
             serving_status=serving_status,
             workflow_settings=workflow_settings,
             capacity_settings=capacity_settings,

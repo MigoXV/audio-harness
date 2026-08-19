@@ -57,10 +57,6 @@ async def test_host_start_does_not_prepare_inference_engines() -> None:
     host.realtime_routes = SimpleNamespace(
         initialize=AsyncRecorder(events, "realtime_routes.initialize"),
     )
-    host.grpc_server = SimpleNamespace(
-        start=AsyncRecorder(events, "grpc_server.start"),
-    )
-
     async def reject_prepare(*_args, **_kwargs) -> None:
         raise AssertionError("启动期间不应准备或探测推理引擎")
 
@@ -71,12 +67,10 @@ async def test_host_start_does_not_prepare_inference_engines() -> None:
     host.engine_health = SimpleNamespace(
         start=Recorder(events, "engine_health.start"),
     )
-    host._started = False
     host._closed = False
 
     await host.start()
 
-    assert host._started is True
     assert events == [
         "database.ping",
         "workflow_settings.initialize",
@@ -85,6 +79,5 @@ async def test_host_start_does_not_prepare_inference_engines() -> None:
         "audio_workflows.initialize",
         "voice_agents.initialize",
         "realtime_routes.initialize",
-        "grpc_server.start",
         "engine_health.start",
     ]

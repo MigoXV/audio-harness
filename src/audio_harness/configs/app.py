@@ -6,7 +6,7 @@ from pathlib import Path
 from pydantic import Field, field_validator, model_validator
 
 from audio_harness.configs.base import StrictModel
-from audio_harness.configs.serving import GrpcConfig, HttpConfig, LimitsConfig
+from audio_harness.configs.serving import HttpConfig, LimitsConfig
 from audio_harness.configs.webrtc import WebRtcConfig
 from audio_harness.configs.workflow import WorkflowRuntimeConfig
 
@@ -44,7 +44,6 @@ class QdrantConfig(StrictModel):
 class AppConfig(StrictModel):
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     workflow: WorkflowRuntimeConfig = Field(default_factory=WorkflowRuntimeConfig)
-    grpc: GrpcConfig = Field(default_factory=GrpcConfig)
     http: HttpConfig = Field(default_factory=HttpConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
     voices: VoiceConfig = Field(default_factory=VoiceConfig)

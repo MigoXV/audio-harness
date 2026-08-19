@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { errorMessage } from "../api/client";
-import type { AudioHarnessApi, AudioWorkflow, RealtimeRoute, WorkflowSettings } from "../api/types";
+import type { AudioHarnessApi, AudioWorkflow, RealtimeRoute } from "../api/types";
 
 interface Props { api: AudioHarnessApi; refreshVersion: number; }
 
@@ -10,7 +10,6 @@ export function WorkflowListPage({ api, refreshVersion }: Props) {
   const navigate = useNavigate();
   const [items, setItems] = useState<AudioWorkflow[]>([]);
   const [routes, setRoutes] = useState<RealtimeRoute[]>([]);
-  const [settings, setSettings] = useState<WorkflowSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -20,10 +19,10 @@ export function WorkflowListPage({ api, refreshVersion }: Props) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [workflows, nextRoutes, nextSettings] = await Promise.all([
-        api.listAudioWorkflows(), api.listRealtimeRoutes(), api.getWorkflowSettings(),
+      const [workflows, nextRoutes] = await Promise.all([
+        api.listAudioWorkflows(), api.listRealtimeRoutes(),
       ]);
-      setItems(workflows); setRoutes(nextRoutes); setSettings(nextSettings);
+      setItems(workflows); setRoutes(nextRoutes);
     }
     catch (reason) { setError(errorMessage(reason, "语音工作流读取失败。")); }
     finally { setLoading(false); }
@@ -54,7 +53,7 @@ export function WorkflowListPage({ api, refreshVersion }: Props) {
     <section className="panel"><div className="panel-heading"><div><h2>全部语音工作流</h2><p>{items.length} 个独立推理图；发布与对外接入分别管理。</p></div><button className="secondary-button" onClick={() => void load()}>刷新</button></div>
       {loading ? <div className="empty-state">正在加载…</div> : <div className="workflow-table" role="table">
         <div className="workflow-row table-header"><span>工作流</span><span>Slug</span><span>草稿</span><span>活动版本</span><span>接入</span><span /></div>
-        {items.map((item) => { const models = routes.filter((route) => route.target_type === "audio_workflow" && route.target_id === item.id); const grpcDefault = settings?.grpc_audio_workflow_id === item.id; return <button className="workflow-row" key={item.id} onClick={() => navigate(`/audio-workflows/${encodeURIComponent(item.id)}/build`)}><span><strong>{item.name}</strong><small>{item.description ?? "类型化语音 DAG"}</small></span><span><code>{item.slug}</code></span><span>r{item.draft_revision}</span><span><span className={`status-chip ${item.active_revision ? "status-published_healthy" : "status-unpublished"}`}>{item.active_revision ? `v${item.active_revision}` : "未发布"}</span></span><span className="exposure-badges">{grpcDefault && <small>gRPC 默认</small>}{models.slice(0, 1).map((route) => <code key={route.model}>{route.model}</code>)}{!grpcDefault && models.length === 0 && <small className="muted">{item.active_revision ? "未接入" : "待发布"}</small>}</span><span className="row-arrow">→</span></button>; })}
+        {items.map((item) => { const models = routes.filter((route) => route.target_type === "audio_workflow" && route.target_id === item.id); return <button className="workflow-row" key={item.id} onClick={() => navigate(`/audio-workflows/${encodeURIComponent(item.id)}/build`)}><span><strong>{item.name}</strong><small>{item.description ?? "类型化语音 DAG"}</small></span><span><code>{item.slug}</code></span><span>r{item.draft_revision}</span><span><span className={`status-chip ${item.active_revision ? "status-published_healthy" : "status-unpublished"}`}>{item.active_revision ? `v${item.active_revision}` : "未发布"}</span></span><span className="exposure-badges">{models.slice(0, 1).map((route) => <code key={route.model}>{route.model}</code>)}{models.length === 0 && <small className="muted">{item.active_revision ? "未接入" : "待发布"}</small>}</span><span className="row-arrow">→</span></button>; })}
       </div>}
     </section>
   </main>;

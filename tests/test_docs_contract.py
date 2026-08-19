@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 from pathlib import Path
@@ -23,15 +22,7 @@ def runtime_openapi() -> dict:
     config = AppConfig.from_environment().model_copy(
         update={"database": DatabaseConfig(url="sqlite+aiosqlite:///:memory:")}
     )
-    # 部分 pytest-asyncio 用例结束后会清除主线程默认 loop；GrpcServer 构造
-    # 需要一个工作 loop，即使这里只读取 HTTP OpenAPI。
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return AudioHarnessHost(config).http_app.openapi()
-    finally:
-        asyncio.set_event_loop(None)
-        loop.close()
+    return AudioHarnessHost(config).http_app.openapi()
 
 
 def markdown_files() -> list[Path]:

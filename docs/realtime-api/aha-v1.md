@@ -8,7 +8,7 @@ AHA v1 为 OpenAI Realtime 事件流追加 Audio Harness 特有的中间转写�
 - WebRTC：`POST /v1/realtime/calls?...&x_aha=v1`。
 - 未传 `x_aha` 时服务端绝不发送 `x_aha.*`、`audio_harness.*` 或其他私有事件。
 - 只支持精确值 `v1`。WebSocket 未升级前以 `4400` 拒绝；WebRTC 返回 `400 unsupported_x_aha_version`。
-- 客户端应先按原始 JSON 的 `type` 分派 `x_aha.*`，再把其他事件交给 OpenAI SDK 类型解析。
+- 服务端使用项目内建的 `AhaRealtimeServerEvent` 联合类型校验标准事件与全部 `x_aha.*` 事件；客户端若只使用官方 OpenAI SDK，仍应先按原始 JSON 的 `type` 分派私有事件。
 - 新增可选字段不视为破坏性变更；客户端必须忽略未知字段。事件名、既有字段含义或覆盖规则变化需要新版本。
 
 所有事件都带服务端唯一 `event_id`。带 `item_id` 的事件与同一轮 OpenAI speech/transcription item 对齐；除 `x_aha.vad.progress.processed_audio_ms` 外，毫秒时间均为会话输入音频的绝对时间。
@@ -65,6 +65,8 @@ Harness 从稳定 `speech_started` 出口自动确定唯一的主物理 VAD，�
 ```
 
 `turn_completed` 在 v1 固定为 false。它表示用户可能短暂停顿，不能提交最终 UI turn、不能触发 Agent 回复；最终仍以原生 `input_audio_buffer.speech_stopped` 和 transcription completed 为准。
+
+连续长语音达到 VAD 最大分段限制后，后续音频会进入新的逻辑 turn。若物理语音仍连续而没有再次产生起点，Harness 会先补发标准 `input_audio_buffer.speech_started`，再发送该 turn 的 AHA 进度或标准 stopped 事件；这些事件使用同一个新 `item_id`。
 
 ## 中间转写
 
@@ -133,7 +135,7 @@ Workflow 的 `include_embedding=true` 时额外返回 `embedding:number[]`，可
 
 ## 局部说话人分离
 
-每次积累批次有稳定 `batch_id`。`delta` 表示该 gRPC 流当前快照，`completed` 表示批次最终完整结果；客户端可以用 completed 整体替代此前同 batch delta。
+每次积累批次有稳定 `batch_id`。`delta` 表示下游说话人分离 gRPC 流的当前快照，`completed` 表示批次最终完整结果；客户端可以用 completed 整体替代此前同 batch delta。
 
 ```json
 {

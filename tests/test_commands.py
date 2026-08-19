@@ -19,12 +19,20 @@ def test_cli_only_exposes_service_commands() -> None:
     assert "export-openapi" not in result.output
 
 
+def test_serve_only_exposes_http_listener_options() -> None:
+    result = CliRunner().invoke(app, ["serve", "--help"])
+
+    assert result.exit_code == 0
+    assert "--http-port" in result.output
+    assert "--grpc-port" not in result.output
+    assert "--grpc-host" not in result.output
+
+
 def test_apply_serve_overrides_preserves_unspecified_addresses(
     tmp_path: Path,
 ) -> None:
     config = AppConfig.model_validate(
         {
-            "grpc": {"host": "grpc.default", "port": 50051},
             "http": {"host": "http.default", "port": 8000},
         }
     )
@@ -34,8 +42,6 @@ def test_apply_serve_overrides_preserves_unspecified_addresses(
 
     updated = apply_serve_overrides(
         config,
-        grpc_host=None,
-        grpc_port=51000,
         max_message_bytes=1024,
         http_host="127.0.0.1",
         http_port=None,
@@ -46,8 +52,6 @@ def test_apply_serve_overrides_preserves_unspecified_addresses(
         webrtc_disconnected_grace_seconds=4.0,
     )
 
-    assert updated.grpc.host == "grpc.default"
-    assert updated.grpc.port == 51000
     assert updated.http.host == "127.0.0.1"
     assert updated.http.port == 8000
     assert updated.http.tls_cert_file == cert_file

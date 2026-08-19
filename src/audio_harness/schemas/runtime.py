@@ -14,14 +14,8 @@ class WorkflowSettingsUpdate(WorkflowRuntimeConfig):
 
 
 class WorkflowSettingsRead(WorkflowRuntimeConfig):
-    grpc_audio_workflow_id: str | None
     revision: int
     updated_at: datetime
-
-
-class GrpcWorkflowBindingUpdate(StrictSchema):
-    workflow_id: str = Field(min_length=1)
-    expected_revision: int = Field(ge=1)
 
 
 class CapacitySettingsUpdate(CapacityConfig):
@@ -36,15 +30,9 @@ class CapacitySettingsRead(CapacityConfig):
 class RuntimeIssueRead(StrictSchema):
     code: str
     severity: Literal["warning", "error"]
-    scope: Literal["control_plane", "grpc", "realtime"]
+    scope: Literal["control_plane", "realtime"]
     message: str
     resource_id: str | None = None
-
-
-class GrpcOverviewRead(StrictSchema):
-    state: Literal["ready", "needs_configuration", "unavailable"]
-    workflow_id: str | None
-    workflow_revision: int | None
 
 
 class RealtimeOverviewRead(StrictSchema):
@@ -56,7 +44,6 @@ class RealtimeOverviewRead(StrictSchema):
 class RuntimeOverviewRead(StrictSchema):
     status: Literal["ready", "needs_configuration", "unavailable"]
     control_plane: Literal["ready", "needs_configuration", "unavailable"]
-    grpc: GrpcOverviewRead
     realtime: RealtimeOverviewRead
     issues: list[RuntimeIssueRead]
 
@@ -68,7 +55,6 @@ class RuntimeLimiterRead(StrictSchema):
 
 
 class RuntimeStatusRead(StrictSchema):
-    grpc: RuntimeLimiterRead
     realtime: RuntimeLimiterRead
     webrtc: RuntimeLimiterRead
     asr: RuntimeLimiterRead
@@ -82,10 +68,7 @@ class RuntimeStatusRead(StrictSchema):
 class HealthResponse(StrictSchema):
     status: str
     database: str
-    data_plane: str
     problems: list[str] = Field(default_factory=list)
-    workflow_id: str | None = None
-    workflow_revision: int | None = None
 
 
 class VoiceAssetRead(StrictSchema):

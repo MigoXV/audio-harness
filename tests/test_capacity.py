@@ -61,26 +61,24 @@ async def test_lowered_concurrency_waits_without_cancelling_active_work() -> Non
 async def test_protocol_sessions_are_independent_and_asr_is_shared() -> None:
     capacity = ServingCapacity(
         CapacityConfig(
-            grpc=ProtocolCapacityConfig(max_sessions=1),
             realtime=ProtocolCapacityConfig(max_sessions=2),
             webrtc=ProtocolCapacityConfig(max_sessions=3),
             max_asr_concurrency=1,
         )
     )
 
-    async with capacity.grpc_sessions.slot():
-        with pytest.raises(CapacityExceededError):
-            async with capacity.grpc_sessions.slot():
-                pass
+    async with capacity.realtime_sessions.slot():
         async with capacity.realtime_sessions.slot():
-            assert capacity.grpc_sessions.active == 1
-            assert capacity.realtime_sessions.active == 1
+            assert capacity.realtime_sessions.active == 2
+            with pytest.raises(CapacityExceededError):
+                async with capacity.realtime_sessions.slot():
+                    pass
             async with capacity.webrtc_sessions.slot():
+                assert capacity.realtime_sessions.active == 2
                 assert capacity.webrtc_sessions.active == 1
 
     snapshot = CapacitySettingsSnapshot(
         config=CapacityConfig(
-            grpc=ProtocolCapacityConfig(max_sessions=3),
             realtime=ProtocolCapacityConfig(max_sessions=4),
             webrtc=ProtocolCapacityConfig(max_sessions=5),
             max_asr_concurrency=2,
@@ -89,7 +87,6 @@ async def test_protocol_sessions_are_independent_and_asr_is_shared() -> None:
         updated_at=datetime.now(timezone.utc),
     )
     await capacity.apply(snapshot)
-    assert capacity.grpc_sessions.capacity == 3
     assert capacity.realtime_sessions.capacity == 4
     assert capacity.webrtc_sessions.capacity == 5
     assert capacity.asr.capacity == 2

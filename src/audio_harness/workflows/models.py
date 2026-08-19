@@ -117,6 +117,7 @@ class AudioEmbeddingNode(StrictModel):
 class SpeakerDiarizationNodeConfig(StrictModel):
     min_batch_seconds: float = Field(default=60.0, ge=0)
     max_batch_seconds: float = Field(default=120.0, gt=0)
+    min_asr_segment_seconds: float = Field(default=0.5, ge=0)
 
     @model_validator(mode="after")
     def validate_batch_range(self) -> "SpeakerDiarizationNodeConfig":

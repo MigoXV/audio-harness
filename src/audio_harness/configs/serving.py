@@ -5,11 +5,6 @@ from pydantic import Field
 from audio_harness.configs.base import StrictModel
 
 
-class GrpcConfig(StrictModel):
-    host: str = "0.0.0.0"
-    port: int = Field(default=50051, ge=0, le=65535)
-
-
 class HttpConfig(StrictModel):
     host: str = "0.0.0.0"
     port: int = Field(default=8000, ge=0, le=65535)
@@ -26,7 +21,6 @@ class ProtocolCapacityConfig(StrictModel):
 
 
 class CapacityConfig(StrictModel):
-    grpc: ProtocolCapacityConfig = Field(default_factory=ProtocolCapacityConfig)
     realtime: ProtocolCapacityConfig = Field(default_factory=ProtocolCapacityConfig)
     webrtc: ProtocolCapacityConfig = Field(default_factory=ProtocolCapacityConfig)
     max_asr_concurrency: int = Field(default=8, gt=0)

@@ -6,8 +6,6 @@ from typing import Literal
 from audio_harness.database.session import Database
 from audio_harness.realtime_routes.models import ModelRouteVisibility
 from audio_harness.realtime_routes.service import RealtimeRouteService
-from audio_harness.workflows.settings import WorkflowSettingsStore
-from audio_harness.workflows.service import ActiveAudioWorkflow, AudioWorkflowService
 
 
 ComponentState = Literal[
@@ -21,16 +19,9 @@ ComponentState = Literal[
 class RuntimeIssue:
     code: str
     severity: Literal["warning", "error"]
-    scope: Literal["control_plane", "grpc", "realtime"]
+    scope: Literal["control_plane", "realtime"]
     message: str
     resource_id: str | None = None
-
-
-@dataclass(frozen=True)
-class GrpcOverview:
-    state: ComponentState
-    workflow_id: str | None
-    workflow_revision: int | None
 
 
 @dataclass(frozen=True)
@@ -44,13 +35,12 @@ class RealtimeOverview:
 class RuntimeOverview:
     status: ComponentState
     control_plane: ComponentState
-    grpc: GrpcOverview
     realtime: RealtimeOverview
     issues: tuple[RuntimeIssue, ...]
 
     @property
     def ready(self) -> bool:
-        return self.control_plane == "ready" and self.grpc.state == "ready"
+        return self.control_plane == "ready"
 
 
 class ServingStatusService:
@@ -60,13 +50,9 @@ class ServingStatusService:
         self,
         *,
         database: Database,
-        workflows: AudioWorkflowService,
-        workflow_settings: WorkflowSettingsStore,
         routes: RealtimeRouteService,
     ) -> None:
         self._database = database
-        self._workflows = workflows
-        self._workflow_settings = workflow_settings
         self._routes = routes
 
     async def snapshot(self) -> RuntimeOverview:
@@ -85,36 +71,6 @@ class ServingStatusService:
             )
         else:
             control_plane = "ready"
-
-        settings = self._workflow_settings.current()
-        active: ActiveAudioWorkflow | None = None
-        if settings.grpc_audio_workflow_id is None:
-            grpc_state: ComponentState = "needs_configuration"
-            issues.append(
-                RuntimeIssue(
-                    code="grpc_workflow_unconfigured",
-                    severity="warning",
-                    scope="grpc",
-                    message="未配置 gRPC 默认语音工作流",
-                )
-            )
-        else:
-            active = self._workflows.current_or_none(
-                settings.grpc_audio_workflow_id
-            )
-            if active is None:
-                grpc_state = "needs_configuration"
-                issues.append(
-                    RuntimeIssue(
-                        code="grpc_workflow_unpublished",
-                        severity="warning",
-                        scope="grpc",
-                        message="gRPC 默认语音工作流尚未发布",
-                        resource_id=settings.grpc_audio_workflow_id,
-                    )
-                )
-            else:
-                grpc_state = "ready"
 
         public_routes = 0
         internal_routes = 0
@@ -159,15 +115,6 @@ class ServingStatusService:
         return RuntimeOverview(
             status=overall,
             control_plane=control_plane,
-            grpc=GrpcOverview(
-                state=grpc_state,
-                workflow_id=(
-                    active.id
-                    if active is not None
-                    else settings.grpc_audio_workflow_id
-                ),
-                workflow_revision=(active.revision if active is not None else None),
-            ),
             realtime=RealtimeOverview(
                 state=realtime_state,
                 public_routes=public_routes,

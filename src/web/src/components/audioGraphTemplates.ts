@@ -186,7 +186,7 @@ function speakerDiarization(document: AudioWorkflowDocument) {
     id: "speaker-diarization",
     kind: "speaker_diarization" as const,
     engine_id: null,
-    config: { min_batch_seconds: 60, max_batch_seconds: 120 },
+    config: { min_batch_seconds: 60, max_batch_seconds: 120, min_asr_segment_seconds: 0.5 },
   };
 }
 

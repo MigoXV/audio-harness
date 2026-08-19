@@ -152,6 +152,7 @@ class _DiarizationContext:
     batch_id: str
     speaker: int | None
     local_speaker_id: str | None
+    min_asr_segment_seconds: float
     batch_completed: bool = False
 
 
@@ -264,6 +265,7 @@ class _DiarizationBatch:
         batch_id: str,
         *,
         fallback: bool = False,
+        min_asr_segment_seconds: float = 0,
     ) -> tuple[_SegmentCandidate, ...]:
         result: list[_SegmentCandidate] = []
         for span_index, span in enumerate(self.spans):
@@ -331,6 +333,9 @@ class _DiarizationBatch:
                             batch_id=batch_id,
                             speaker=speaker,
                             local_speaker_id=local_speaker_id,
+                            min_asr_segment_seconds=(
+                                0 if fallback else min_asr_segment_seconds
+                            ),
                         ),
                     )
                 )
@@ -1391,6 +1396,35 @@ class AudioWorkflowRuntime:
                     state.end_sample,
                     context.source_end_sample,
                 )
+                segment_samples = candidate.end_sample - candidate.start_sample
+                minimum_samples = (
+                    context.min_asr_segment_seconds
+                    * request.recognition.sample_rate
+                )
+                if segment_samples < minimum_samples:
+                    if context.source_completed:
+                        ordered = [
+                            text
+                            for _, text in sorted(
+                                state.parts,
+                                key=lambda value: value[0],
+                            )
+                        ]
+                        await router.emit(
+                            node_id,
+                            "transcripts",
+                            AsrInferencer.Result(
+                                transcript=_join_transcript_parts(ordered),
+                                is_final=True,
+                                start_sample=state.start_sample,
+                                end_sample=state.end_sample,
+                                sample_rate=request.recognition.sample_rate,
+                                turn_completed=state.turn_completed,
+                                language_code=state.language_code,
+                            ),
+                        )
+                        del source_states[context.item_source_id]
+                    continue
                 sent_transcript = ""
                 final_transcript: str | None = None
                 try:
@@ -1645,6 +1679,9 @@ class AudioWorkflowRuntime:
                     (),
                     batch_id,
                     fallback=True,
+                    min_asr_segment_seconds=(
+                        definition.config.min_asr_segment_seconds
+                    ),
                 ):
                     await router.emit(node_id, "segments", candidate)
                 return
@@ -1666,6 +1703,9 @@ class AudioWorkflowRuntime:
             for candidate in batch.output_candidates(
                 tuple(all_pieces),
                 batch_id,
+                min_asr_segment_seconds=(
+                    definition.config.min_asr_segment_seconds
+                ),
             ):
                 await router.emit(node_id, "segments", candidate)
 
