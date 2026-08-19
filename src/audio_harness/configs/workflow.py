@@ -35,6 +35,9 @@ class WorkflowRuntimeConfig(StrictModel):
     audio_queue_capacity: int = Field(default=32, gt=0)
     segment_queue_capacity: int = Field(default=8, gt=0)
     result_queue_capacity: int = Field(default=32, gt=0)
+    received_audio_cache_enabled: bool = False
+    received_audio_cache_block_seconds: int = Field(default=5, ge=1, le=60)
+    received_audio_cache_file_seconds: int = Field(default=300, ge=1, le=3600)
 
     @field_validator("min_chunk_bytes")
     @classmethod
@@ -44,3 +47,17 @@ class WorkflowRuntimeConfig(StrictModel):
                 "min_chunk_bytes 必须为偶数，以保持 PCM S16LE 对齐"
             )
         return value
+
+    @model_validator(mode="after")
+    def validate_received_audio_cache_periods(self) -> "WorkflowRuntimeConfig":
+        if (
+            self.received_audio_cache_file_seconds
+            < self.received_audio_cache_block_seconds
+        ):
+            raise ValueError("音频缓存文件周期不能小于块周期")
+        if (
+            self.received_audio_cache_file_seconds
+            % self.received_audio_cache_block_seconds
+        ):
+            raise ValueError("音频缓存文件周期必须是块周期的整数倍")
+        return self

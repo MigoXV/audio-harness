@@ -104,6 +104,21 @@ class WorkflowSetting(Base):
     audio_queue_capacity: Mapped[int] = mapped_column(Integer, nullable=False)
     segment_queue_capacity: Mapped[int] = mapped_column(Integer, nullable=False)
     result_queue_capacity: Mapped[int] = mapped_column(Integer, nullable=False)
+    received_audio_cache_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
+    received_audio_cache_block_seconds: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=5,
+    )
+    received_audio_cache_file_seconds: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=300,
+    )
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

@@ -6268,6 +6268,25 @@
             "title": "Result Queue Capacity",
             "default": 32
           },
+          "received_audio_cache_enabled": {
+            "type": "boolean",
+            "title": "Received Audio Cache Enabled",
+            "default": false
+          },
+          "received_audio_cache_block_seconds": {
+            "type": "integer",
+            "maximum": 60.0,
+            "minimum": 1.0,
+            "title": "Received Audio Cache Block Seconds",
+            "default": 5
+          },
+          "received_audio_cache_file_seconds": {
+            "type": "integer",
+            "maximum": 3600.0,
+            "minimum": 1.0,
+            "title": "Received Audio Cache File Seconds",
+            "default": 300
+          },
           "revision": {
             "type": "integer",
             "title": "Revision"
@@ -6317,6 +6336,25 @@
             "exclusiveMinimum": 0.0,
             "title": "Result Queue Capacity",
             "default": 32
+          },
+          "received_audio_cache_enabled": {
+            "type": "boolean",
+            "title": "Received Audio Cache Enabled",
+            "default": false
+          },
+          "received_audio_cache_block_seconds": {
+            "type": "integer",
+            "maximum": 60.0,
+            "minimum": 1.0,
+            "title": "Received Audio Cache Block Seconds",
+            "default": 5
+          },
+          "received_audio_cache_file_seconds": {
+            "type": "integer",
+            "maximum": 3600.0,
+            "minimum": 1.0,
+            "title": "Received Audio Cache File Seconds",
+            "default": 300
           },
           "revision": {
             "type": "integer",

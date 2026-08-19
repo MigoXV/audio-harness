@@ -16,6 +16,10 @@ class VoiceConfig(StrictModel):
     max_upload_bytes: int = Field(default=20 * 1024 * 1024, gt=0)
 
 
+class ReceivedAudioCacheStorageConfig(StrictModel):
+    storage_dir: Path = Path("./data-bin/cache")
+
+
 class DatabaseConfig(StrictModel):
     url: str = Field(
         default="sqlite+aiosqlite:///./data-bin/sqlite/audio-harness.db",
@@ -47,6 +51,9 @@ class AppConfig(StrictModel):
     http: HttpConfig = Field(default_factory=HttpConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
     voices: VoiceConfig = Field(default_factory=VoiceConfig)
+    received_audio_cache: ReceivedAudioCacheStorageConfig = Field(
+        default_factory=ReceivedAudioCacheStorageConfig
+    )
     webrtc: WebRtcConfig = Field(default_factory=WebRtcConfig)
     qdrant: QdrantConfig = Field(default_factory=QdrantConfig)
 
@@ -68,6 +75,12 @@ class AppConfig(StrictModel):
                     "storage_dir": os.getenv(
                         "VOICE_STORAGE_DIR",
                         str(defaults.voices.storage_dir),
+                    ),
+                },
+                "received_audio_cache": {
+                    "storage_dir": os.getenv(
+                        "RECEIVED_AUDIO_CACHE_DIR",
+                        str(defaults.received_audio_cache.storage_dir),
                     ),
                 },
                 "qdrant": {

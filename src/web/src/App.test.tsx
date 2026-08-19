@@ -69,7 +69,7 @@ function fakeApi() {
     listEngineModels: vi.fn().mockResolvedValue({ engine_id: "llm-1", engine_revision: 1, items: ["deepseek-chat", "deepseek-reasoner"] }),
     getRuntimeStatus: vi.fn().mockResolvedValue({ realtime: { active: 2, capacity: 64, rejected: 1 }, webrtc: { active: 1, capacity: 64, rejected: 0 }, asr: { active: 2, capacity: 8, rejected: 0 }, responses: { active: 1, capacity: 8, rejected: 0 }, tts: { active: 1, capacity: 1, rejected: 2 }, started_at: "2026-08-09T00:00:00Z" }),
     getCapacitySettings: vi.fn().mockResolvedValue({ realtime: { max_sessions: 64 }, webrtc: { max_sessions: 64 }, max_asr_concurrency: 8, max_responses_concurrency: 8, max_tts_concurrency: 1, revision: 1, updated_at: "2026-08-09T00:00:00Z" }),
-    getWorkflowSettings: vi.fn().mockResolvedValue({ min_chunk_bytes: 640, default_language_code: "zh-CN", audio_queue_capacity: 32, segment_queue_capacity: 8, result_queue_capacity: 32, revision: 1, updated_at: "2026-08-09T00:00:00Z" }),
+    getWorkflowSettings: vi.fn().mockResolvedValue({ min_chunk_bytes: 640, default_language_code: "zh-CN", audio_queue_capacity: 32, segment_queue_capacity: 8, result_queue_capacity: 32, received_audio_cache_enabled: false, received_audio_cache_block_seconds: 5, received_audio_cache_file_seconds: 300, revision: 1, updated_at: "2026-08-09T00:00:00Z" }),
     listVoiceAgents: vi.fn().mockResolvedValue([agent]),
     getVoiceAgentDraft: vi.fn().mockResolvedValue({ ...agent, definition: agentDefinition, revision: 3 }),
     saveVoiceAgentDraft,

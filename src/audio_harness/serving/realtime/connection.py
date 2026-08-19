@@ -6,6 +6,7 @@ import binascii
 import json
 import logging
 from enum import Enum
+from pathlib import Path
 
 import numpy as np
 import soxr
@@ -141,6 +142,7 @@ class _RealtimeConnection:
         tts_limiter: ResizableConcurrencyLimiter | None,
         tool_registry: ToolRegistry,
         voice_resolver: VoiceResolver | None,
+        received_audio_cache_dir: Path,
         model: str | None = None,
         target: RealtimeTarget | None = None,
     ) -> None:
@@ -160,6 +162,7 @@ class _RealtimeConnection:
         self._tts_limiter = tts_limiter
         self._tool_registry = tool_registry
         self._voice_resolver = voice_resolver
+        self._received_audio_cache_dir = received_audio_cache_dir
         self._dynamic_transcription = model is None and target is None
         self._session: RealtimeTranscriptionSession | None = None
         self._transcription_session_id = session_id()
@@ -191,6 +194,7 @@ class _RealtimeConnection:
                 if not isinstance(target, ActiveVoiceAgent)
                 else None
             ),
+            received_audio_cache_dir=self._received_audio_cache_dir,
         )
 
     async def _send(self, event) -> None:
@@ -558,6 +562,7 @@ class RealtimeTranscriptionService:
         tts_limiter: ResizableConcurrencyLimiter | None = None,
         tool_registry: ToolRegistry | None = None,
         voice_resolver: VoiceResolver | None = None,
+        received_audio_cache_dir: Path = Path("./data-bin/cache"),
     ) -> None:
         self.session_service = session_service
         self.workflow_settings = workflow_settings
@@ -568,6 +573,7 @@ class RealtimeTranscriptionService:
         self.tts_limiter = tts_limiter
         self.tool_registry = tool_registry or ToolRegistry()
         self.voice_resolver = voice_resolver
+        self.received_audio_cache_dir = received_audio_cache_dir
 
     async def handle(
         self,
@@ -617,6 +623,7 @@ class RealtimeTranscriptionService:
                 tts_limiter=self.tts_limiter,
                 tool_registry=self.tool_registry,
                 voice_resolver=self.voice_resolver,
+                received_audio_cache_dir=self.received_audio_cache_dir,
                 model=selected_model,
                 target=target,
             )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from pathlib import Path
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -86,6 +87,7 @@ class WebRtcCall:
         diagnostics_enabled: bool,
         aha_version: str | None,
         on_closed: Callable[[str], Awaitable[None]],
+        received_audio_cache_dir: Path,
     ) -> None:
         self.call_id = call_id
         self._config = webrtc_config
@@ -123,6 +125,7 @@ class WebRtcCall:
             voice_resolver=voice_resolver,
             finish_audio=self._output_track.finish,
             transport="webrtc",
+            received_audio_cache_dir=received_audio_cache_dir,
         )
         self._chunk_bytes = workflow_settings.current().config.min_chunk_bytes
         self._install_handlers()
@@ -431,6 +434,7 @@ class WebRtcCallService:
         tts_limiter: ResizableConcurrencyLimiter | None = None,
         tool_registry: ToolRegistry | None = None,
         voice_resolver: VoiceResolver | None = None,
+        received_audio_cache_dir: Path = Path("./data-bin/cache"),
     ) -> None:
         self._config = config
         self._session_service = session_service
@@ -442,6 +446,7 @@ class WebRtcCallService:
         self._tts_limiter = tts_limiter
         self._tool_registry = tool_registry or ToolRegistry()
         self._voice_resolver = voice_resolver
+        self._received_audio_cache_dir = received_audio_cache_dir
         self._calls: dict[str, WebRtcCall] = {}
         self._lock = asyncio.Lock()
         self._closed = False
@@ -530,6 +535,7 @@ class WebRtcCallService:
             diagnostics_enabled=diagnostics_enabled,
             aha_version=aha_version,
             on_closed=self._discard,
+            received_audio_cache_dir=self._received_audio_cache_dir,
         )
         try:
             answer_sdp = await call.negotiate(offer_sdp)

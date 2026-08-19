@@ -45,6 +45,13 @@ def _config_from_model(model: WorkflowSetting) -> WorkflowRuntimeConfig:
         audio_queue_capacity=model.audio_queue_capacity,
         segment_queue_capacity=model.segment_queue_capacity,
         result_queue_capacity=model.result_queue_capacity,
+        received_audio_cache_enabled=model.received_audio_cache_enabled,
+        received_audio_cache_block_seconds=(
+            model.received_audio_cache_block_seconds
+        ),
+        received_audio_cache_file_seconds=(
+            model.received_audio_cache_file_seconds
+        ),
     )
 
 

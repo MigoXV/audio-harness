@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
+from pathlib import Path
 from collections import deque
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
@@ -44,6 +45,7 @@ from openai.types.realtime.conversation_item_input_audio_transcription_failed_ev
 from audio_harness.inferencers.asr.base import AsrInferencer
 from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
 from audio_harness.engines.pool import InferencerPool
+from audio_harness.media.audio_cache import ReceivedAudioCache
 from audio_harness.serving.realtime.conversation import (
     ConversationMutationError,
 )
@@ -283,6 +285,7 @@ class RealtimeTranscriptionSession:
         finish_audio: AudioFinisher | None = None,
         transport: Literal["websocket", "webrtc"] = "websocket",
         session_identifier: str | None = None,
+        received_audio_cache_dir: Path = Path("./data-bin/cache"),
     ) -> None:
         self._send_event = send_event
         self._session_service = session_service
@@ -321,6 +324,20 @@ class RealtimeTranscriptionSession:
         self._aha_version = aha_version
         self._transport = transport
         self.session_id = session_identifier or session_id()
+        self._received_audio_cache = (
+            ReceivedAudioCache(
+                self.session_id,
+                block_seconds=(
+                    self._workflow_config.received_audio_cache_block_seconds
+                ),
+                file_seconds=(
+                    self._workflow_config.received_audio_cache_file_seconds
+                ),
+                root=received_audio_cache_dir,
+            )
+            if self._workflow_config.received_audio_cache_enabled
+            else None
+        )
         self.model = model
         self.language = self._workflow_config.default_language_code
         self._input_audio_format: dict[str, Any] = {
@@ -701,6 +718,8 @@ class RealtimeTranscriptionSession:
             raise ValueError("PCM S16LE 音频字节数必须为偶数")
         if not audio:
             return
+        if self._received_audio_cache is not None:
+            self._received_audio_cache.append(audio)
         self._audio_started = True
         if self._manual_commit_enabled:
             self._manual_audio_buffer.extend(audio)
@@ -757,7 +776,11 @@ class RealtimeTranscriptionSession:
         finally:
             self._manual_audio_buffer.clear()
             self._deferred_speech_starts.clear()
-            await self._finish_workflow(send_results=False)
+            try:
+                await self._finish_workflow(send_results=False)
+            finally:
+                if self._received_audio_cache is not None:
+                    await self._received_audio_cache.close()
 
     async def _commit_manual_audio(self) -> None:
         audio = bytes(self._manual_audio_buffer)

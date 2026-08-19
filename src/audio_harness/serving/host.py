@@ -109,6 +109,9 @@ class AudioHarnessHost:
             tts_limiter=self.capacity.tts,
             voice_resolver=self.voice_store.resolve,
             tool_registry=self.tool_registry,
+            received_audio_cache_dir=(
+                config.received_audio_cache.storage_dir
+            ),
         )
         self.webrtc_service = WebRtcCallService(
             config=config.webrtc,
@@ -121,6 +124,9 @@ class AudioHarnessHost:
             tts_limiter=self.capacity.tts,
             voice_resolver=self.voice_store.resolve,
             tool_registry=self.tool_registry,
+            received_audio_cache_dir=(
+                config.received_audio_cache.storage_dir
+            ),
         )
         self.http_app = create_http_app(
             catalog=self.catalog,
