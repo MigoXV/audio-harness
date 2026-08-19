@@ -894,7 +894,7 @@ export interface components {
              */
             schema_version: 1;
             /** Nodes */
-            nodes: (components["schemas"]["PhysicalVadNode"] | components["schemas"]["SemanticVadNode"] | components["schemas"]["AsrNode"] | components["schemas"]["AudioEmbeddingNode"] | components["schemas"]["SpeakerDiarizationNode"] | components["schemas"]["SpeakerClusteringNode"] | components["schemas"]["VectorSearchNode"])[];
+            nodes: (components["schemas"]["PhysicalVadNode"] | components["schemas"]["SemanticVadNode"] | components["schemas"]["AsrNode"] | components["schemas"]["AudioEmbeddingNode"] | components["schemas"]["SpeakerDiarizationNode"] | components["schemas"]["SpeakerClusteringNode"] | components["schemas"]["VectorSearchNode"] | components["schemas"]["SpeakerFilterNode"])[];
             /** Edges */
             edges: components["schemas"]["AudioEdge"][];
             /** Outputs */
@@ -1936,6 +1936,29 @@ export interface components {
              * @constant
              */
             version: 1;
+        };
+        /** SpeakerFilterNode */
+        SpeakerFilterNode: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "speaker_filter";
+            /** Engine Id */
+            engine_id?: null;
+            config: components["schemas"]["SpeakerFilterNodeConfig"];
+        };
+        /** SpeakerFilterNodeConfig */
+        SpeakerFilterNodeConfig: {
+            /** Allowed Speaker Ids */
+            allowed_speaker_ids: string[];
+            /**
+             * Min Score
+             * @default 0.75
+             */
+            min_score: number;
         };
         /** SpeakerMatchRead */
         SpeakerMatchRead: {

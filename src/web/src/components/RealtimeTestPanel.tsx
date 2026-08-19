@@ -49,6 +49,22 @@ export interface VectorSearchEventView {
   error: string | null;
 }
 
+export interface SpeakerFilterEventView {
+  status: "matched" | "rejected" | "failed";
+  speakerId: string | null;
+  score: number | null;
+  reason: string | null;
+  error: string | null;
+  audioStartMs: number | null;
+  audioEndMs: number | null;
+}
+
+const SPEAKER_FILTER_REASON_LABELS: Record<string, string> = {
+  no_match: "未检索到匹配说话人",
+  speaker_not_allowed: "说话人不在允许列表",
+  score_too_low: "匹配分数低于门槛",
+};
+
 export type TranscriptViewPhase = "idle" | "listening" | "interim" | "processing" | "primary" | "final";
 
 export interface TranscriptView {
@@ -65,8 +81,8 @@ export function nextTranscriptView(
 ): TranscriptView {
   const type = String(event.type ?? "");
   const itemId = String(event.item_id ?? "") || null;
-  const currentIsActive = ["listening", "interim", "processing", "primary"].includes(current.phase);
-  const belongsToOlderItem = currentIsActive
+  const currentHasTranscript = current.phase === "interim" || current.phase === "primary";
+  const belongsToOlderItem = currentHasTranscript
     && current.itemId !== null
     && itemId !== null
     && current.itemId !== itemId;
@@ -107,6 +123,26 @@ export function nextTranscriptView(
   return current;
 }
 
+export function completedTranscriptIsSuperseded(
+  completedItemId: string | null,
+  interimItemId: string | null,
+  interimRevision: number,
+): boolean {
+  return interimRevision > 0
+    && completedItemId !== null
+    && interimItemId !== null
+    && completedItemId !== interimItemId;
+}
+
+export function speakerFilterReasonLabel(reason: unknown): string {
+  const code = String(reason ?? "");
+  return (SPEAKER_FILTER_REASON_LABELS[code] ?? code) || "未知拒绝原因";
+}
+
+function eventAudioRange(event: Record<string, unknown>): string {
+  return `${String(event.audio_start_ms ?? "—")}–${String(event.audio_end_ms ?? "—")} ms`;
+}
+
 export function eventDetail(event: Record<string, unknown>): string {
   if (event.type === "response.output_audio.delta") {
     return "音频数据已省略";
@@ -131,6 +167,17 @@ export function eventDetail(event: Record<string, unknown>): string {
   }
   if (event.type === "x_aha.vector.search.failed") {
     return String((event.error as { message?: string } | undefined)?.message ?? "人物搜索失败");
+  }
+  if (event.type === "x_aha.speaker_filter.matched") {
+    const score = Number(event.score);
+    return `已放行 ${String(event.speaker_id ?? "未提供 Speaker ID")} · 分数 ${Number.isFinite(score) ? score.toFixed(4) : "—"} · ${eventAudioRange(event)}`;
+  }
+  if (event.type === "x_aha.speaker_filter.rejected") {
+    return `已拒绝 · ${speakerFilterReasonLabel(event.reason)} · ${eventAudioRange(event)}`;
+  }
+  if (event.type === "x_aha.speaker_filter.failed") {
+    const message = String((event.error as { message?: string } | undefined)?.message ?? "说话人过滤失败");
+    return `过滤失败 · ${message} · ${eventAudioRange(event)}`;
   }
   if (event.type === "x_aha.diarization.local.delta") {
     const segments = Array.isArray(event.segments) ? event.segments.length : 0;
@@ -197,6 +244,32 @@ export function vectorSearchEventView(
     error: type.endsWith(".failed")
       ? String((event.error as { message?: string } | undefined)?.message ?? "人物搜索失败")
       : null,
+  };
+}
+
+export function speakerFilterEventView(
+  event: Record<string, unknown>,
+): SpeakerFilterEventView | null {
+  const type = String(event.type ?? "");
+  if (
+    type !== "x_aha.speaker_filter.matched"
+    && type !== "x_aha.speaker_filter.rejected"
+    && type !== "x_aha.speaker_filter.failed"
+  ) return null;
+  const status = type.slice(type.lastIndexOf(".") + 1) as SpeakerFilterEventView["status"];
+  const score = Number(event.score);
+  const audioStartMs = Number(event.audio_start_ms);
+  const audioEndMs = Number(event.audio_end_ms);
+  return {
+    status,
+    speakerId: status === "matched" ? String(event.speaker_id ?? "") || null : null,
+    score: status === "matched" && Number.isFinite(score) ? score : null,
+    reason: status === "rejected" ? speakerFilterReasonLabel(event.reason) : null,
+    error: status === "failed"
+      ? String((event.error as { message?: string } | undefined)?.message ?? "说话人过滤失败")
+      : null,
+    audioStartMs: Number.isFinite(audioStartMs) ? audioStartMs : null,
+    audioEndMs: Number.isFinite(audioEndMs) ? audioEndMs : null,
   };
 }
 
@@ -285,6 +358,8 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
   const [events, setEvents] = useState<EventLine[]>([]);
   const [eventTotal, setEventTotal] = useState(0);
   const [vectorSearch, setVectorSearch] = useState<VectorSearchEventView | null>(null);
+  const [vectorResultsOpen, setVectorResultsOpen] = useState(true);
+  const [speakerFilter, setSpeakerFilter] = useState<SpeakerFilterEventView | null>(null);
   const [vadProgress, setVadProgress] = useState<VadProgressView | null>(null);
   const [finalCluster, setFinalCluster] = useState<FinalClusterView | null>(null);
   const [latencies, setLatencies] = useState<Latencies>({});
@@ -342,6 +417,8 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
       new Date().toLocaleTimeString("zh-CN", { hour12: false }),
     );
     if (vectorSearchUpdate) setVectorSearch(vectorSearchUpdate);
+    const speakerFilterUpdate = speakerFilterEventView(event);
+    if (speakerFilterUpdate) setSpeakerFilter(speakerFilterUpdate);
     if (type === "input_audio_buffer.speech_started") {
       speechStartedAt.current = performance.now();
       speechStoppedAt.current = null;
@@ -389,14 +466,18 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
     } else if (type === "conversation.item.input_audio_transcription.completed") {
       const now = performance.now();
       const completedItemId = String(event.item_id ?? "") || null;
-      const superseded = completedItemId !== null
-        && interimItemRef.current !== null
-        && completedItemId !== interimItemRef.current;
+      const superseded = completedTranscriptIsSuperseded(
+        completedItemId,
+        interimItemRef.current,
+        interimRevisionRef.current,
+      );
       if (!superseded) {
         transcriptAt.current = now;
         setTranscriptView((current) => nextTranscriptView(current, event));
-        interimRevisionRef.current = 0;
-        interimItemRef.current = null;
+        if (completedItemId === interimItemRef.current) {
+          interimRevisionRef.current = 0;
+          interimItemRef.current = null;
+        }
         if (speechStoppedAt.current !== null) setLatencies((current) => ({ ...current, transcription: now - speechStoppedAt.current! }));
         setNotice(workflowKind === "voice_agent" ? "转写完成，大模型正在回复" : "转写完成，可以继续说话");
       }
@@ -433,6 +514,8 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
     setConnection("idle");
     setTranscriptView(EMPTY_TRANSCRIPT_VIEW);
     setVectorSearch(null);
+    setVectorResultsOpen(true);
+    setSpeakerFilter(null);
     setVadProgress(null);
     setFinalCluster(null);
     interimRevisionRef.current = 0;
@@ -520,6 +603,8 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
     setEvents([]);
     setEventTotal(0);
     setVectorSearch(null);
+    setVectorResultsOpen(true);
+    setSpeakerFilter(null);
     setVadProgress(null);
     setFinalCluster(null);
     setTranscriptView(EMPTY_TRANSCRIPT_VIEW);
@@ -581,10 +666,19 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
         <div className="metric-card"><span>最终聚类状态</span><strong>{finalCluster ? finalCluster.status === "completed" ? `完成 r${finalCluster.revision} · ${finalCluster.assignments} 个片段` : `失败 r${finalCluster.revision}` : "等待最终快照"}</strong></div>
       </section>}
 
-      {vectorSearch && <section className="panel realtime-vector-results" aria-label="人物搜索结果">
-        <header><span>人物搜索结果</span></header>
-        {vectorSearch.error ? <div className="inline-error">{vectorSearch.error}</div> : vectorSearch.groups.length > 0 ? <div className="realtime-vector-matches">{vectorSearch.groups.map((group, index) => <div key={`${group.speakerId}-${index}`}><code>{group.speakerId || "未提供 Speaker ID"}</code><b>分数 {group.score.toFixed(4)}</b></div>)}</div> : <p className="empty-copy">本次搜索没有候选人。</p>}
-      </section>}
+      {(vectorSearch || speakerFilter) && <div className="realtime-diagnostics-grid">
+        {vectorSearch && <details className="panel realtime-vector-results" aria-label="人物搜索结果" open={vectorResultsOpen} onToggle={(event) => setVectorResultsOpen(event.currentTarget.open)}>
+          <summary><span>人物搜索结果</span><small>{vectorSearch.error ? "检索失败" : `${vectorSearch.groups.length} 个候选人`}</small><i aria-hidden="true">⌄</i></summary>
+          <div className="realtime-vector-content">{vectorSearch.error ? <div className="inline-error">{vectorSearch.error}</div> : vectorSearch.groups.length > 0 ? <div className="realtime-vector-matches">{vectorSearch.groups.map((group, index) => <div key={`${group.speakerId}-${index}`}><code>{group.speakerId || "未提供 Speaker ID"}</code><b>分数 {group.score.toFixed(4)}</b></div>)}</div> : <p className="empty-copy">本次搜索没有候选人。</p>}</div>
+        </details>}
+        {speakerFilter && <section className="panel realtime-speaker-filter" aria-label="说话人过滤结果">
+          <header><span>说话人过滤</span><b className={`filter-status filter-status-${speakerFilter.status}`}>{speakerFilter.status === "matched" ? "已放行" : speakerFilter.status === "rejected" ? "已拒绝" : "过滤失败"}</b></header>
+          <div className="realtime-filter-result">
+            {speakerFilter.status === "matched" ? <><code>{speakerFilter.speakerId ?? "未提供 Speaker ID"}</code><strong>分数 {speakerFilter.score?.toFixed(4) ?? "—"}</strong></> : <strong>{speakerFilter.reason ?? speakerFilter.error}</strong>}
+            <small>音频 {speakerFilter.audioStartMs ?? "—"}–{speakerFilter.audioEndMs ?? "—"} ms</small>
+          </div>
+        </section>}
+      </div>}
 
       <details className="panel event-log"><summary>协议事件 <span>{eventTotal}</span></summary><div>{events.map((event) => <div className="event-row" key={event.id}><time>{event.time}</time><code>{event.type}</code>{event.count > 1 && <b>×{event.count}</b>}<span>{event.detail}</span></div>)}</div></details>
     </div>

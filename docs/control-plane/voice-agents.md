@@ -69,6 +69,8 @@ Voice Agent 在已发布 Audio Workflow 上绑定 OpenAI-compatible Responses、
 - `max_output_tokens` 为 `1..32768`；`max_tool_rounds` 为 `1..32`；`max_parallel_tools` 为 `1..16`；工具超时为 `(0,300]` 秒。
 - `history_max_items` 为 `8..4096`，限制传给 Responses 的会话历史项。
 - `service_tools` 引用进程启动前注入 `ToolRegistry` 的名称。未注册工具会在运行时失败；本仓库默认不内置业务工具。
+- 主转写工作流包含 `speaker_filter` 时，默认自动响应会在用户指令之后追加当前匹配的 `speaker_id` 与 `score`。该可信上下文只用于当前发言，不写入历史，不包含 embedding 或 Qdrant payload，也不得被表述为账户级身份认证。
+- 控制台提供“仅向量解锁”“按 Speaker ID 个性化”“多人物白名单”模板；模板只写入现有 `instructions`，应用后仍可编辑。
 - MCP 工具公开名为 `mcp__<server_label>__<remote_name>`，连接先尝试 Streamable HTTP，失败后回退 SSE。
 
 MCP 配置：
@@ -109,4 +111,3 @@ curl -sS http://localhost:8000/api/v1/voices \
 ## 发布结果
 
 `VoiceAgentRevisionRead` 固定 Agent `revision`、完整 definition、`audio_workflow_id/revision`，并分别记录 Responses 与 TTS Engine revision。发布不会自动创建 Realtime Route；必须在[接入与运行](routes-runtime.md)中显式配置公开 model。
-

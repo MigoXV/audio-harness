@@ -76,6 +76,7 @@ curl -sS -X POST "http://localhost:8000/api/v1/audio-workflows/$WORKFLOW_ID/publ
 | `asr` | `segments: audio_segment`，也接受 `diarization_segment` | `transcripts`、`speaker_transcripts` | `ux_speech` | `remove_punctuation` |
 | `audio_embedding` | `segments` | `embeddings` | `engine_feature` | 算法、维度、归一化 |
 | `vector_search` | `embeddings` | `results` | 无直接 Engine | Collection、Named Vector、top-k、阈值、filter |
+| `speaker_filter` | `segments`、`results` | 通过的 `segments`、`decisions`、`speech_started/stopped` | 无直接 Engine | Speaker ID 白名单、独立门控分数；未匹配和故障均 fail-closed |
 | `speaker_diarization` | `segments` | diarization `segments`、`local_results` | `ux_speaker_diarization` | 批次最短/最长秒数、送入 ASR 的最短分段秒数（`min_asr_segment_seconds`，默认 0.5）、可空的 `postprocessing`；默认使用 `audio_harness.diarization.vad_coverage` v1，显式 `null` 保留旧行为 |
 | `speaker_clustering` | diarization `segments` | `results` | `engine_feature` | embedding/聚类算法、参数、最大向量数 |
 
@@ -89,7 +90,14 @@ curl -sS -X POST "http://localhost:8000/api/v1/audio-workflows/$WORKFLOW_ID/publ
 - `speech_started`：物理 VAD 起点。
 - `speech_stopped`：正式轮次终点，可来自物理或语义 VAD。
 
-可选出口：`interim_transcript`、`turn_progress`、`vector_search`、`diarization_local`、`speaker_transcript`、`diarization_cluster`。它们分别驱动 AHA 扩展；不存在或未协商 `x_aha=v1` 时不会产生对应扩展事件。
+可选出口：`interim_transcript`、`turn_progress`、`vector_search`、`speaker_filter`、`diarization_local`、`speaker_transcript`、`diarization_cluster`。它们分别驱动 AHA 扩展；不存在或未协商 `x_aha=v1` 时不会产生对应扩展事件。
+
+`speaker_filter` 必须把同一个片段出口同时接到自身 `segments` 和上游
+`audio_embedding → vector_search` 分支。主转写经过该节点时，
+`speech_started`、`speech_stopped` 和 `speaker_filter` 命名出口都必须连接过滤节点，
+保证被拒绝的语音不会创建 Realtime 用户项。门控使用节点自己的 `min_score`，
+不依赖检索节点的 `score_threshold`。若过滤前使用语义 VAD，还应把语义 VAD 的
+`turn_progress` 暴露为同名出口，以便 AHA v1 客户端观察物理停顿而不提前创建用户项。
 
 物理 VAD 的 `progress_interval_seconds` 控制 AHA v1 进度的墙钟限频，默认 `0.2` 秒，`0` 表示关闭，必须是有限非负数。Harness 自动选择 `speech_started` 出口绑定的物理 VAD 作为唯一进度源，因此旧工作流无需增加进度出口或重新发布，双 VAD 工作流的预览分支也不会重复发送。
 

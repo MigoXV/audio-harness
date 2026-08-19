@@ -47,6 +47,7 @@ class AudioWorkflowSession:
         include_vad_progress: bool,
         include_interim_transcripts: bool,
         include_vector_search: bool = False,
+        include_speaker_filter: bool = False,
         include_diarization: bool = False,
         vectors: VectorService | None = None,
     ) -> None:
@@ -61,6 +62,7 @@ class AudioWorkflowSession:
             include_vad_progress=include_vad_progress,
             include_interim_transcripts=include_interim_transcripts,
             include_vector_search=include_vector_search,
+            include_speaker_filter=include_speaker_filter,
             include_diarization=include_diarization,
         )
         self._audio: asyncio.Queue[bytes | object] = asyncio.Queue(
@@ -214,6 +216,7 @@ class AudioWorkflowSessionService:
         include_vad_progress: bool = False,
         include_interim_transcripts: bool = False,
         include_vector_search: bool = False,
+        include_speaker_filter: bool = False,
         include_diarization: bool = False,
         workflow: ActiveAudioWorkflow,
     ):
@@ -224,6 +227,7 @@ class AudioWorkflowSessionService:
                 include_vad_progress=include_vad_progress,
                 include_interim_transcripts=include_interim_transcripts,
                 include_vector_search=include_vector_search,
+                include_speaker_filter=include_speaker_filter,
                 include_diarization=include_diarization,
                 workflow=workflow,
             )
@@ -252,6 +256,7 @@ class AudioWorkflowSessionReservation:
         include_vad_progress: bool = False,
         include_interim_transcripts: bool = False,
         include_vector_search: bool = False,
+        include_speaker_filter: bool = False,
         include_diarization: bool = False,
         workflow: ActiveAudioWorkflow,
     ) -> AudioWorkflowSession:
@@ -287,6 +292,7 @@ class AudioWorkflowSessionReservation:
                 include_vad_progress=include_vad_progress,
                 include_interim_transcripts=include_interim_transcripts,
                 include_vector_search=include_vector_search,
+                include_speaker_filter=include_speaker_filter,
                 include_diarization=include_diarization,
                 vectors=self._service.vectors,
             )

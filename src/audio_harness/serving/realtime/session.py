@@ -54,6 +54,7 @@ from audio_harness.serving.realtime.agent import (
     AudioFinisher,
     AudioSender,
     RealtimeAgentRuntime,
+    SpeakerContext,
     VoiceResolver,
 )
 from audio_harness.serving.realtime.protocol import (
@@ -71,6 +72,9 @@ from audio_harness.serving.realtime.protocol import (
     AhaSpeakerTranscriptionCompletedEvent,
     AhaSpeakerTranscriptionDeltaEvent,
     AhaSpeakerTranscriptionFailedEvent,
+    AhaSpeakerFilterFailedEvent,
+    AhaSpeakerFilterMatchedEvent,
+    AhaSpeakerFilterRejectedEvent,
     AhaVadPhysicalSpeechStoppedEvent,
     AhaVadProgressEvent,
     AhaVectorSearchCompletedEvent,
@@ -85,11 +89,12 @@ from audio_harness.sessions import (
 from audio_harness.realtime_routes.service import RealtimeTarget
 from audio_harness.voice_agents.service import ActiveVoiceAgent
 from audio_harness.workflows.settings import WorkflowSettingsStore
-from audio_harness.workflows.models import PhysicalVadNode
+from audio_harness.workflows.compiler import speech_started_physical_vad
 from audio_harness.workflows.service import ActiveAudioWorkflow
 from audio_harness.workflows.events import (
     DiarizationClusterResult,
     DiarizationLocalResult,
+    SpeakerFilterResult,
     SpeakerTranscriptionResult,
     SpeechStarted,
     SpeechStopped,
@@ -295,30 +300,11 @@ class RealtimeTranscriptionSession:
             if isinstance(target, ActiveVoiceAgent)
             else target
         )
-        speech_started_binding = next(
-            (
-                output
-                for output in self._workflow.plan.definition.outputs
-                if output.name == "speech_started"
-            ),
-            None,
-        )
-        physical_node = (
-            self._workflow.plan.nodes.get(
-                speech_started_binding.source.node_id
-            )
-            if speech_started_binding is not None
-            else None
-        )
-        if physical_node is None or not isinstance(
-            physical_node.definition,
-            PhysicalVadNode,
-        ):
+        physical_vad = speech_started_physical_vad(self._workflow.plan)
+        if physical_vad is None:
             raise RuntimeError("所选工作流缺少物理 VAD 配置")
-        self._physical_vad_config = cast(
-            PhysicalVadNode,
-            physical_node.definition,
-        ).config
+        _, physical_node = physical_vad
+        self._physical_vad_config = physical_node.config
         self._reservation = reservation
         self._audio_event_handler = audio_event_handler
         self._aha_version = aha_version
@@ -419,6 +405,9 @@ class RealtimeTranscriptionSession:
         self._workflow_failure: BaseException | None = None
         self._cluster_latest_result: DiarizationClusterResult | None = None
         self._cluster_last_completed: DiarizationClusterResult | None = None
+        self._speaker_contexts: dict[
+            tuple[int, int, int], SpeakerContext
+        ] = {}
         self._cluster_output_enabled = any(
             output.name == "diarization_cluster"
             for output in self._workflow.plan.definition.outputs
@@ -917,6 +906,9 @@ class RealtimeTranscriptionSession:
                     and not self._manual_commit_enabled
                 ),
                 include_vector_search=self._aha_version == "v1",
+                include_speaker_filter=(
+                    self._agent is not None or self._aha_version == "v1"
+                ),
                 include_diarization=self._aha_version == "v1",
                 workflow=self._workflow,
             )
@@ -930,6 +922,9 @@ class RealtimeTranscriptionSession:
                     and not self._manual_commit_enabled
                 ),
                 include_vector_search=self._aha_version == "v1",
+                include_speaker_filter=(
+                    self._agent is not None or self._aha_version == "v1"
+                ),
                 include_diarization=self._aha_version == "v1",
                 workflow=self._workflow,
             )
@@ -1234,22 +1229,76 @@ class RealtimeTranscriptionSession:
                 )
             )
             return
+        if output_name == "speaker_filter" and isinstance(
+            event,
+            SpeakerFilterResult,
+        ):
+            key = (event.start_sample, event.end_sample, event.sample_rate)
+            if (
+                event.status == "matched"
+                and event.speaker_id is not None
+                and event.score is not None
+            ):
+                self._speaker_contexts[key] = SpeakerContext(
+                    speaker_id=event.speaker_id,
+                    score=event.score,
+                )
+            if self._aha_version != "v1":
+                return
+            common = {
+                "event_id": event_id(),
+                "audio_start_ms": round(
+                    event.start_sample * 1000 / event.sample_rate
+                ),
+                "audio_end_ms": round(
+                    event.end_sample * 1000 / event.sample_rate
+                ),
+            }
+            if event.status == "matched":
+                assert event.speaker_id is not None and event.score is not None
+                await self._send_event(
+                    AhaSpeakerFilterMatchedEvent(
+                        type="x_aha.speaker_filter.matched",
+                        speaker_id=event.speaker_id,
+                        score=event.score,
+                        **common,
+                    )
+                )
+            elif event.status == "rejected":
+                await self._send_event(
+                    AhaSpeakerFilterRejectedEvent(
+                        type="x_aha.speaker_filter.rejected",
+                        reason=cast(Any, event.reason),
+                        **common,
+                    )
+                )
+            else:
+                await self._send_event(
+                    AhaSpeakerFilterFailedEvent(
+                        type="x_aha.speaker_filter.failed",
+                        error={
+                            "code": event.reason,
+                            "message": "说话人过滤失败",
+                        },
+                        **common,
+                    )
+                )
+            return
         if output_name == "vector_search" and isinstance(event, VectorSearchResult):
             if self._aha_version != "v1":
                 return
             current_item_id = self._active_item_id or self._interim_item_id
             if current_item_id is None and self._pending_items:
                 current_item_id = self._pending_items[0].item_id
-            if current_item_id is None:
-                logger.warning("人物搜索结果缺少关联 Realtime item")
-                return
             common = {
-                "event_id": event_id(), "item_id": current_item_id,
+                "event_id": event_id(),
                 "audio_start_ms": round(event.start_sample * 1000 / event.sample_rate),
                 "audio_end_ms": round(event.end_sample * 1000 / event.sample_rate),
                 "collection_name": event.collection_name,
                 "vector_name": event.vector_name,
             }
+            if current_item_id is not None:
+                common["item_id"] = current_item_id
             if event.error_code is not None:
                 await self._send_event(
                     AhaVectorSearchFailedEvent(
@@ -1408,6 +1457,10 @@ class RealtimeTranscriptionSession:
                 )
             )
         if event.is_final:
+            speaker_context = self._speaker_contexts.pop(
+                (event.start_sample, event.end_sample, event.sample_rate),
+                None,
+            )
             await self._emit_completed_transcription(
                 item,
                 event.transcript,
@@ -1427,6 +1480,7 @@ class RealtimeTranscriptionSession:
                     await self._agent.respond(
                         event.transcript,
                         input_item_id=item.item_id,
+                        speaker_context=speaker_context,
                     )
 
     async def _handle_interim_transcript(

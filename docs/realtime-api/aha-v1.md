@@ -22,6 +22,7 @@ AHA v1 为 OpenAI Realtime 事件流追加 Audio Harness 特有的中间转写�
 | `x_aha.input_audio_transcription.interim` | Workflow 有 interim 出口、自动 VAD、AHA 已协商 | 可跳过，不影响正式转写 |
 | `x_aha.input_audio_transcription.interim_cleared` | 正式转写开始或预览被替代 | 客户端清空临时文本 |
 | `x_aha.vector.search.completed/failed` | Workflow 有 vector_search 出口 | fail-open，不中断 ASR |
+| `x_aha.speaker_filter.matched/rejected/failed` | Workflow 有 speaker_filter 出口 | matched 才进入 ASR；其余静默拒绝 |
 | `x_aha.diarization.local.delta/completed/failed` | Workflow 有本地 diarization 出口 | 失败时原始 VAD 音频直通 ASR |
 | `x_aha.input_audio_transcription.speaker.delta/completed/failed` | ASR 消费 diarization segment | 单片段失败，不替代标准聚合转写 |
 | `x_aha.diarization.cluster.completed/failed` | Workflow 有 speaker clustering 出口 | 保留上一成功 revision，后续重连重放 |
@@ -107,7 +108,7 @@ Harness 从稳定 `speech_started` 出口自动确定唯一的主物理 VAD，�
 
 ## 人物向量检索
 
-共同字段：`item_id`、`audio_start_ms/audio_end_ms`、`collection_name`、`vector_name`。成功事件：
+共同字段：`audio_start_ms/audio_end_ms`、`collection_name`、`vector_name`。若检索时已经创建 OpenAI turn，事件还会携带 `item_id`；声纹过滤工作流可能先完成检索、后决定是否创建 turn，此时 `item_id` 省略，但检索事件仍会立即发送。成功事件：
 
 ```json
 {
@@ -132,6 +133,13 @@ Workflow 的 `include_embedding=true` 时额外返回 `embedding:number[]`，可
 ```json
 {"type":"x_aha.vector.search.failed","event_id":"event_xxx","item_id":"item_xxx","audio_start_ms":1000,"audio_end_ms":4200,"collection_name":"voiceprints","vector_name":"eres2netv2","error":{"code":"qdrant_unavailable","message":"人物搜索失败"}}
 ```
+
+## 说话人过滤
+
+过滤判定按音频区间关联，不创建独立 conversation item。匹配事件包含
+`speaker_id` 和 `score`；拒绝事件的 `reason` 为 `no_match`、
+`speaker_not_allowed` 或 `score_too_low`；失败事件使用标准 `error.code/message`。
+事件不会返回 embedding、完整候选列表或 Qdrant payload。
 
 ## 局部说话人分离
 

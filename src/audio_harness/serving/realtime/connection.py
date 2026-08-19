@@ -165,9 +165,9 @@ class _RealtimeConnection:
         self._received_audio_cache_dir = received_audio_cache_dir
         self._dynamic_transcription = model is None and target is None
         self._session: RealtimeTranscriptionSession | None = None
+        self._initial_model = model
+        self._initial_target = target
         self._transcription_session_id = session_id()
-        if model is not None and target is not None:
-            self._session = self._new_session(model=model, target=target)
 
     def _new_session(
         self,
@@ -213,6 +213,25 @@ class _RealtimeConnection:
             await self.websocket.send_json(payload)
 
     async def run(self) -> None:
+        if not self._dynamic_transcription:
+            assert self._initial_model is not None
+            assert self._initial_target is not None
+            try:
+                self._session = self._new_session(
+                    model=self._initial_model,
+                    target=self._initial_target,
+                )
+            except (RuntimeError, ValueError) as exc:
+                await self._send_error(
+                    message=str(exc),
+                    code="model_workflow_invalid",
+                    param="model",
+                )
+                await self.websocket.close(
+                    code=1011,
+                    reason="Model workflow invalid",
+                )
+                return
         if self._session is None:
             await self._send(
                 AhaSessionCreatedEvent(
@@ -460,8 +479,18 @@ class _RealtimeConnection:
             )
             return
 
+        try:
+            next_session = self._new_session(model=model, target=target)
+        except (RuntimeError, ValueError) as exc:
+            await self._send_error(
+                message=str(exc),
+                code="model_workflow_invalid",
+                client_event_id=event.event_id,
+                param="session.audio.input.transcription.model",
+            )
+            return
         previous = self._session
-        self._session = self._new_session(model=model, target=target)
+        self._session = next_session
         if previous is not None:
             await previous.close()
         await self._session.handle_client_event(event)

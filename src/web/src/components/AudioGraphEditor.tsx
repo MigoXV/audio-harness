@@ -75,6 +75,7 @@ const OUTPUTS = [
   { name: "speech_stopped", kind: "speech_stopped", label: "最终停顿" },
   { name: "turn_progress", kind: "transcription", label: "轮次未结束" },
   { name: "vector_search", kind: "vector_search_result" },
+  { name: "speaker_filter", kind: "speaker_filter_result" },
   { name: "diarization_local", kind: "diarization_local_result" },
   { name: "speaker_transcript", kind: "speaker_transcription" },
   { name: "diarization_cluster", kind: "diarization_cluster_result" },
@@ -89,6 +90,7 @@ const PORT_META: Record<string, { label: string; color: string }> = {
   speech_stopped: { label: "停止事件", color: "#be123c" },
   embedding: { label: "Embedding", color: "#9a6700" },
   vector_search_result: { label: "检索结果", color: "#b45309" },
+  speaker_filter_result: { label: "过滤判定", color: "#a21caf" },
   diarization_local_result: { label: "局部分离", color: "#0369a1" },
   speaker_transcription: { label: "说话人转写", color: "#6d28d9" },
   diarization_cluster_result: { label: "全局聚类", color: "#047857" },
@@ -284,6 +286,9 @@ function nodeConfig(kind: string): AudioNode {
   }
   if (kind === "vector_search") {
     return { id, kind, engine_id: null, config: { collection_name: "", vector_name: "", top_k: 10, score_threshold: null, filter: {}, include_embedding: false } } as AudioNode;
+  }
+  if (kind === "speaker_filter") {
+    return { id, kind, engine_id: null, config: { allowed_speaker_ids: ["speaker-001"], min_score: 0.75 } } as AudioNode;
   }
   return { id, kind: "asr", engine_id: null, config: { remove_punctuation: false } };
 }
@@ -687,7 +692,7 @@ function AudioGraphEditorInner({
     });
   }, [flowEdges, selectedEdgeId, selectedId]);
 
-  const legendKinds = ["pcm_chunk", "audio_segment", "diarization_segment", "embedding", "vector_search_result", "diarization_local_result", "diarization_cluster_result", "speaker_transcription", "transcription", "speech_started", "speech_stopped"];
+  const legendKinds = ["pcm_chunk", "audio_segment", "diarization_segment", "embedding", "vector_search_result", "speaker_filter_result", "diarization_local_result", "diarization_cluster_result", "speaker_transcription", "transcription", "speech_started", "speech_stopped"];
   return (
     <div className={`audio-builder ${sidebarOpen ? "palette-open" : "palette-closed"} ${selected ? "inspector-open" : ""}`}>
       <WorkbenchSidebar
@@ -707,6 +712,7 @@ function AudioGraphEditorInner({
             <button onClick={() => setPendingTemplate("physical_semantic_asr")}><strong>物理 + 语义 VAD + ASR</strong><small>PCM → 物理 VAD → 语义 VAD → ASR</small></button>
             <button onClick={() => setPendingTemplate("dual_physical_asr")}><strong>物理双路 VAD + ASR</strong><small>正式转写 + AHA 中间结果预览</small></button>
             <button onClick={() => setPendingTemplate("dual_physical_semantic_asr")}><strong>双路物理 + 语义 VAD + ASR</strong><small>正式分支语义判停 + AHA 中间结果预览</small></button>
+            <button onClick={() => setPendingTemplate("vector_unlock")}><strong>向量解锁</strong><small>仅允许声纹白名单中的说话人进入转写和智能体</small></button>
             <button onClick={() => setPendingTemplate("meeting_complete")}><strong>会议系统完全体</strong><small>双路语义判停、正式与预览转写、语音特征向量提取与搜索</small></button>
           </div>
         </details>
@@ -774,9 +780,10 @@ function AudioGraphEditorInner({
           <div className={`inspector-state ${selected.engine_id || selectedSpec.required_api == null ? "configured" : "unconfigured"}`}><strong>{selectedSpec.display_name}</strong><span>{selectedSpec.required_api == null ? "基础设施节点" : selected.engine_id ? "已绑定执行引擎" : "待绑定执行引擎"}</span></div>
           <label><span>节点 ID</span><input value={selected.id} disabled /></label>
           {selectedSpec.required_api != null && <label><span>执行引擎</span><select value={selected.engine_id ?? ""} onChange={(event) => updateNode({ ...selected, engine_id: event.target.value || null } as AudioNode)}><option value="">未绑定</option>{engines.filter((engine) => engine.enabled && engine.api === selectedSpec.required_api && (!selectedSpec.required_capability || (Array.isArray(engine.details?.capabilities) && engine.details.capabilities.includes(selectedSpec.required_capability)))).map((engine) => <option key={engine.id} value={engine.id}>{engine.name} · {engine.status}</option>)}</select><small>需要 {selectedSpec.required_api}{selectedSpec.required_capability ? ` / ${selectedSpec.required_capability}` : ""} 能力</small></label>}
-          {Object.entries(selected.config ?? {}).filter(([key]) => !["postprocessing", "parameters", "clustering_algorithm", "remove_punctuation", "normalize", "include_embedding", "filter", "collection_name", "vector_name", "progress_interval_seconds"].includes(key)).map(([key, value]) => <label key={key}><span>{key}</span><input type={typeof value === "number" || value === null ? "number" : "text"} step="0.1" value={value == null ? "" : String(value)} onChange={(event) => updateNode({ ...selected, config: { ...(selected.config ?? {}), [key]: typeof value === "number" || value === null ? (event.target.value ? Number(event.target.value) : null) : event.target.value } } as AudioNode)} /></label>)}
+          {Object.entries(selected.config ?? {}).filter(([key]) => !["postprocessing", "parameters", "clustering_algorithm", "remove_punctuation", "normalize", "include_embedding", "filter", "collection_name", "vector_name", "progress_interval_seconds", "allowed_speaker_ids", "min_score"].includes(key)).map(([key, value]) => <label key={key}><span>{key}</span><input type={typeof value === "number" || value === null ? "number" : "text"} step="0.1" value={value == null ? "" : String(value)} onChange={(event) => updateNode({ ...selected, config: { ...(selected.config ?? {}), [key]: typeof value === "number" || value === null ? (event.target.value ? Number(event.target.value) : null) : event.target.value } } as AudioNode)} /></label>)}
           {selected.kind === "audio_embedding" && <label className="switch-control"><input type="checkbox" checked={selected.config?.normalize ?? true} onChange={(event) => updateNode({ ...selected, config: { algorithm: selected.config?.algorithm ?? "eres2netv2", expected_dimension: selected.config?.expected_dimension ?? 192, normalize: event.target.checked } })} /><span>L2 归一化</span></label>}
           {selected.kind === "vector_search" && <><label><span>Voiceprint Collection</span><select value={selected.config.collection_name} onChange={(event) => { const space = vectorSpaces.find((item) => item.collection_name === event.target.value); if (space) updateNode({ ...selected, config: { ...selected.config, collection_name: space.collection_name, vector_name: space.vectors[0]?.name ?? "" } }); }}><option value="">请选择 voiceprint Collection</option>{vectorSpaces.filter((space) => space.template === "voiceprint").map((space) => <option value={space.collection_name} key={space.collection_name}>{space.collection_name}</option>)}</select></label><label><span>Named Vector</span><select value={selected.config.vector_name} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, vector_name: event.target.value } })}>{vectorSpaces.find((item) => item.collection_name === selected.config.collection_name)?.vectors.map((vector) => <option key={vector.name}>{vector.name}</option>)}</select></label><label><span>Filter JSON</span><textarea value={JSON.stringify(selected.config.filter ?? {}, null, 2)} onChange={(event) => { try { updateNode({ ...selected, config: { ...selected.config, filter: JSON.parse(event.target.value) } }); } catch { /* 保存前由校验提示 */ } }} /></label><label className="switch-control"><input type="checkbox" checked={selected.config.include_embedding} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, include_embedding: event.target.checked } })} /><span>在 AHA 事件中返回查询向量</span></label></>}
+          {selected.kind === "speaker_filter" && <><label><span>允许的 Speaker ID</span><textarea value={selected.config.allowed_speaker_ids.join("\n")} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, allowed_speaker_ids: event.target.value.split("\n").map((value) => value.trim()).filter(Boolean) } })} /><small>每行一个，精确且区分大小写。</small></label><label><span>最低匹配分数</span><input type="number" step="0.01" value={selected.config.min_score} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, min_score: Number(event.target.value) } })} /><small>低于该分数、未命中或检索失败时均静默拒绝。</small></label></>}
           {selected.kind === "asr" && <label className="switch-control"><input type="checkbox" checked={selected.config?.remove_punctuation ?? false} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, remove_punctuation: event.target.checked } })} /><span>移除转写标点</span></label>}
           {selected.kind === "physical_vad" && selectedPhysicalConfig && <section className="vad-postprocessing-settings">
             <label><span>进度发送间隔（秒）</span><input type="number" min="0" step="0.1" value={selectedPhysicalConfig.progress_interval_seconds} onChange={(event) => updateNode({ ...selected, config: { ...selectedPhysicalConfig, progress_interval_seconds: Number(event.target.value) } })} /><small>默认 0.2 秒；设置为 0 时关闭进度事件。</small></label>

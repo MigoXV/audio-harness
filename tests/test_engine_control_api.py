@@ -207,7 +207,8 @@ async def test_fresh_baseline_is_explicitly_unconfigured(
             "speaker_diarization",
             "speaker_clustering",
             "vector_search",
-    }
+            "speaker_filter",
+        }
     readiness = await control_plane.client.get("/health/ready")
     assert readiness.status_code == 200
     assert readiness.json() == {

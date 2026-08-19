@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -15,14 +16,20 @@ from audio_harness.serving.realtime.connection import (
     RealtimeConnectionMode,
     RealtimeTranscriptionService,
 )
+from audio_harness.serving.realtime import connection as realtime_connection
 from audio_harness.serving.realtime.tools import ToolRegistry
-from audio_harness.workflows.events import SpeechStarted, SpeechStopped
+from audio_harness.workflows.events import (
+    SpeechStarted,
+    SpeechStopped,
+    VectorSearchResult,
+)
 from tests.test_agent_runtime import (
     BlockingResponses,
     ClientToolThenTextResponses,
     FakePool,
     _profile,
 )
+from tests.graph_fakes import static_audio_workflow
 
 
 _CLIENT_EVENTS = TypeAdapter(RealtimeClientEvent)
@@ -129,6 +136,20 @@ class _DisconnectedWebSocket:
         return {"type": "websocket.disconnect", "code": 1000, "reason": ""}
 
 
+class _ScriptedWebSocket(_DisconnectedWebSocket):
+    def __init__(self, messages: list[dict]) -> None:
+        super().__init__()
+        self.messages = list(messages)
+
+    async def receive(self):
+        if self.messages:
+            return {
+                "type": "websocket.receive",
+                "text": json.dumps(self.messages.pop(0)),
+            }
+        return await super().receive()
+
+
 @pytest.mark.asyncio
 async def test_voice_agent_wss_handshake_emits_only_official_session_created() -> None:
     websocket = _DisconnectedWebSocket()
@@ -151,6 +172,125 @@ async def test_voice_agent_wss_handshake_emits_only_official_session_created() -
     assert _SERVER_EVENTS.validate_python(websocket.events[0]).session.type == (
         "realtime"
     )
+
+
+@pytest.mark.asyncio
+async def test_speaker_filter_workflow_session_update_succeeds() -> None:
+    _pool, _workflows, workflow = static_audio_workflow(
+        asr=object(),
+        vad=object(),
+        semantic_vad=object(),
+        speaker_filter=True,
+    )
+    websocket = _ScriptedWebSocket(
+        [
+            {
+                "type": "session.update",
+                "event_id": "update-filtered",
+                "session": {
+                    "type": "transcription",
+                    "audio": {
+                        "input": {
+                            "transcription": {"model": "voice-agent"}
+                        }
+                    },
+                },
+            }
+        ]
+    )
+    service = RealtimeTranscriptionService(
+        session_service=object(),  # type: ignore[arg-type]
+        workflow_settings=_Settings(),  # type: ignore[arg-type]
+        routes=_AgentRoute(workflow),  # type: ignore[arg-type]
+        max_message_bytes=1024,
+    )
+
+    await service.handle(websocket)  # type: ignore[arg-type]
+
+    assert [event["type"] for event in websocket.events] == [
+        "session.created",
+        "session.updated",
+    ]
+    assert all(_SERVER_EVENTS.validate_python(event) for event in websocket.events)
+
+
+@pytest.mark.asyncio
+async def test_dynamic_session_initialization_failure_is_protocol_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_session(*_args, **_kwargs):
+        raise RuntimeError("invalid workflow")
+
+    monkeypatch.setattr(
+        realtime_connection._RealtimeConnection,
+        "_new_session",
+        fail_session,
+    )
+    websocket = _ScriptedWebSocket(
+        [
+            {
+                "type": "session.update",
+                "event_id": "update-invalid",
+                "session": {
+                    "type": "transcription",
+                    "audio": {
+                        "input": {
+                            "transcription": {"model": "voice-agent"}
+                        }
+                    },
+                },
+            }
+        ]
+    )
+    service = RealtimeTranscriptionService(
+        session_service=object(),  # type: ignore[arg-type]
+        workflow_settings=_Settings(),  # type: ignore[arg-type]
+        routes=_AgentRoute(_profile().audio_workflow),  # type: ignore[arg-type]
+        max_message_bytes=1024,
+    )
+
+    await service.handle(websocket)  # type: ignore[arg-type]
+
+    assert [event["type"] for event in websocket.events] == [
+        "session.created",
+        "error",
+    ]
+    error = websocket.events[-1]["error"]
+    assert error["code"] == "model_workflow_invalid"
+    assert error["event_id"] == "update-invalid"
+    assert error["param"] == "session.audio.input.transcription.model"
+    assert websocket.closed is None
+
+
+@pytest.mark.asyncio
+async def test_fixed_model_initialization_failure_closes_cleanly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_session(*_args, **_kwargs):
+        raise RuntimeError("invalid workflow")
+
+    monkeypatch.setattr(
+        realtime_connection._RealtimeConnection,
+        "_new_session",
+        fail_session,
+    )
+    websocket = _DisconnectedWebSocket()
+    service = RealtimeTranscriptionService(
+        session_service=object(),  # type: ignore[arg-type]
+        workflow_settings=_Settings(),  # type: ignore[arg-type]
+        routes=_AgentRoute(_profile()),  # type: ignore[arg-type]
+        max_message_bytes=1024,
+    )
+
+    await service.handle(
+        websocket,  # type: ignore[arg-type]
+        mode=RealtimeConnectionMode.REALTIME,
+        model="voice-agent",
+    )
+
+    assert [event["type"] for event in websocket.events] == ["error"]
+    assert websocket.events[0]["error"]["code"] == "model_workflow_invalid"
+    assert websocket.closed == (1011, "Model workflow invalid")
 
 
 @pytest.mark.asyncio
@@ -480,6 +620,81 @@ async def test_voice_agent_x_aha_adds_pending_semantic_turn_event() -> None:
         for event in emitted
         if not event["type"].startswith("x_aha.")
     )
+
+
+@pytest.mark.asyncio
+async def test_x_aha_vector_search_events_are_emitted_before_item_exists() -> None:
+    emitted: list[dict] = []
+
+    async def send_event(event) -> None:
+        emitted.append(
+            event.model_dump(mode="json", exclude_none=True)
+            if hasattr(event, "model_dump")
+            else event
+        )
+
+    session = RealtimeTranscriptionSession(
+        send_event=send_event,
+        session_service=object(),  # type: ignore[arg-type]
+        workflow_settings=_Settings(),  # type: ignore[arg-type]
+        model="voice-agent",
+        target=_profile(),
+        inferencer_pool=FakePool(),  # type: ignore[arg-type]
+        tool_registry=ToolRegistry(),
+        aha_version="v1",
+    )
+    await session.start()
+
+    await session._handle_workflow_event(
+        "vector_search",
+        VectorSearchResult(
+            start_sample=16_000,
+            end_sample=32_000,
+            sample_rate=16_000,
+            collection_name="voiceprints",
+            vector_name="eres2netv2",
+            groups=(
+                {
+                    "speaker_id": "speaker-1",
+                    "score": 0.91,
+                    "observation": {
+                        "point_id": "point-1",
+                        "payload": {"speaker_id": "speaker-1"},
+                    },
+                },
+            ),
+            latency_ms=12.5,
+        ),
+    )
+    await session._handle_workflow_event(
+        "vector_search",
+        VectorSearchResult(
+            start_sample=32_000,
+            end_sample=48_000,
+            sample_rate=16_000,
+            collection_name="voiceprints",
+            vector_name="eres2netv2",
+            groups=(),
+            latency_ms=4.0,
+            error_code="vector_search_failed",
+            error_message="人物检索不可用",
+        ),
+    )
+    await session.close()
+
+    assert [event["type"] for event in emitted] == [
+        "session.created",
+        "x_aha.vector.search.completed",
+        "x_aha.vector.search.failed",
+    ]
+    completed_event, failed_event = emitted[-2:]
+    assert "item_id" not in completed_event
+    assert completed_event["groups"][0]["speaker_id"] == "speaker-1"
+    assert "item_id" not in failed_event
+    assert failed_event["error"] == {
+        "code": "vector_search_failed",
+        "message": "人物检索不可用",
+    }
 
 
 @pytest.mark.asyncio

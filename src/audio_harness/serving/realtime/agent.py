@@ -66,6 +66,12 @@ class AgentSessionOptions:
 
 
 @dataclass(frozen=True)
+class SpeakerContext:
+    speaker_id: str
+    score: float
+
+
+@dataclass(frozen=True)
 class ResponseRunOptions:
     instructions: str
     output_modalities: list[str]
@@ -78,6 +84,7 @@ class ResponseRunOptions:
     output_audio_format: dict[str, Any]
     metadata: dict[str, str] | None
     add_to_conversation: bool
+    speaker_context: SpeakerContext | None = None
 
 
 @dataclass(frozen=True)
@@ -496,7 +503,13 @@ class RealtimeAgentRuntime:
         )
         self._history = self._conversation.responses_input()
 
-    async def respond(self, transcript: str, *, input_item_id: str) -> None:
+    async def respond(
+        self,
+        transcript: str,
+        *,
+        input_item_id: str,
+        speaker_context: SpeakerContext | None = None,
+    ) -> None:
         if self._closed:
             return
         if self._default_response_id is not None:
@@ -508,7 +521,11 @@ class RealtimeAgentRuntime:
         self.add_transcribed_audio(input_item_id, transcript)
         self._truncate_history()
         await self._start_response(
-            self._snapshot_response_options(None, add_to_conversation=True),
+            self._snapshot_response_options(
+                None,
+                add_to_conversation=True,
+                speaker_context=speaker_context,
+            ),
         )
 
     async def create_response(self, response: Any | None) -> str:
@@ -654,6 +671,7 @@ class RealtimeAgentRuntime:
         payload: dict[str, Any] | None,
         *,
         add_to_conversation: bool,
+        speaker_context: SpeakerContext | None = None,
     ) -> ResponseRunOptions:
         values = payload or {}
         modalities = values.get("output_modalities") or list(
@@ -719,6 +737,7 @@ class RealtimeAgentRuntime:
                 else None
             ),
             add_to_conversation=add_to_conversation,
+            speaker_context=speaker_context,
         )
 
     def _response_document(
@@ -1105,6 +1124,17 @@ class RealtimeAgentRuntime:
         instructions = self._response_config.instructions
         if options.instructions:
             instructions += "\n\n" + options.instructions
+        if options.speaker_context is not None:
+            context = options.speaker_context
+            instructions += (
+                "\n\n[Audio Harness 可信说话人上下文]\n"
+                "当前发言已通过内部说话人过滤。"
+                f"speaker_id={context.speaker_id}，score={context.score:.6f}。"
+                "仅将这些字段用于当前发言的身份上下文；只有用户指令明确"
+                "定义了 speaker_id 的含义时才能据此个性化。不要猜测任何"
+                "其他个人资料，不要主动披露声纹、向量、匹配分数或内部机制，"
+                "也不要把本次匹配描述为账户级身份认证。"
+            )
         tool_choice, constraint = self._tool_choice(options)
         if constraint:
             instructions += "\n\n" + constraint

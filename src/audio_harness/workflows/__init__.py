@@ -28,6 +28,8 @@ from audio_harness.workflows.models import (
     SpeakerDiarizationPostprocessingOptions,
     SpeakerClusteringNode,
     SpeakerClusteringNodeConfig,
+    SpeakerFilterNode,
+    SpeakerFilterNodeConfig,
     default_audio_workflow,
 )
 from audio_harness.workflows.runtime import (
@@ -71,6 +73,8 @@ __all__ = [
     "SpeakerDiarizationPostprocessingOptions",
     "SpeakerClusteringNode",
     "SpeakerClusteringNodeConfig",
+    "SpeakerFilterNode",
+    "SpeakerFilterNodeConfig",
     "audio_node_catalog",
     "compile_audio_graph",
     "compiled_audio_graph_document",

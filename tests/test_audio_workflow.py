@@ -39,12 +39,19 @@ from audio_harness.workflows import (
     SemanticVadNode,
     compile_audio_graph,
 )
-from audio_harness.workflows.events import VadProgress, VectorSearchResult
+from audio_harness.workflows.events import (
+    SpeakerFilterResult,
+    VadProgress,
+    VectorSearchResult,
+)
+from audio_harness.workflows.compiler import speech_started_physical_vad
 from audio_harness.workflows.models import (
     AudioEmbeddingNode,
     AudioEmbeddingNodeConfig,
     HdbscanClusteringParameters,
     SpeakerClusteringNodeConfig,
+    SpeakerFilterNode,
+    SpeakerFilterNodeConfig,
     VectorSearchNode,
     VectorSearchNodeConfig,
 )
@@ -531,6 +538,217 @@ def _vector_definition() -> AudioWorkflowDocument:
         source=NodeOutputRef(node_id="vector-search", port="results"),
     ))
     return definition
+
+
+def _speaker_filter_definition(*, allowed: str = "speaker-1") -> AudioWorkflowDocument:
+    definition = _vector_definition()
+    definition.nodes.append(
+        SpeakerFilterNode(
+            id="speaker-filter",
+            config=SpeakerFilterNodeConfig(
+                allowed_speaker_ids=[allowed],
+                min_score=0.75,
+            ),
+        )
+    )
+    definition.edges = [
+        edge for edge in definition.edges if edge.id != "segments-asr"
+    ]
+    definition.edges.extend(
+        [
+            AudioEdge(
+                id="semantic-filter",
+                source=NodeOutputRef(node_id="semantic", port="segments"),
+                target=NodeInputRef(node_id="speaker-filter", port="segments"),
+            ),
+            AudioEdge(
+                id="search-filter",
+                source=NodeOutputRef(node_id="vector-search", port="results"),
+                target=NodeInputRef(node_id="speaker-filter", port="results"),
+            ),
+            AudioEdge(
+                id="filter-asr",
+                source=NodeOutputRef(node_id="speaker-filter", port="segments"),
+                target=NodeInputRef(node_id="asr", port="segments"),
+            ),
+        ]
+    )
+    definition.outputs = [
+        output
+        for output in definition.outputs
+        if output.name not in {"speech_started", "speech_stopped"}
+    ]
+    definition.outputs.extend(
+        [
+            NamedOutputBinding(
+                name="speech_started",
+                source=NodeOutputRef(
+                    node_id="speaker-filter",
+                    port="speech_started",
+                ),
+            ),
+            NamedOutputBinding(
+                name="speech_stopped",
+                source=NodeOutputRef(
+                    node_id="speaker-filter",
+                    port="speech_stopped",
+                ),
+            ),
+            NamedOutputBinding(
+                name="speaker_filter",
+                source=NodeOutputRef(
+                    node_id="speaker-filter",
+                    port="decisions",
+                ),
+            ),
+        ]
+    )
+    return definition
+
+
+def test_speaker_filter_speech_started_resolves_upstream_physical_vad(
+    assets: dict[str, EngineAssetData],
+) -> None:
+    definition = _speaker_filter_definition()
+    physical_engine_id = next(
+        node.engine_id
+        for node in definition.nodes
+        if isinstance(node, PhysicalVadNode)
+    )
+    asr_engine_id = next(
+        node.engine_id
+        for node in definition.nodes
+        if isinstance(node, AsrNode)
+    )
+    definition.nodes.extend(
+        [
+            PhysicalVadNode(
+                id="other-physical",
+                engine_id=physical_engine_id,
+            ),
+            AsrNode(id="other-asr", engine_id=asr_engine_id),
+        ]
+    )
+    definition.edges.extend(
+        [
+            AudioEdge(
+                id="audio-other-physical",
+                source=GraphInputRef(),
+                target=NodeInputRef(
+                    node_id="other-physical",
+                    port="audio",
+                ),
+            ),
+            AudioEdge(
+                id="other-physical-asr",
+                source=NodeOutputRef(
+                    node_id="other-physical",
+                    port="segments",
+                ),
+                target=NodeInputRef(node_id="other-asr", port="segments"),
+            ),
+        ]
+    )
+    definition.outputs.append(
+        NamedOutputBinding(
+            name="interim_transcript",
+            source=NodeOutputRef(
+                node_id="other-asr",
+                port="transcripts",
+            ),
+        )
+    )
+    plan = compile_audio_graph(
+        definition,
+        assets={
+            **assets,
+            "embedding-engine": _asset(
+                "embedding-engine",
+                EngineKind.EMBEDDING,
+                EngineApi.ENGINE_FEATURE,
+            ),
+        },
+    )
+
+    physical_vad = speech_started_physical_vad(plan)
+
+    assert physical_vad is not None
+    assert physical_vad[0] == "physical"
+    assert physical_vad[1].config == plan.nodes["physical"].definition.config
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("allowed", "search_failure", "expected_status", "asr_calls"),
+    [
+        ("speaker-1", None, "matched", 1),
+        ("speaker-2", None, "rejected", 0),
+        ("speaker-1", RuntimeError("qdrant unavailable"), "failed", 0),
+    ],
+)
+async def test_speaker_filter_is_fail_closed_and_only_passes_allowed_speaker(
+    assets: dict[str, EngineAssetData],
+    allowed: str,
+    search_failure: Exception | None,
+    expected_status: str,
+    asr_calls: int,
+) -> None:
+    update = VadInferencer.Update(boundaries=((0, 8),), processed_samples=8)
+    plan_assets = {
+        **assets,
+        "embedding-engine": _asset(
+            "embedding-engine",
+            EngineKind.EMBEDDING,
+            EngineApi.ENGINE_FEATURE,
+        ),
+    }
+    asr = _Asr()
+    runtime = AudioWorkflowRuntime(
+        plan=compile_audio_graph(
+            _speaker_filter_definition(allowed=allowed),
+            assets=plan_assets,
+        ),
+        inferencers={
+            "physical": _Vad([update]),
+            "semantic": _Vad([], turns=[True]),
+            "asr": asr,
+            "embedding": _Embedding(),
+        },
+        runtime_config=AudioRuntimeConfig(2, 8),
+        asr_semaphore=asyncio.Semaphore(1),
+        vectors=_Vectors(failure=search_failure),  # type: ignore[arg-type]
+    )
+
+    outputs = [
+        output
+        async for output in runtime.stream(
+            _chunks(),
+            AudioInferenceRequest(
+                recognition=AsrInferencer.Options(
+                    sample_rate=4,
+                    language_code="zh-CN",
+                ),
+                include_vad_events=True,
+                include_vad_progress=True,
+                include_speaker_filter=True,
+            ),
+        )
+    ]
+
+    decision = next(
+        output.payload for output in outputs if output.name == "speaker_filter"
+    )
+    assert isinstance(decision, SpeakerFilterResult)
+    assert decision.status == expected_status
+    assert any(
+        output.name == "vad_progress"
+        and isinstance(output.payload, VadProgress)
+        for output in outputs
+    )
+    assert len(asr.calls) == asr_calls
+    assert ("primary_transcript" in {output.name for output in outputs}) is bool(
+        asr_calls
+    )
 
 
 @pytest.mark.asyncio

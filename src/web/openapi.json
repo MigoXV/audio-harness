@@ -2875,6 +2875,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/VectorSearchNode"
+                },
+                {
+                  "$ref": "#/components/schemas/SpeakerFilterNode"
                 }
               ],
               "discriminator": {
@@ -2886,6 +2889,7 @@
                   "semantic_vad": "#/components/schemas/SemanticVadNode",
                   "speaker_clustering": "#/components/schemas/SpeakerClusteringNode",
                   "speaker_diarization": "#/components/schemas/SpeakerDiarizationNode",
+                  "speaker_filter": "#/components/schemas/SpeakerFilterNode",
                   "vector_search": "#/components/schemas/VectorSearchNode"
                 }
               }
@@ -5579,6 +5583,61 @@
         "additionalProperties": false,
         "type": "object",
         "title": "SpeakerDiarizationPostprocessingOptions"
+      },
+      "SpeakerFilterNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "speaker_filter",
+            "title": "Kind",
+            "default": "speaker_filter"
+          },
+          "engine_id": {
+            "type": "null",
+            "title": "Engine Id"
+          },
+          "config": {
+            "$ref": "#/components/schemas/SpeakerFilterNodeConfig"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "config"
+        ],
+        "title": "SpeakerFilterNode"
+      },
+      "SpeakerFilterNodeConfig": {
+        "properties": {
+          "allowed_speaker_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Allowed Speaker Ids"
+          },
+          "min_score": {
+            "type": "number",
+            "title": "Min Score",
+            "default": 0.75
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "allowed_speaker_ids"
+        ],
+        "title": "SpeakerFilterNodeConfig"
       },
       "SpeakerMatchRead": {
         "properties": {

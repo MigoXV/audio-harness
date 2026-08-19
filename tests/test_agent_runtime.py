@@ -23,6 +23,7 @@ from audio_harness.engines.models import (
 from audio_harness.inferencers.tts.base import TtsInferencer
 from audio_harness.serving.realtime.agent import (
     RealtimeAgentRuntime,
+    SpeakerContext,
     _FunctionCall,
 )
 from audio_harness.serving.realtime.tools import McpToolPool, ToolRegistry
@@ -321,6 +322,38 @@ async def test_agent_forwards_each_response_delta_to_one_tts_stream() -> None:
     assert completed["response"]["status"] == "completed"
     assert completed["response"]["output"][0]["status"] == "completed"
     assert router.responses.calls[0]["reasoning"] == {"effort": "none"}
+
+
+@pytest.mark.asyncio
+async def test_agent_appends_trusted_speaker_context_after_user_instructions() -> None:
+    router = FakePool()
+    runtime = RealtimeAgentRuntime(
+        profile=_profile(),
+        inferencer_pool=router,
+        send_event=lambda _event: asyncio.sleep(0),
+        send_audio=None,
+        clear_audio=None,
+        responses_limiter=None,
+        tts_limiter=None,
+        tool_registry=ToolRegistry(),
+    )
+    runtime.update_options({"instructions": "用户自定义指令"})
+
+    await runtime.respond(
+        "你好",
+        input_item_id="user-item",
+        speaker_context=SpeakerContext("speaker-001", 0.91),
+    )
+    while runtime.active:
+        await asyncio.sleep(0)
+
+    instructions = router.responses.calls[0]["instructions"]
+    assert instructions.index("用户自定义指令") < instructions.index(
+        "[Audio Harness 可信说话人上下文]"
+    )
+    assert "speaker_id=speaker-001" in instructions
+    assert "score=0.910000" in instructions
+    assert "账户级身份认证" in instructions
 
 
 @pytest.mark.asyncio

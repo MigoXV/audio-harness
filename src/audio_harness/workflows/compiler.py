@@ -22,6 +22,7 @@ from audio_harness.workflows.models import (
     PhysicalVadNode,
     SpeakerDiarizationNodeConfig,
     SpeakerClusteringNodeConfig,
+    SpeakerFilterNodeConfig,
     SemanticVadNode,
     SemanticVadConfig,
 )
@@ -35,6 +36,7 @@ class PortKind(str, Enum):
     TRANSCRIPTION = "transcription"
     EMBEDDING = "embedding"
     VECTOR_SEARCH_RESULT = "vector_search_result"
+    SPEAKER_FILTER_RESULT = "speaker_filter_result"
     DIARIZATION_LOCAL_RESULT = "diarization_local_result"
     SPEAKER_TRANSCRIPTION = "speaker_transcription"
     DIARIZATION_SEGMENT = "diarization_segment"
@@ -136,6 +138,22 @@ _NODE_SPECS: dict[str, AudioNodeSpec] = {
         outputs={"results": PortSpec(PortKind.VECTOR_SEARCH_RESULT)},
         required_api=None, config_model=VectorSearchNodeConfig,
     ),
+    "speaker_filter": AudioNodeSpec(
+        kind="speaker_filter",
+        display_name="说话人过滤",
+        inputs={
+            "segments": PortSpec(PortKind.AUDIO_SEGMENT),
+            "results": PortSpec(PortKind.VECTOR_SEARCH_RESULT),
+        },
+        outputs={
+            "segments": PortSpec(PortKind.AUDIO_SEGMENT),
+            "speech_started": PortSpec(PortKind.SPEECH_STARTED),
+            "speech_stopped": PortSpec(PortKind.SPEECH_STOPPED),
+            "decisions": PortSpec(PortKind.SPEAKER_FILTER_RESULT),
+        },
+        required_api=None,
+        config_model=SpeakerFilterNodeConfig,
+    ),
 }
 
 
@@ -149,6 +167,7 @@ _OPTIONAL_OUTPUTS = {
     "interim_transcript": PortKind.TRANSCRIPTION,
     "turn_progress": PortKind.TRANSCRIPTION,
     "vector_search": PortKind.VECTOR_SEARCH_RESULT,
+    "speaker_filter": PortKind.SPEAKER_FILTER_RESULT,
     "diarization_local": PortKind.DIARIZATION_LOCAL_RESULT,
     "speaker_transcript": PortKind.SPEAKER_TRANSCRIPTION,
     "diarization_cluster": PortKind.DIARIZATION_CLUSTER_RESULT,
@@ -194,6 +213,43 @@ class CompiledAudioGraph:
             if node.engine_snapshot is not None
         }
         return tuple(snapshots[key] for key in sorted(snapshots))
+
+
+def speech_started_physical_vad(
+    plan: CompiledAudioGraph,
+) -> tuple[str, PhysicalVadNode] | None:
+    """Find the physical VAD that owns the public speech-started lineage."""
+
+    binding = next(
+        (
+            output
+            for output in plan.definition.outputs
+            if output.name == "speech_started"
+        ),
+        None,
+    )
+    if binding is None:
+        return None
+    segment_sources = {
+        edge.target.node_id: edge.source.node_id
+        for edge in plan.edges
+        if edge.target.port == "segments"
+        and isinstance(edge.source, NodeOutputRef)
+    }
+    node_id = binding.source.node_id
+    visited: set[str] = set()
+    while node_id not in visited:
+        visited.add(node_id)
+        node = plan.nodes.get(node_id)
+        if node is None:
+            return None
+        if isinstance(node.definition, PhysicalVadNode):
+            return node_id, node.definition
+        upstream_id = segment_sources.get(node_id)
+        if upstream_id is None:
+            return None
+        node_id = upstream_id
+    return None
 
 
 def audio_node_catalog() -> tuple[AudioNodeSpec, ...]:
@@ -443,6 +499,39 @@ def compile_audio_graph(
                         port=port_name,
                     )
                 )
+        if node.kind != "speaker_filter":
+            continue
+        segment_edge = incoming.get((node.id, "segments"))
+        result_edge = incoming.get((node.id, "results"))
+        if segment_edge is None or result_edge is None:
+            continue
+        result_source = result_edge.source
+        if not isinstance(result_source, NodeOutputRef):
+            continue
+        search_node = nodes_by_id.get(result_source.node_id)
+        if search_node is None or search_node.kind != "vector_search":
+            continue
+        embedding_edge = incoming.get((search_node.id, "embeddings"))
+        if embedding_edge is None or not isinstance(
+            embedding_edge.source,
+            NodeOutputRef,
+        ):
+            continue
+        embedding_node = nodes_by_id.get(embedding_edge.source.node_id)
+        if embedding_node is None or embedding_node.kind != "audio_embedding":
+            continue
+        embedding_segment_edge = incoming.get((embedding_node.id, "segments"))
+        if (
+            embedding_segment_edge is None
+            or embedding_segment_edge.source != segment_edge.source
+        ):
+            diagnostics.append(
+                AudioGraphDiagnostic(
+                    "speaker_filter_source_mismatch",
+                    "说话人过滤的音频与人物搜索必须来自同一个片段出口",
+                    node_id=node.id,
+                )
+            )
 
     output_nodes: set[str] = set()
     outputs_by_name = {output.name: output for output in definition.outputs}
@@ -484,6 +573,36 @@ def compile_audio_graph(
             diagnostics.append(
                 AudioGraphDiagnostic("required_output_missing", f"缺少必需出口 {name}")
             )
+
+    primary = outputs_by_name.get("primary_transcript")
+    if primary is not None:
+        primary_ancestors = _ancestors({primary.source.node_id}, reverse)
+        primary_filters = [
+            node
+            for node in definition.nodes
+            if node.kind == "speaker_filter" and node.id in primary_ancestors
+        ]
+        if primary_filters:
+            active_filter = primary_filters[-1]
+            required_filter_outputs = {
+                "speech_started": "speech_started",
+                "speech_stopped": "speech_stopped",
+                "speaker_filter": "decisions",
+            }
+            for output_name, port_name in required_filter_outputs.items():
+                binding = outputs_by_name.get(output_name)
+                if binding is None or binding.source != NodeOutputRef(
+                    node_id=active_filter.id,
+                    port=port_name,
+                ):
+                    diagnostics.append(
+                        AudioGraphDiagnostic(
+                            "speaker_filter_output_mismatch",
+                            f"出口 {output_name} 必须连接说话人过滤节点",
+                            node_id=active_filter.id,
+                            port=port_name,
+                        )
+                    )
 
     order = _topological_order(node_ids, adjacency)
     if order is None:
