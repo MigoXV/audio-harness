@@ -381,6 +381,7 @@ class RealtimeTranscriptionSession:
         self._session_context: Any | None = None
         self._workflow_task: asyncio.Task[None] | None = None
         self._active_item_id: str | None = None
+        self._deferred_speech_starts: deque[SpeechStarted] = deque()
         self._pending_items: deque[_TranscriptItem] = deque()
         # 分角色 ASR 可在 primary completed 之后才返回；保留已提交 turn 的
         # 时间范围，才能把迟到的 segment 关联回正确的 Realtime item_id。
@@ -740,6 +741,7 @@ class RealtimeTranscriptionSession:
         finally:
             await self._clear_interim("input_audio_buffer_cleared")
             self._active_item_id = None
+            self._deferred_speech_starts.clear()
             self._pending_items.clear()
             self._speaker_item_history.clear()
             self._manual_audio_buffer.clear()
@@ -754,6 +756,7 @@ class RealtimeTranscriptionSession:
                 await self._agent.close()
         finally:
             self._manual_audio_buffer.clear()
+            self._deferred_speech_starts.clear()
             await self._finish_workflow(send_results=False)
 
     async def _commit_manual_audio(self) -> None:
@@ -774,6 +777,7 @@ class RealtimeTranscriptionSession:
             )
         await self._finish_workflow(send_results=True)
         self._active_item_id = None
+        self._deferred_speech_starts.clear()
 
         if self._pending_items and self._pending_items[0] is committed_item:
             await self._emit_completed_transcription(committed_item, "")
@@ -988,6 +992,40 @@ class RealtimeTranscriptionSession:
             assert self._agent is not None
             await self._agent.interrupt(reason="turn_detected")
         await self._emit_interim_snapshot(sample_rate)
+
+    def _defer_speech_start(self, event: SpeechStarted) -> None:
+        if self._deferred_speech_starts:
+            latest = self._deferred_speech_starts[-1]
+            if latest == event:
+                return
+            if latest.sample_rate != event.sample_rate:
+                raise ValueError("同一 Realtime 会话的 VAD 采样率必须保持一致")
+            if event.start_sample < latest.start_sample:
+                raise ValueError("VAD speech_started 时间必须单调非递减")
+        self._deferred_speech_starts.append(event)
+
+    def _consume_deferred_speech_starts(
+        self,
+        *,
+        through_start_sample: int,
+        sample_rate: int,
+    ) -> None:
+        while self._deferred_speech_starts:
+            event = self._deferred_speech_starts[0]
+            if event.sample_rate != sample_rate:
+                raise ValueError("同一 Realtime 会话的 VAD 采样率必须保持一致")
+            if event.start_sample > through_start_sample:
+                return
+            self._deferred_speech_starts.popleft()
+
+    async def _promote_deferred_speech_start(self) -> None:
+        if self._active_item_id is not None or not self._deferred_speech_starts:
+            return
+        event = self._deferred_speech_starts.popleft()
+        await self._start_active_item(
+            start_sample=event.start_sample,
+            sample_rate=event.sample_rate,
+        )
 
     async def _handle_workflow_event(self, output_name: str, event: Any) -> None:
         if output_name == "vad_progress" and isinstance(event, VadProgress):
@@ -1231,6 +1269,10 @@ class RealtimeTranscriptionSession:
                 and not event.turn_completed
             ):
                 if self._active_item_id is None:
+                    self._consume_deferred_speech_starts(
+                        through_start_sample=event.start_sample,
+                        sample_rate=event.sample_rate,
+                    )
                     await self._start_active_item(
                         start_sample=event.start_sample,
                         sample_rate=event.sample_rate,
@@ -1252,16 +1294,32 @@ class RealtimeTranscriptionSession:
                 )
             return
         if isinstance(event, SpeechStarted):
+            if self._active_item_id is not None:
+                self._defer_speech_start(event)
+                return
+            if self._deferred_speech_starts:
+                self._defer_speech_start(event)
+                await self._promote_deferred_speech_start()
+                return
             await self._start_active_item(
                 start_sample=event.start_sample,
                 sample_rate=event.sample_rate,
             )
             return
         if isinstance(event, SpeechStopped):
+            if event.last_segment_start_sample is not None:
+                self._consume_deferred_speech_starts(
+                    through_start_sample=event.last_segment_start_sample,
+                    sample_rate=event.sample_rate,
+                )
             if (
                 self._active_item_id is None
                 and not self._manual_commit_enabled
             ):
+                self._consume_deferred_speech_starts(
+                    through_start_sample=event.start_sample,
+                    sample_rate=event.sample_rate,
+                )
                 await self._start_active_item(
                     start_sample=event.start_sample,
                     sample_rate=event.sample_rate,
@@ -1269,6 +1327,7 @@ class RealtimeTranscriptionSession:
             current_item_id = self._active_item_id or item_id()
             self._active_item_id = None
             if self._manual_commit_enabled:
+                self._deferred_speech_starts.clear()
                 return
             item = _TranscriptItem(
                 item_id=current_item_id,
@@ -1287,6 +1346,7 @@ class RealtimeTranscriptionSession:
                 )
             )
             await self._emit_committed_item(item, append_pending=False)
+            await self._promote_deferred_speech_start()
             return
         if not isinstance(event, AsrInferencer.Result):
             return

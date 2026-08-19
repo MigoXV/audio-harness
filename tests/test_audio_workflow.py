@@ -48,7 +48,7 @@ from audio_harness.workflows.models import (
     VectorSearchNode,
     VectorSearchNodeConfig,
 )
-from audio_harness.workflows.runtime import VadProgressLimiter
+from audio_harness.workflows.runtime import PhysicalVadSession, VadProgressLimiter
 from audio_harness.vectors.models import SpeakerMatch, VectorObservation
 
 
@@ -200,6 +200,48 @@ def test_vad_progress_limiter_coalesces_and_normalizes_updates() -> None:
         sample_rate=1_000,
         final=True,
     )
+
+
+def test_physical_vad_keeps_speech_start_across_max_length_segments() -> None:
+    state = PhysicalVadSession(
+        PhysicalVadConfig(
+            min_segment_seconds=0,
+            max_segment_seconds=1,
+            audio_buffer_seconds=3,
+            speech_pre_roll_seconds=0,
+        ),
+        sample_rate=4,
+    )
+    state.append(
+        PcmChunk(
+            pcm_s16le=bytes(16),
+            sample_rate=4,
+            start_sample=0,
+        )
+    )
+
+    first = state.update(
+        VadInferencer.Update(
+            boundaries=((0, None),),
+            processed_samples=4,
+        )
+    )
+    second = state.update(
+        VadInferencer.Update(
+            boundaries=((None, 8),),
+            processed_samples=8,
+        )
+    )
+
+    assert [(port, payload.start_sample) for port, payload in first] == [
+        ("speech_started", 0),
+        ("segments", 0),
+    ]
+    assert [(port, payload.start_sample) for port, payload in second] == [
+        ("segments", 4),
+        ("speech_stopped", 0),
+    ]
+    assert second[-1][1].end_sample == 8
 
 
 def test_speaker_clustering_uses_safe_hdbscan_defaults() -> None:
@@ -938,6 +980,12 @@ async def test_inferencer_merges_semantic_turn_and_emits_named_outputs(
         "speech_stopped",
         "primary_transcript",
     ]
+    stopped = next(
+        output.payload
+        for output in outputs
+        if output.name == "speech_stopped"
+    )
+    assert stopped.last_segment_start_sample == 4
     assert len(asr.calls) == 1
     assert asr.calls[0][1:3] == (0, 8)
 

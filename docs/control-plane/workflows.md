@@ -76,7 +76,7 @@ curl -sS -X POST "http://localhost:8000/api/v1/audio-workflows/$WORKFLOW_ID/publ
 | `asr` | `segments: audio_segment`，也接受 `diarization_segment` | `transcripts`、`speaker_transcripts` | `ux_speech` | `remove_punctuation` |
 | `audio_embedding` | `segments` | `embeddings` | `engine_feature` | 算法、维度、归一化 |
 | `vector_search` | `embeddings` | `results` | 无直接 Engine | Collection、Named Vector、top-k、阈值、filter |
-| `speaker_diarization` | `segments` | diarization `segments`、`local_results` | `ux_speaker_diarization` | 批次最短/最长秒数、送入 ASR 的最短分段秒数（`min_asr_segment_seconds`，默认 0.5） |
+| `speaker_diarization` | `segments` | diarization `segments`、`local_results` | `ux_speaker_diarization` | 批次最短/最长秒数、送入 ASR 的最短分段秒数（`min_asr_segment_seconds`，默认 0.5）、可空的 `postprocessing`；默认使用 `audio_harness.diarization.vad_coverage` v1，显式 `null` 保留旧行为 |
 | `speaker_clustering` | diarization `segments` | `results` | `engine_feature` | embedding/聚类算法、参数、最大向量数 |
 
 客户端不应把本表硬编码为动态插件目录；编辑器应调用 `/audio-node-types` 读取当前端口和 `config_schema`。

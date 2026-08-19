@@ -61,7 +61,7 @@ Proto：[`diarization/ux_speaker_diarization.proto`](../../src/audio_harness/pro
 - request audio 必须为非空 PCM S16LE，config 为 LINEAR16 和真实 sample rate。
 - 每个 response 是当前到达的一组 segment；start/end 是相对拼接批次的 Duration，speaker 为批次内无符号编号。
 - Harness 会把去除静音后拼接时间映射回会话绝对时间。实现方不能假设输入 PCM 中保留了原始 VAD 间隙。
-- segment 必须有合法顺序和范围；批次可产生多次流响应，对应 AHA local delta，正常 EOF 对应 completed。
+- segment 起点必须在整个响应流中全局非递减，范围必须合法；相邻 segment 允许少量重叠。默认后处理只把边界已经稳定的规范化片段作为 AHA local delta，并立即交给下游说话人 ASR；正常 EOF 补齐最后一个 VAD 区间并发送 completed。显式关闭节点后处理时，每个原始响应仍直接对应一个 local delta，正常 EOF 后再统一交给 ASR。
 
 ## TTS：`qwen_tts.service.v1.TtsService`
 
@@ -82,4 +82,3 @@ WebSocket 输出会重采样到 24 kHz 并编码到 `response.output_audio.delta
 - 暂时不可用：`UNAVAILABLE`。
 - 超时：`DEADLINE_EXCEEDED`。
 - 服务端取消后应停止产生 response；不要继续持有 GPU/流状态。
-

@@ -16,6 +16,7 @@ import type {
 import { AudioGraphEditor } from "../components/AudioGraphEditor";
 import { DeploymentPanel } from "../components/DeploymentPanel";
 import { RealtimeTestPanel } from "../components/RealtimeTestPanel";
+import { UnsavedChangesGuard } from "../components/UnsavedChangesGuard";
 import { WorkbenchSidebar } from "../components/WorkbenchSidebar";
 
 interface Props { api: AudioHarnessApi; refreshVersion: number; }
@@ -39,6 +40,7 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
   const [draftRevision, setDraftRevision] = useState(1);
   const [sidebarOpen, setSidebarOpen] = useState(() => typeof window.matchMedia !== "function" || !window.matchMedia("(max-width: 1100px)").matches);
   const changeVersion = useRef(0);
+  const savedDocument = useRef<AudioWorkflowDocument | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -50,7 +52,7 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
       ]);
       const summary = items.find((item) => item.id === workflowId);
       if (!summary) throw new Error("语音工作流不存在");
-      setWorkflow(summary); setDocument(draft.document); setNodeTypes(types); setEngines(engineList.items); setRevisions(history);
+      setWorkflow(summary); setDocument(draft.document); savedDocument.current = structuredClone(draft.document); setNodeTypes(types); setEngines(engineList.items); setRevisions(history);
       setRoutes(nextRoutes);
       setVectorSpaces(nextVectorSpaces);
       setDraftRevision(draft.revision); setSaveState("idle");
@@ -67,32 +69,47 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
     if (tab === "publish") navigate(`/audio-workflows/${encodeURIComponent(workflowId)}/access`, { replace: true });
   }, [navigate, tab, workflowId]);
 
-  const saveDraft = useCallback(async () => {
-    if (!document) return;
+  const saveDraft = useCallback(async (): Promise<boolean> => {
+    if (!document) return false;
     const version = changeVersion.current;
     setSaveState("saving");
     try {
       const saved = await api.saveAudioWorkflowDraft(workflowId, document, draftRevision);
+      savedDocument.current = structuredClone(saved.document);
       setDraftRevision(saved.revision);
-      if (version === changeVersion.current) setSaveState("saved"); else setSaveState("dirty");
+      const unchanged = version === changeVersion.current;
+      if (unchanged) setSaveState("saved"); else setSaveState("dirty");
       setValidation(await api.validateAudioWorkflow(workflowId));
+      return unchanged;
     } catch (reason) {
       if (reason instanceof ApiError && reason.status === 409) setSaveState("conflict");
       else { setSaveState("error"); setError(errorMessage(reason, "草稿保存失败。")); }
+      return false;
     }
   }, [api, document, draftRevision, workflowId]);
 
   useEffect(() => {
-    if (!document || saveState !== "dirty") return;
-    const timer = window.setTimeout(() => void saveDraft(), 700);
-    return () => window.clearTimeout(timer);
-  }, [document, saveDraft, saveState]);
+    const handleSaveShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        if (saveState === "dirty" || saveState === "error") void saveDraft();
+      }
+    };
+    window.addEventListener("keydown", handleSaveShortcut);
+    return () => window.removeEventListener("keydown", handleSaveShortcut);
+  }, [saveDraft, saveState]);
 
   const change = (next: AudioWorkflowDocument) => {
     changeVersion.current += 1; setDocument(next); setSaveState("dirty");
   };
+  const discardChanges = () => {
+    if (savedDocument.current) setDocument(structuredClone(savedDocument.current));
+    changeVersion.current += 1;
+    setSaveState("saved");
+    setError(null);
+  };
   const publishBlocked = useMemo(() => {
-    if (saveState === "dirty" || saveState === "saving") return "等待草稿保存完成";
+    if (["dirty", "saving", "error", "conflict"].includes(saveState)) return "请先保存草稿";
     if (!validation.valid) return "先修复图校验错误";
     return null;
   }, [saveState, validation.valid]);
@@ -110,7 +127,8 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
   if (!workflow || !document) return <main className="workspace-page"><div className="alert alert-error">{error ?? "工作流不存在"}</div></main>;
   const publicRoutes = routes.filter((route) => route.target_type === "audio_workflow" && route.target_id === workflow.id && route.visibility === "public");
   const selectedModel = publicRoutes[0]?.model ?? "";
-  const saveLabel = ({ idle: "草稿已同步", dirty: "等待自动保存", saving: "正在保存…", saved: "草稿已保存", error: "保存失败", conflict: "版本冲突" } as const)[saveState];
+  const saveLabel = ({ idle: "草稿已同步", dirty: "有未保存修改", saving: "正在保存…", saved: "草稿已同步", error: "保存失败", conflict: "版本冲突" } as const)[saveState];
+  const hasUnsavedChanges = ["dirty", "saving", "error", "conflict"].includes(saveState);
   const sidebarContent = <>
     <section className="builder-workflow-summary">
       <Link className="builder-back-link" to="/audio-workflows">← 工作流列表</Link>
@@ -128,6 +146,7 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
   const publishReview = <section className="panel publish-review"><div className="panel-heading"><div><p className="eyebrow">ACTIVE VERSION</p><h2>发布当前草稿</h2><p>先编译并发布当前草稿，再配置 gRPC 或 Realtime 对外入口；失败不会替换当前活动版本。</p></div><span className={`status-chip ${workflow.active_revision ? "status-published_healthy" : "status-unpublished"}`}>{workflow.active_revision ? `当前活动 v${workflow.active_revision}` : "尚无活动版本"}</span></div><div className="draft-version-line">草稿修订 r{draftRevision}</div>{validation.diagnostics.length ? <div className="diagnostic-list">{validation.diagnostics.map((item, index) => <div key={`${item.code}-${index}`}><strong>{item.message}</strong><small>{item.code}</small></div>)}</div> : <div className="success-block">结构校验通过，共 {document.nodes.length} 个节点、{document.edges.length} 条内部连线。</div>}<div className="panel-actions"><button className="primary-button large-button" disabled={Boolean(publishBlocked)} onClick={() => void publish()}>编译并发布</button>{publishBlocked && <span className="blocking-reason">{publishBlocked}</span>}</div></section>;
 
   return <main className="workspace-page workflow-detail-page workflow-sidebar-page">
+    <UnsavedChangesGuard when={hasUnsavedChanges} saving={saveState === "saving"} onSave={saveDraft} onDiscard={discardChanges} />
     {tab === "build" ? <AudioGraphEditor
       key={workflow.id}
       document={document}

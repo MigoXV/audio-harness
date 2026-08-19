@@ -14,6 +14,7 @@ class SpeechStopped(NamedTuple):
     start_sample: int
     end_sample: int
     sample_rate: int
+    last_segment_start_sample: int | None = None
 
 
 @dataclass(frozen=True)

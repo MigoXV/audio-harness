@@ -18,7 +18,10 @@ from audio_harness.inferencers.embedding import (
     AudioEmbeddingInferencer,
     StreamingClusteringSession,
 )
-from audio_harness.inferencers.diarization import DiarizationInferencer
+from audio_harness.inferencers.diarization import (
+    DiarizationInferencer,
+    DiarizationPostprocessor,
+)
 from audio_harness.media.pcm import PcmChunk
 from audio_harness.workflows.compiler import (
     CompiledAudioGraph,
@@ -258,6 +261,81 @@ class _DiarizationBatch:
         """保留给批处理与映射单测使用；正式执行使用 map_response。"""
         mapped, _ = self.map_response(values, "batch_mapping")
         return mapped
+
+    def map_processed(
+        self,
+        value: DiarizationPostprocessor.Segment,
+        batch_id: str,
+        *,
+        min_asr_segment_seconds: float,
+        batch_completed: bool = False,
+    ) -> tuple[DiarizationSegment | None, _SegmentCandidate]:
+        span = next(
+            (
+                candidate
+                for candidate in self.spans
+                if candidate.input_start_sample <= value.start_sample
+                and value.end_sample <= candidate.input_end_sample
+            ),
+            None,
+        )
+        if span is None or value.end_sample <= value.start_sample:
+            raise ValueError("后处理结果必须完整落在一个 VAD 区间内")
+        segment_id = f"dseg_{uuid4().hex}"
+        session_start = (
+            span.session_start_sample
+            + value.start_sample
+            - span.input_start_sample
+        )
+        session_end = (
+            span.session_start_sample
+            + value.end_sample
+            - span.input_start_sample
+        )
+        local_speaker_id = (
+            f"{batch_id}:{value.speaker}"
+            if value.speaker is not None
+            else None
+        )
+        mapped = (
+            DiarizationSegment(
+                segment_id=segment_id,
+                start_sample=session_start,
+                end_sample=session_end,
+                speaker=value.speaker,
+                local_speaker_id=cast(str, local_speaker_id),
+            )
+            if value.speaker is not None
+            else None
+        )
+        source_completed = (
+            span.source_completed
+            and value.end_sample == span.input_end_sample
+        )
+        candidate = _SegmentCandidate(
+            audio=self.audio[value.start_sample * 2 : value.end_sample * 2],
+            start_sample=session_start,
+            end_sample=session_end,
+            turn_completed=source_completed,
+            evaluate_turn=False,
+            diarization=_DiarizationContext(
+                item_source_id=span.source_id,
+                source_start_sample=span.source_start_sample,
+                source_end_sample=span.source_end_sample,
+                source_completed=source_completed,
+                segment_id=segment_id,
+                batch_id=batch_id,
+                speaker=value.speaker,
+                local_speaker_id=local_speaker_id,
+                min_asr_segment_seconds=(
+                    min_asr_segment_seconds
+                    if value.speaker is not None
+                    else 0
+                ),
+                batch_completed=batch_completed,
+            ),
+        )
+        return mapped, candidate
 
     def output_candidates(
         self,
@@ -592,7 +670,8 @@ class PhysicalVadSession:
         self._pre_roll_samples = int(round(config.speech_pre_roll_seconds * sample_rate))
         capacity = max(1, int(round(config.audio_buffer_seconds * sample_rate)))
         self._audio = RollingPcmBuffer(capacity)
-        self._active_start: int | None = None
+        self._speech_start: int | None = None
+        self._segment_start: int | None = None
         self._last_processed = 0
 
     @property
@@ -650,8 +729,9 @@ class PhysicalVadSession:
                     ),
                     self._audio.end_sample,
                 )
-                if self._active_start is None:
-                    self._active_start = start
+                if self._speech_start is None:
+                    self._speech_start = start
+                    self._segment_start = start
                     result.append(
                         (
                             "speech_started",
@@ -659,40 +739,49 @@ class PhysicalVadSession:
                         )
                     )
                 else:
-                    self._active_start = min(self._active_start, start)
+                    previous_start = self._speech_start
+                    self._speech_start = min(self._speech_start, start)
+                    if self._segment_start == previous_start:
+                        self._segment_start = min(self._segment_start, start)
             if end_sample is not None:
                 end = min(max(end_sample, 0), self._audio.end_sample)
-                if self._active_start is not None and end > self._active_start:
-                    start = self._active_start
-                    result.extend(self._physical_segments(start, end))
+                if self._speech_start is not None and end > self._speech_start:
+                    assert self._segment_start is not None
+                    result.extend(self._physical_segments(self._segment_start, end))
                     result.append(
                         (
                             "speech_stopped",
                             SpeechStopped(
-                                start_sample=start,
+                                start_sample=self._speech_start,
                                 end_sample=end,
                                 sample_rate=self._sample_rate,
                             ),
                         )
                     )
-                self._active_start = None
-        if self._active_start is not None:
-            while self._active_start + self._max_samples <= processed:
-                cut = self._active_start + self._max_samples
-                item = self._segment(self._active_start, cut, evaluate_turn=False)
+                self._speech_start = None
+                self._segment_start = None
+        if self._segment_start is not None:
+            while self._segment_start + self._max_samples <= processed:
+                cut = self._segment_start + self._max_samples
+                item = self._segment(self._segment_start, cut, evaluate_turn=False)
                 if item is not None:
                     result.append(item)
-                self._active_start = cut
+                self._segment_start = cut
         return result
 
     def finish(self) -> list[PhysicalEmission]:
-        if self._active_start is None or self._audio.end_sample <= self._active_start:
+        if self._speech_start is None or self._audio.end_sample <= self._speech_start:
+            self._speech_start = None
+            self._segment_start = None
             return []
-        start = self._active_start
+        start = self._speech_start
+        assert self._segment_start is not None
         end = self._audio.end_sample
-        self._active_start = None
+        segment_start = self._segment_start
+        self._speech_start = None
+        self._segment_start = None
         return [
-            *self._physical_segments(start, end),
+            *self._physical_segments(segment_start, end),
             (
                 "speech_stopped",
                 SpeechStopped(start_sample=start, end_sample=end, sample_rate=self._sample_rate),
@@ -714,17 +803,21 @@ class SemanticVadSession:
         self._max_samples = max(1, int(round(config.max_buffer_seconds * sample_rate)))
         self._pending_audio = bytearray()
         self._pending_start: int | None = None
+        self._pending_last_segment_start: int | None = None
 
     def _complete(self) -> list[SemanticEmission]:
         if self._pending_start is None or not self._pending_audio:
             self._pending_audio.clear()
             self._pending_start = None
+            self._pending_last_segment_start = None
             return []
         start = self._pending_start
+        last_segment_start = self._pending_last_segment_start
         audio = bytes(self._pending_audio)
         end = start + len(audio) // 2
         self._pending_audio.clear()
         self._pending_start = None
+        self._pending_last_segment_start = None
         return [
             (
                 "segments",
@@ -738,7 +831,12 @@ class SemanticVadSession:
             ),
             (
                 "speech_stopped",
-                SpeechStopped(start_sample=start, end_sample=end, sample_rate=self._sample_rate),
+                SpeechStopped(
+                    start_sample=start,
+                    end_sample=end,
+                    sample_rate=self._sample_rate,
+                    last_segment_start_sample=last_segment_start,
+                ),
             ),
         ]
 
@@ -757,6 +855,7 @@ class SemanticVadSession:
             while offset < samples:
                 end = min(offset + self._max_samples, samples)
                 self._pending_start = candidate.start_sample + offset
+                self._pending_last_segment_start = candidate.start_sample
                 self._pending_audio.extend(candidate.audio[offset * 2 : end * 2])
                 result.extend(self._complete())
                 offset = end
@@ -768,6 +867,7 @@ class SemanticVadSession:
             result.extend(self._complete())
         if self._pending_start is None:
             self._pending_start = candidate.start_sample
+        self._pending_last_segment_start = candidate.start_sample
         self._pending_audio.extend(candidate.audio)
         completed = not candidate.evaluate_turn
         if candidate.evaluate_turn:
@@ -1624,7 +1724,7 @@ class AudioWorkflowRuntime:
             request.recognition.sample_rate,
         )
 
-        async def process(batch: _DiarizationBatch) -> None:
+        async def process_legacy(batch: _DiarizationBatch) -> None:
             batch_id = f"batch_{uuid4().hex}"
             started = time.monotonic()
             all_segments: list[DiarizationSegment] = []
@@ -1708,6 +1808,127 @@ class AudioWorkflowRuntime:
                 ),
             ):
                 await router.emit(node_id, "segments", candidate)
+
+        async def process_postprocessed(batch: _DiarizationBatch) -> None:
+            batch_id = f"batch_{uuid4().hex}"
+            started = time.monotonic()
+            all_segments: list[DiarizationSegment] = []
+            sequence = 0
+            postprocessor = DiarizationPostprocessor(
+                DiarizationPostprocessor.Span(
+                    span.input_start_sample,
+                    span.input_end_sample,
+                )
+                for span in batch.spans
+            )
+            postprocessor_finished = False
+
+            async def emit_processed(
+                values: tuple[DiarizationPostprocessor.Segment, ...],
+                *,
+                batch_completed: bool = False,
+                emit_delta: bool = True,
+            ) -> None:
+                nonlocal sequence
+                mapped: list[DiarizationSegment] = []
+                candidates: list[_SegmentCandidate] = []
+                for index, value in enumerate(values):
+                    segment, candidate = batch.map_processed(
+                        value,
+                        batch_id,
+                        min_asr_segment_seconds=(
+                            definition.config.min_asr_segment_seconds
+                        ),
+                        batch_completed=(
+                            batch_completed and index == len(values) - 1
+                        ),
+                    )
+                    if segment is not None:
+                        mapped.append(segment)
+                    candidates.append(candidate)
+                if mapped and emit_delta:
+                    all_segments.extend(mapped)
+                    await router.emit(
+                        node_id,
+                        "local_results",
+                        DiarizationLocalResult(
+                            phase="delta",
+                            batch_id=batch_id,
+                            sequence=sequence,
+                            batch_start_sample=batch.start_sample,
+                            batch_end_sample=batch.end_sample,
+                            speech_samples=batch.samples,
+                            sample_rate=request.recognition.sample_rate,
+                            segments=tuple(mapped),
+                            latency_ms=(time.monotonic() - started) * 1000,
+                        ),
+                    )
+                    sequence += 1
+                for candidate in candidates:
+                    await router.emit(node_id, "segments", candidate)
+
+            try:
+                async for values in inferencer.stream_diarize(
+                    batch.audio,
+                    request.recognition.sample_rate,
+                ):
+                    await emit_processed(postprocessor.accept(values))
+                tail = postprocessor.finish()
+                postprocessor_finished = True
+                await emit_processed(
+                    tail,
+                    batch_completed=True,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                if postprocessor_finished:
+                    raise
+                logger.warning("说话人分离后处理失败，主工作流继续: %s", exc)
+                await router.emit(
+                    node_id,
+                    "local_results",
+                    DiarizationLocalResult(
+                        phase="failed",
+                        batch_id=batch_id,
+                        sequence=None,
+                        batch_start_sample=batch.start_sample,
+                        batch_end_sample=batch.end_sample,
+                        speech_samples=batch.samples,
+                        sample_rate=request.recognition.sample_rate,
+                        segments=tuple(all_segments),
+                        latency_ms=(time.monotonic() - started) * 1000,
+                        error_code="diarization_failed",
+                        error_message=str(exc),
+                    ),
+                )
+                await emit_processed(
+                    postprocessor.abort(),
+                    batch_completed=True,
+                    emit_delta=False,
+                )
+                return
+            await router.emit(
+                node_id,
+                "local_results",
+                DiarizationLocalResult(
+                    phase="completed",
+                    batch_id=batch_id,
+                    sequence=None,
+                    batch_start_sample=batch.start_sample,
+                    batch_end_sample=batch.end_sample,
+                    speech_samples=batch.samples,
+                    sample_rate=request.recognition.sample_rate,
+                    segments=tuple(all_segments),
+                    latency_ms=(time.monotonic() - started) * 1000,
+                ),
+            )
+
+        async def process(batch: _DiarizationBatch) -> None:
+            if definition.config.postprocessing is None:
+                await process_legacy(batch)
+                return
+            await process_postprocessed(batch)
 
         async for item in _items(router.input(node_id, "segments")):
             candidate = cast(_SegmentCandidate, item)

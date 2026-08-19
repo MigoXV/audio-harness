@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, NavLink, useNavigate, useParams } from "react-router-dom";
 
 import { errorMessage } from "../api/client";
@@ -16,6 +16,7 @@ import type {
 import { DeploymentPanel } from "../components/DeploymentPanel";
 import { EngineModelPicker } from "../components/EngineModelPicker";
 import { RealtimeTestPanel } from "../components/RealtimeTestPanel";
+import { UnsavedChangesGuard } from "../components/UnsavedChangesGuard";
 import { WorkbenchSidebar } from "../components/WorkbenchSidebar";
 
 interface Props { api: AudioHarnessApi; refreshVersion: number; }
@@ -37,6 +38,7 @@ export function VoiceAgentDetailPage({ api, refreshVersion }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => typeof window.matchMedia !== "function" || !window.matchMedia("(max-width: 1100px)").matches);
+  const savedDefinition = useRef<VoiceAgentDefinition | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -46,7 +48,7 @@ export function VoiceAgentDetailPage({ api, refreshVersion }: Props) {
       ]);
       const found = agents.find((item) => item.id === profileId);
       if (!found) throw new Error("语音智能体不存在");
-      setSummary(found); setDraft(nextDraft); setDefinition(nextDraft.definition); setWorkflows(nextWorkflows);
+      setSummary(found); setDraft(nextDraft); setDefinition(nextDraft.definition); savedDefinition.current = structuredClone(nextDraft.definition); setWorkflows(nextWorkflows);
       setEngines(engineList.items); setRoutes(nextRoutes); setHistory(revisions); setDirty(false);
       setValidation(await api.validateVoiceAgent(profileId)); setError(null);
     } catch (reason) { setError(errorMessage(reason, "语音智能体读取失败。")); }
@@ -62,26 +64,35 @@ export function VoiceAgentDetailPage({ api, refreshVersion }: Props) {
     if (!draft || !definition) return null;
     if (!dirty) return draft;
     const saved = await api.saveVoiceAgentDraft(profileId, definition, draft.revision);
+    savedDefinition.current = structuredClone(saved.definition);
     setDraft(saved); setDefinition(saved.definition); setDirty(false);
     setValidation(await api.validateVoiceAgent(profileId));
     return saved;
   };
-  const saveOnly = async () => {
+  const saveOnly = async (): Promise<boolean> => {
     setBusy(true); setError(null);
-    try { await save(); }
-    catch (reason) { setError(errorMessage(reason, "语音智能体草稿保存失败。")); }
+    try { await save(); return true; }
+    catch (reason) { setError(errorMessage(reason, "语音智能体草稿保存失败。")); return false; }
     finally { setBusy(false); }
   };
+  useEffect(() => {
+    const handleSaveShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        if (dirty && !busy) void saveOnly();
+      }
+    };
+    window.addEventListener("keydown", handleSaveShortcut);
+    return () => window.removeEventListener("keydown", handleSaveShortcut);
+  });
   const publish = async () => {
-    if (!draft || !definition) return;
+    if (!draft || !definition || dirty) return;
     setBusy(true); setError(null);
     try {
-      const saved = await save();
-      if (!saved) return;
       const checked = await api.validateVoiceAgent(profileId);
       setValidation(checked);
       if (!checked.valid) throw new Error(checked.diagnostics.map((item) => item.message).join("；"));
-      await api.publishVoiceAgent(profileId, saved.revision);
+      await api.publishVoiceAgent(profileId, draft.revision);
       await load();
     } catch (reason) { setError(errorMessage(reason, "语音智能体发布失败，当前活动版本未改变。")); }
     finally { setBusy(false); }
@@ -105,6 +116,11 @@ export function VoiceAgentDetailPage({ api, refreshVersion }: Props) {
     const next = voices.filter((item) => item !== value);
     change({ ...definition, tts: { ...definition.tts!, allowed_voices: next, default_voice: next.includes(definition.tts?.default_voice ?? "") ? definition.tts!.default_voice : next[0] ?? "" } });
   };
+  const discardChanges = () => {
+    if (savedDefinition.current) setDefinition(structuredClone(savedDefinition.current));
+    setDirty(false);
+    setError(null);
+  };
 
   if (!summary || !draft || !definition) return <main className="workspace-page"><div className={error ? "alert alert-error" : "empty-state"}>{error ?? "正在读取语音智能体…"}</div></main>;
   const publicRoutes = routes.filter((route) => route.target_type === "voice_agent" && route.target_id === profileId && route.visibility === "public");
@@ -126,9 +142,10 @@ export function VoiceAgentDetailPage({ api, refreshVersion }: Props) {
     <div className={`builder-save-state ${busy ? "save-saving" : dirty ? "save-dirty" : "save-saved"}`}><i /><div><strong>{saveLabel}</strong><small>草稿修订 r{draft.revision}</small></div></div>
     <button className="secondary-button" disabled={busy || !dirty} onClick={() => void saveOnly()}>保存草稿</button>
   </div>;
-  const publishReview = <section className="panel publish-review"><div className="panel-heading"><div><p className="eyebrow">ACTIVE VERSION</p><h2>发布当前草稿</h2><p>发布会保存草稿并准备 Responses 与 TTS 引擎；成功后再配置稳定的对外入口。</p></div><span className={`status-chip ${summary.active_revision ? "status-published_healthy" : "status-unpublished"}`}>{summary.active_revision ? `当前活动 v${summary.active_revision}` : "尚无活动版本"}</span></div><div className="draft-version-line">草稿修订 r{draft.revision}{dirty ? " · 包含未保存修改" : ""}</div>{validation?.diagnostics.length ? <div className="diagnostic-list">{validation.diagnostics.map((item) => <div key={item.code}><strong>{item.message}</strong><small>{item.code}</small></div>)}</div> : <div className="success-block">静态配置完整，可以准备引擎并发布。</div>}<div className="panel-actions"><button className="primary-button large-button" disabled={busy} onClick={() => void publish()}>{busy ? "正在发布…" : dirty ? "保存并发布" : "编译并发布"}</button></div></section>;
+  const publishReview = <section className="panel publish-review"><div className="panel-heading"><div><p className="eyebrow">ACTIVE VERSION</p><h2>发布当前草稿</h2><p>先明确保存草稿，再准备 Responses 与 TTS 引擎并发布不可变版本。</p></div><span className={`status-chip ${summary.active_revision ? "status-published_healthy" : "status-unpublished"}`}>{summary.active_revision ? `当前活动 v${summary.active_revision}` : "尚无活动版本"}</span></div><div className="draft-version-line">草稿修订 r{draft.revision}{dirty ? " · 包含未保存修改" : ""}</div>{validation?.diagnostics.length ? <div className="diagnostic-list">{validation.diagnostics.map((item) => <div key={item.code}><strong>{item.message}</strong><small>{item.code}</small></div>)}</div> : <div className="success-block">静态配置完整，可以准备引擎并发布。</div>}<div className="panel-actions"><button className="primary-button large-button" disabled={busy || dirty} onClick={() => void publish()}>{busy ? "正在发布…" : "编译并发布"}</button>{dirty && <span className="blocking-reason">请先保存草稿</span>}</div></section>;
 
   return <main className="workspace-page workflow-detail-page workflow-sidebar-page">
+    <UnsavedChangesGuard when={dirty} saving={busy} onSave={saveOnly} onDiscard={discardChanges} />
     <div className={`workflow-detail-layout ${sidebarOpen ? "palette-open" : "palette-closed"}`}>
       <WorkbenchSidebar open={sidebarOpen} expandedTitle="智能体工具" collapsedTitle="智能体" ariaLabel="语音智能体侧栏" content={sidebarContent} footer={sidebarFooter} onOpenChange={setSidebarOpen} />
       <section className="workflow-detail-content">

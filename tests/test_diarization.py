@@ -53,6 +53,7 @@ from audio_harness.workflows.events import (
 from audio_harness.workflows.models import (
     SpeakerClusteringNodeConfig,
     SpeakerDiarizationNodeConfig,
+    SpeakerDiarizationPostprocessingOptions,
 )
 from audio_harness.workflows.runtime import DiarizationBatcher, _SegmentCandidate
 
@@ -95,6 +96,37 @@ def test_diarization_config_defaults_to_half_second_asr_filter() -> None:
     config = SpeakerDiarizationNodeConfig()
 
     assert config.min_asr_segment_seconds == 0.5
+    assert config.postprocessing == SpeakerDiarizationPostprocessingOptions()
+
+
+def test_diarization_config_can_disable_postprocessing() -> None:
+    config = SpeakerDiarizationNodeConfig(postprocessing=None)
+
+    assert config.postprocessing is None
+
+
+@pytest.mark.parametrize(
+    "postprocessing",
+    [
+        {"processor": "unknown", "version": 1},
+        {
+            "processor": "audio_harness.diarization.vad_coverage",
+            "version": 2,
+        },
+        {
+            "processor": "audio_harness.diarization.vad_coverage",
+            "version": 1,
+            "unknown": True,
+        },
+    ],
+)
+def test_diarization_config_rejects_invalid_postprocessing(
+    postprocessing: dict,
+) -> None:
+    with pytest.raises(ValidationError):
+        SpeakerDiarizationNodeConfig.model_validate(
+            {"postprocessing": postprocessing}
+        )
 
 
 def test_diarization_config_rejects_negative_asr_filter() -> None:
@@ -272,6 +304,79 @@ class _OneSpeakerDiarization(_Diarization):
         yield (DiarizationInferencer.Segment(0, len(audio) // 2, 7),)
 
 
+class _EmptyDiarization(_Diarization):
+    async def stream_diarize(
+        self,
+        audio: bytes,
+        sample_rate: int,
+    ) -> AsyncIterator[tuple[DiarizationInferencer.Segment, ...]]:
+        del sample_rate
+        self.calls.append(audio)
+        if False:
+            yield ()
+
+
+class _PartialFailureDiarization(_Diarization):
+    async def stream_diarize(
+        self,
+        audio: bytes,
+        sample_rate: int,
+    ) -> AsyncIterator[tuple[DiarizationInferencer.Segment, ...]]:
+        del sample_rate
+        self.calls.append(audio)
+        yield (DiarizationInferencer.Segment(0, 1, 1),)
+        yield (DiarizationInferencer.Segment(2, 3, 2),)
+        raise RuntimeError("stream interrupted")
+
+
+class _SignalingAsr(_Asr):
+    def __init__(self, started: asyncio.Event) -> None:
+        super().__init__()
+        self.started = started
+
+    async def transcribe(
+        self,
+        audio: bytes,
+        *,
+        start_sample: int,
+        end_sample: int,
+        turn_completed: bool,
+        options: AsrInferencer.Options,
+    ) -> AsyncIterator[AsrInferencer.Result]:
+        self.started.set()
+        async for result in super().transcribe(
+            audio,
+            start_sample=start_sample,
+            end_sample=end_sample,
+            turn_completed=turn_completed,
+            options=options,
+        ):
+            yield result
+
+
+class _WaitForAsrDiarization(_Diarization):
+    def __init__(self, asr_started: asyncio.Event) -> None:
+        super().__init__()
+        self.asr_started = asr_started
+
+    async def stream_diarize(
+        self,
+        audio: bytes,
+        sample_rate: int,
+    ) -> AsyncIterator[tuple[DiarizationInferencer.Segment, ...]]:
+        del sample_rate
+        self.calls.append(audio)
+        yield (DiarizationInferencer.Segment(0, len(audio) // 4, 1),)
+        yield (
+            DiarizationInferencer.Segment(
+                len(audio) // 4,
+                len(audio) // 2,
+                2,
+            ),
+        )
+        await asyncio.wait_for(self.asr_started.wait(), timeout=1)
+
+
 class _ClusteringSession:
     def __init__(self) -> None:
         self.started: list[tuple[bytes, ...]] = []
@@ -417,6 +522,7 @@ def _workflow() -> AudioWorkflowDocument:
 def _speaker_workflow(
     *,
     min_asr_segment_seconds: float = 0.5,
+    postprocessing: bool = True,
 ) -> AudioWorkflowDocument:
     document = _workflow()
     diarization = next(
@@ -427,6 +533,11 @@ def _speaker_workflow(
             "config": diarization.config.model_copy(
                 update={
                     "min_asr_segment_seconds": min_asr_segment_seconds,
+                    "postprocessing": (
+                        SpeakerDiarizationPostprocessingOptions()
+                        if postprocessing
+                        else None
+                    ),
                 }
             )
         }
@@ -567,6 +678,8 @@ async def _run_speaker_chain(
     *,
     include_diarization: bool = True,
     min_asr_segment_seconds: float = 0.5,
+    postprocessing: bool = True,
+    asr: _Asr | None = None,
 ) -> tuple[list, _Asr]:
     assets = {
         "vad-engine": _asset("vad-engine", EngineKind.VAD, EngineApi.UX_VAD),
@@ -577,11 +690,12 @@ async def _run_speaker_chain(
             EngineApi.UX_SPEAKER_DIARIZATION,
         ),
     }
-    asr = _Asr()
+    asr = asr or _Asr()
     runtime = AudioWorkflowRuntime(
         plan=compile_audio_graph(
             _speaker_workflow(
                 min_asr_segment_seconds=min_asr_segment_seconds,
+                postprocessing=postprocessing,
             ),
             assets=assets,
         ),
@@ -732,6 +846,74 @@ async def test_diarization_can_feed_asr_and_aggregate_the_source_turn() -> None:
     ]
     assert len(primary) == 1
     assert primary[0].transcript == "ok ok"
+
+
+@pytest.mark.asyncio
+async def test_diarization_submits_stable_speaker_to_asr_before_stream_eof() -> None:
+    asr_started = asyncio.Event()
+    asr = _SignalingAsr(asr_started)
+
+    outputs, _ = await _run_speaker_chain(
+        _WaitForAsrDiarization(asr_started),
+        asr=asr,
+    )
+
+    assert asr_started.is_set()
+    assert len(asr.calls) == 2
+    assert any(output.name == "speaker_transcript" for output in outputs)
+
+
+@pytest.mark.asyncio
+async def test_diarization_partial_failure_only_falls_back_uncommitted_tail() -> None:
+    outputs, asr = await _run_speaker_chain(_PartialFailureDiarization())
+    speaker_results = [
+        output.payload
+        for output in outputs
+        if output.name == "speaker_transcript"
+    ]
+    failure = next(
+        output.payload
+        for output in outputs
+        if output.name == "diarization_local"
+        and output.payload.phase == "failed"
+    )
+
+    assert [len(audio) // 2 for audio in asr.calls] == [1, 3]
+    assert [result.speaker for result in speaker_results] == [1, None]
+    assert [segment.speaker for segment in failure.segments] == [1]
+
+
+@pytest.mark.asyncio
+async def test_diarization_without_labels_falls_back_to_the_full_vad_audio() -> None:
+    outputs, asr = await _run_speaker_chain(
+        _EmptyDiarization(),
+        min_asr_segment_seconds=10,
+    )
+    speaker_result = next(
+        output.payload
+        for output in outputs
+        if output.name == "speaker_transcript"
+    )
+
+    assert [len(audio) // 2 for audio in asr.calls] == [4]
+    assert speaker_result.speaker is None
+    assert speaker_result.start_sample == 0
+    assert speaker_result.end_sample == 4
+
+
+@pytest.mark.asyncio
+async def test_diarization_can_explicitly_use_legacy_eof_processing() -> None:
+    outputs, asr = await _run_speaker_chain(
+        _Diarization(),
+        postprocessing=False,
+    )
+
+    assert len(asr.calls) == 2
+    assert any(
+        output.name == "diarization_local"
+        and output.payload.phase == "completed"
+        for output in outputs
+    )
 
 
 @pytest.mark.asyncio
