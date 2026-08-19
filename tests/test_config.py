@@ -21,7 +21,6 @@ def test_load_config_from_environment(
     assert config.voices.storage_dir == Path("data/test-voices")
     assert config.voices.max_upload_bytes == 20 * 1024 * 1024
     assert config.workflow.min_chunk_bytes == 640
-    assert config.grpc.port == 50051
     assert config.http.port == 8000
     assert config.limits.max_message_bytes == 4 * 1024 * 1024
     assert config.webrtc.ice_servers == []
@@ -30,13 +29,16 @@ def test_load_config_from_environment(
 def test_listen_ports_allow_automatic_selection() -> None:
     config = AppConfig.model_validate(
         {
-            "grpc": {"port": 0},
             "http": {"port": 0},
         }
     )
 
-    assert config.grpc.port == 0
     assert config.http.port == 0
+
+
+def test_rejects_removed_grpc_listener_config() -> None:
+    with pytest.raises(ValidationError, match="grpc"):
+        AppConfig.model_validate({"grpc": {"port": 50051}})
 
 
 def test_rejects_odd_pcm_chunk_size() -> None:

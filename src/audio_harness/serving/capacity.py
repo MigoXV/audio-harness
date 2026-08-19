@@ -12,9 +12,6 @@ from audio_harness.sessions.limits import ResizableSessionLimiter
 class ServingCapacity:
     def __init__(self, config: CapacityConfig) -> None:
         self.started_at = datetime.now(timezone.utc)
-        self.grpc_sessions = ResizableSessionLimiter(
-            config.grpc.max_sessions
-        )
         self.realtime_sessions = ResizableSessionLimiter(
             config.realtime.max_sessions
         )
@@ -39,9 +36,6 @@ class ServingCapacity:
 
     async def apply(self, snapshot: CapacitySettingsSnapshot) -> None:
         await asyncio.gather(
-            self.grpc_sessions.resize(
-                snapshot.config.grpc.max_sessions
-            ),
             self.realtime_sessions.resize(
                 snapshot.config.realtime.max_sessions
             ),

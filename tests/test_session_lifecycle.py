@@ -78,7 +78,6 @@ class _Settings:
                 segment_queue_capacity=2,
                 result_queue_capacity=4,
             ),
-            grpc_audio_workflow_id="default-audio",
             revision=1,
             updated_at=datetime.now(timezone.utc),
         )
@@ -88,11 +87,10 @@ class _Settings:
 
 
 def _service(*, asr: object, vad: object):
-    pool, workflows, workflow = static_audio_workflow(asr=asr, vad=vad)
+    pool, _workflows, workflow = static_audio_workflow(asr=asr, vad=vad)
     return (
         AudioWorkflowSessionService(
             inferencer_pool=pool,  # type: ignore[arg-type]
-            workflows=workflows,  # type: ignore[arg-type]
             workflow_settings=_Settings(),  # type: ignore[arg-type]
             session_limiter=ResizableSessionLimiter(1),
             asr_limiter=ResizableConcurrencyLimiter(1),

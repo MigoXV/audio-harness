@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AHA 会议转写 Demo</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <header class="page-header">
+        <p class="eyebrow">AUDIO HARNESS · MEETING</p>
+        <h1>会议说话人分析</h1>
+        <p id="status" class="status">选择 WAV 文件后开始。</p>
+      </header>
+
+      <section class="setup-card" aria-label="会议音频设置">
+        <div class="controls">
+          <label class="file-picker" for="file">选择 WAV 文件</label>
+          <input id="file" class="visually-hidden" type="file" accept="audio/wav,audio/wave" />
+          <button id="start" class="primary" disabled>开始会议</button>
+          <button id="stop" disabled>停止发送</button>
+        </div>
+        <p id="meta" class="meta">尚未选择音频。</p>
+        <details class="connection">
+          <summary>连接信息</summary>
+          <p>上游 WebSocket：<code id="upstream">正在读取配置…</code></p>
+        </details>
+        <p id="error" role="alert"></p>
+      </section>
+
+      <section class="progress-card" aria-labelledby="progress-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">PROCESSING</p>
+            <h2 id="progress-heading">会议处理进度</h2>
+          </div>
+          <span id="progress-state" class="state-chip">等待音频</span>
+        </div>
+        <div class="progress-track" aria-label="会议处理叠层进度">
+          <div id="send-progress" class="progress-layer progress-send" role="progressbar" aria-label="音频发送" aria-valuemin="0" aria-valuemax="100"></div>
+          <div id="vad-progress" class="progress-layer progress-vad" role="progressbar" aria-label="VAD" aria-valuemin="0" aria-valuemax="100"></div>
+          <div id="diarization-progress" class="progress-layer progress-diarization" role="progressbar" aria-label="说话人分离" aria-valuemin="0" aria-valuemax="100"></div>
+        </div>
+        <div class="progress-legend">
+          <div><span class="legend-mark send-mark"></span><span>音频发送</span><strong id="send-value">0%</strong><small id="send-detail">等待开始</small></div>
+          <div><span class="legend-mark vad-mark"></span><span>音频 VAD</span><strong id="vad-value">0%</strong><small id="vad-detail">等待音频</small></div>
+          <div><span class="legend-mark diarization-mark"></span><span>说话人分离</span><strong id="diarization-value">0%</strong><small id="diarization-detail">等待片段</small></div>
+        </div>
+      </section>
+
+      <section class="timeline-card" aria-labelledby="timeline-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">SPEAKER FIRST</p>
+            <h2 id="timeline-heading">说话人甬道</h2>
+          </div>
+          <span id="timeline-summary" class="timeline-summary">等待说话人分离结果</span>
+        </div>
+        <div id="timeline-axis" class="timeline-axis" aria-hidden="true"></div>
+        <div id="timeline" class="timeline-empty">等待说话人分离结果。</div>
+      </section>
+
+      <section class="transcript-card" aria-labelledby="transcript-heading">
+        <h2 id="transcript-heading" class="visually-hidden">转写结果</h2>
+        <div class="tabs" role="tablist" aria-label="转写结果">
+          <button id="speaker-tab" class="tab active" role="tab" aria-selected="true" aria-controls="speaker-transcript">说话人转写</button>
+          <button id="all-tab" class="tab" role="tab" aria-selected="false" aria-controls="all-transcript">全部说话人转写</button>
+        </div>
+        <div id="speaker-transcript" class="transcript-panel" role="tabpanel" aria-labelledby="speaker-tab">请先在甬道图中选择说话人。</div>
+        <div id="all-transcript" class="transcript-panel" role="tabpanel" aria-labelledby="all-tab" hidden>等待说话人转写。</div>
+      </section>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

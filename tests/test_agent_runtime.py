@@ -791,6 +791,51 @@ def test_agent_rejects_g711_audio_formats(audio: dict) -> None:
         runtime.update_options({"audio": audio})
 
 
+def test_agent_accepts_16_khz_input_but_keeps_output_at_24_khz() -> None:
+    runtime = RealtimeAgentRuntime(
+        profile=_profile(),
+        inferencer_pool=FakePool(),
+        send_event=lambda _event: asyncio.sleep(0),
+        send_audio=None,
+        clear_audio=None,
+        responses_limiter=None,
+        tts_limiter=None,
+        tool_registry=ToolRegistry(),
+    )
+
+    runtime.update_options(
+        {
+            "audio": {
+                "input": {
+                    "format": {"type": "audio/pcm", "rate": 16_000}
+                }
+            }
+        }
+    )
+
+    assert runtime.options.input_audio_format == {
+        "type": "audio/pcm",
+        "rate": 16_000,
+    }
+    assert runtime.options.output_audio_format == {
+        "type": "audio/pcm",
+        "rate": 24_000,
+    }
+    with pytest.raises(ValueError, match="输出只支持 24 kHz"):
+        runtime.update_options(
+            {
+                "audio": {
+                    "output": {
+                        "format": {
+                            "type": "audio/pcm",
+                            "rate": 16_000,
+                        }
+                    }
+                }
+            }
+        )
+
+
 def test_agent_rejects_incomplete_pcm_sample() -> None:
     runtime = RealtimeAgentRuntime(
         profile=_profile(),

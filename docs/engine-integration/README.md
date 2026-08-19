@@ -1,6 +1,6 @@
 # 下游推理引擎接入
 
-本目录面向实现或部署 Audio Harness 下游引擎的同事。Engine Asset 通过 `protocol + api` 选择适配器，`kind` 主要用于管理和筛选。
+本目录面向实现或部署 Audio Harness 下游引擎的同事。Engine Asset 通过 `protocol + api` 选择适配器，`kind` 主要用于管理和筛选。Audio Harness 只作为这些 gRPC 服务的客户端，不对外监听 gRPC 端口。
 
 ## 支持矩阵
 
@@ -40,4 +40,3 @@ gRPC 适配器当前不注入 metadata 凭据，应由 mTLS sidecar/网络层保
 5. 先通过 Engine validate，再用对应 Workflow 节点完成真实 RPC 联调。
 
 详细线协议见 [gRPC 推理协议](grpc-protocols.md)。
-

@@ -124,15 +124,8 @@ export const apiClient: AudioHarnessApi = {
   getWorkflowSettings(signal) { return request<WorkflowSettings>("/api/v1/settings/workflow", { signal }); },
   updateWorkflowSettings(payload) {
     const body = { ...payload } as Record<string, unknown>;
-    delete body.grpc_audio_workflow_id;
     delete body.updated_at;
     return request<WorkflowSettings>("/api/v1/settings/workflow", { method: "PUT", body: JSON.stringify(body) });
-  },
-  setGrpcAudioWorkflow(workflowId, expectedRevision) {
-    return request<WorkflowSettings>("/api/v1/settings/grpc-workflow", {
-      method: "PUT",
-      body: JSON.stringify({ workflow_id: workflowId, expected_revision: expectedRevision }),
-    });
   },
   getCapacitySettings(signal) { return request<CapacitySettings>("/api/v1/settings/capacity", { signal }); },
   updateCapacitySettings(payload) {

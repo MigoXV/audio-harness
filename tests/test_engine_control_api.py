@@ -181,15 +181,30 @@ async def test_fresh_baseline_is_explicitly_unconfigured(
             "vector_search",
     }
     readiness = await control_plane.client.get("/health/ready")
-    assert readiness.status_code == 503
-    assert readiness.json()["data_plane"] == "not_ready"
+    assert readiness.status_code == 200
+    assert readiness.json() == {
+        "status": "ready",
+        "database": "ready",
+        "problems": [],
+    }
     overview = await control_plane.client.get("/api/v1/runtime/overview")
     assert overview.status_code == 200
     assert overview.json()["status"] == "needs_configuration"
+    assert "grpc" not in overview.json()
     assert {item["code"] for item in overview.json()["issues"]} == {
-        "grpc_workflow_unpublished",
         "realtime_route_unconfigured",
     }
+    workflow_settings = await control_plane.client.get("/api/v1/settings/workflow")
+    assert "grpc_audio_workflow_id" not in workflow_settings.json()
+    capacity = await control_plane.client.get("/api/v1/settings/capacity")
+    runtime = await control_plane.client.get("/api/v1/runtime/status")
+    assert "grpc" not in capacity.json()
+    assert "grpc" not in runtime.json()
+    removed_binding = await control_plane.client.put(
+        "/api/v1/settings/grpc-workflow",
+        json={"workflow_id": "default-audio", "expected_revision": 1},
+    )
+    assert removed_binding.status_code == 405
 
 
 @pytest.mark.asyncio
@@ -546,4 +561,65 @@ def test_vector_space_registry_revision_can_be_cleaned_up(tmp_path: Path) -> Non
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
     assert "vector_spaces" not in tables
-    assert revision == ("0003_remove_vector_spaces",)
+    assert revision == ("0004_remove_grpc_server",)
+
+
+def test_grpc_server_columns_are_removed_without_losing_settings(
+    tmp_path: Path,
+) -> None:
+    from alembic import command
+    from alembic.config import Config
+    import sqlite3
+
+    import audio_harness.database.session as database_session
+
+    path = tmp_path / "grpc-server.db"
+    config = Config()
+    config.set_main_option(
+        "script_location",
+        str(Path(database_session.__file__).with_name("migrations")),
+    )
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{path}")
+    command.upgrade(config, "0003_remove_vector_spaces")
+
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE workflow_settings SET min_chunk_bytes = 800, "
+            "grpc_audio_workflow_id = 'default-audio' WHERE id = 1"
+        )
+        connection.execute(
+            "UPDATE capacity_settings SET realtime_max_sessions = 31, "
+            "grpc_max_sessions = 7 WHERE id = 1"
+        )
+
+    require_fresh_database(f"sqlite+aiosqlite:///{path}")
+    upgrade_database(f"sqlite+aiosqlite:///{path}")
+
+    with sqlite3.connect(path) as connection:
+        workflow_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(workflow_settings)")
+        }
+        capacity_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(capacity_settings)")
+        }
+        workflow_values = connection.execute(
+            "SELECT min_chunk_bytes FROM workflow_settings WHERE id = 1"
+        ).fetchone()
+        capacity_values = connection.execute(
+            "SELECT realtime_max_sessions FROM capacity_settings WHERE id = 1"
+        ).fetchone()
+    assert "grpc_audio_workflow_id" not in workflow_columns
+    assert "grpc_max_sessions" not in capacity_columns
+    assert workflow_values == (800,)
+    assert capacity_values == (31,)
+
+    command.downgrade(config, "0003_remove_vector_spaces")
+    with sqlite3.connect(path) as connection:
+        workflow_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(workflow_settings)")
+        }
+        capacity_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(capacity_settings)")
+        }
+    assert "grpc_audio_workflow_id" in workflow_columns
+    assert "grpc_max_sessions" in capacity_columns

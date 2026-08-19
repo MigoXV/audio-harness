@@ -46,9 +46,8 @@ function fakeApi() {
   });
   const api = {
     getRuntimeOverview: vi.fn().mockResolvedValue({
-      status: "ready", ready: true, control_plane: "ready", problems: [], issues: [],
-      grpc: { status: "ready", workflow_id: "wf-1", workflow_revision: 1 },
-      realtime: { status: "ready", public_routes: 1, internal_routes: 0, invalid_routes: 0 },
+      status: "ready", control_plane: "ready", issues: [],
+      realtime: { state: "ready", public_routes: 1, internal_routes: 0 },
     }),
     listAudioWorkflows: vi.fn().mockResolvedValue([{ id: "wf-1", slug: "audio-main", name: "主语音图", description: null, draft_revision: 2, active_revision: 1, created_at: "2026-08-09T00:00:00Z", updated_at: "2026-08-09T00:00:00Z" }]),
     createAudioWorkflow,
@@ -68,9 +67,9 @@ function fakeApi() {
     listAudioWorkflowRevisions: vi.fn().mockResolvedValue([]),
     listEngines: vi.fn().mockResolvedValue({ items: [engine("vad-1", "vad", "ux_vad"), engine("asr-1", "asr", "ux_speech"), engine("llm-1", "llm", "responses"), engine("tts-1", "tts", "qwen_tts_duplex"), engine("embedding-1", "embedding", "engine_feature")], total: 5, limit: 200, offset: 0 }),
     listEngineModels: vi.fn().mockResolvedValue({ engine_id: "llm-1", engine_revision: 1, items: ["deepseek-chat", "deepseek-reasoner"] }),
-    getRuntimeStatus: vi.fn().mockResolvedValue({ grpc: { active: 1, capacity: 64, rejected: 0 }, realtime: { active: 2, capacity: 64, rejected: 1 }, webrtc: { active: 1, capacity: 64, rejected: 0 }, asr: { active: 2, capacity: 8, rejected: 0 }, responses: { active: 1, capacity: 8, rejected: 0 }, tts: { active: 1, capacity: 1, rejected: 2 }, started_at: "2026-08-09T00:00:00Z" }),
-    getCapacitySettings: vi.fn().mockResolvedValue({ grpc: { max_sessions: 64 }, realtime: { max_sessions: 64 }, webrtc: { max_sessions: 64 }, max_asr_concurrency: 8, max_responses_concurrency: 8, max_tts_concurrency: 1, revision: 1, updated_at: "2026-08-09T00:00:00Z" }),
-    getWorkflowSettings: vi.fn().mockResolvedValue({ min_chunk_bytes: 640, default_language_code: "zh-CN", audio_queue_capacity: 32, segment_queue_capacity: 8, result_queue_capacity: 32, grpc_audio_workflow_id: "wf-1", revision: 1, updated_at: "2026-08-09T00:00:00Z" }),
+    getRuntimeStatus: vi.fn().mockResolvedValue({ realtime: { active: 2, capacity: 64, rejected: 1 }, webrtc: { active: 1, capacity: 64, rejected: 0 }, asr: { active: 2, capacity: 8, rejected: 0 }, responses: { active: 1, capacity: 8, rejected: 0 }, tts: { active: 1, capacity: 1, rejected: 2 }, started_at: "2026-08-09T00:00:00Z" }),
+    getCapacitySettings: vi.fn().mockResolvedValue({ realtime: { max_sessions: 64 }, webrtc: { max_sessions: 64 }, max_asr_concurrency: 8, max_responses_concurrency: 8, max_tts_concurrency: 1, revision: 1, updated_at: "2026-08-09T00:00:00Z" }),
+    getWorkflowSettings: vi.fn().mockResolvedValue({ min_chunk_bytes: 640, default_language_code: "zh-CN", audio_queue_capacity: 32, segment_queue_capacity: 8, result_queue_capacity: 32, revision: 1, updated_at: "2026-08-09T00:00:00Z" }),
     listVoiceAgents: vi.fn().mockResolvedValue([agent]),
     getVoiceAgentDraft: vi.fn().mockResolvedValue({ ...agent, definition: agentDefinition, revision: 3 }),
     saveVoiceAgentDraft,

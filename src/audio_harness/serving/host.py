@@ -11,7 +11,6 @@ from audio_harness.engines.catalog import EngineCatalog
 from audio_harness.engines.inferencer_factory import create_inferencer
 from audio_harness.engines.pool import InferencerPool
 from audio_harness.realtime_routes.service import RealtimeRouteService
-from audio_harness.serving.grpc import GrpcServer, SpeechServicer
 from audio_harness.serving.capacity import ServingCapacity
 from audio_harness.serving.capacity_settings import CapacitySettingsStore
 from audio_harness.serving.realtime import RealtimeTranscriptionService
@@ -72,8 +71,6 @@ class AudioHarnessHost:
         )
         self.serving_status = ServingStatusService(
             database=self.database,
-            workflows=self.audio_workflows,
-            workflow_settings=self.workflow_settings,
             routes=self.realtime_routes,
         )
         self.capacity_settings = CapacitySettingsStore(
@@ -97,7 +94,6 @@ class AudioHarnessHost:
             qdrant_limiter=self.capacity.qdrant,
         )
 
-        self.grpc_sessions = self._session_service(self.capacity.grpc_sessions)
         self.realtime_sessions = self._session_service(
             self.capacity.realtime_sessions
         )
@@ -142,22 +138,11 @@ class AudioHarnessHost:
             vectors=self.vectors,
             qdrant_config=config.qdrant,
         )
-        self.grpc_server = GrpcServer(
-            config=config.grpc,
-            max_message_bytes=max_message_bytes,
-            servicer=SpeechServicer(
-                config=config,
-                session_service=self.grpc_sessions,
-                workflow_settings=self.workflow_settings,
-            ),
-        )
-        self._started = False
         self._closed = False
 
     def _session_service(self, session_limiter) -> AudioWorkflowSessionService:
         return AudioWorkflowSessionService(
             inferencer_pool=self.inferencer_pool,
-            workflows=self.audio_workflows,
             workflow_settings=self.workflow_settings,
             session_limiter=session_limiter,
             asr_limiter=self.capacity.asr,
@@ -174,24 +159,17 @@ class AudioHarnessHost:
             await self.audio_workflows.initialize()
             await self.voice_agents.initialize()
             await self.realtime_routes.initialize()
-            await self.grpc_server.start()
             self.engine_health.start()
-            self._started = True
         except Exception:
             await self.inferencer_pool.close()
             await self.database.close()
             self._closed = True
             raise
 
-    async def wait_for_termination(self) -> None:
-        await self.grpc_server.wait_for_termination()
-
     async def stop(self) -> None:
         if self._closed:
             return
         self._closed = True
-        if self._started:
-            await self.grpc_server.stop()
         await self.engine_health.close()
         await self.webrtc_service.close()
         await self.inferencer_pool.close()

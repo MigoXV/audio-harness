@@ -2199,47 +2199,6 @@
         }
       }
     },
-    "/api/v1/settings/grpc-workflow": {
-      "put": {
-        "tags": [
-          "runtime"
-        ],
-        "summary": "Update Grpc Workflow Binding",
-        "operationId": "update_grpc_workflow_binding_api_v1_settings_grpc_workflow_put",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/GrpcWorkflowBindingUpdate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WorkflowSettingsRead"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/settings/capacity": {
       "get": {
         "tags": [
@@ -3411,9 +3370,6 @@
       },
       "CapacitySettingsRead": {
         "properties": {
-          "grpc": {
-            "$ref": "#/components/schemas/ProtocolCapacityConfig"
-          },
           "realtime": {
             "$ref": "#/components/schemas/ProtocolCapacityConfig"
           },
@@ -3470,9 +3426,6 @@
       },
       "CapacitySettingsUpdate": {
         "properties": {
-          "grpc": {
-            "$ref": "#/components/schemas/ProtocolCapacityConfig"
-          },
           "realtime": {
             "$ref": "#/components/schemas/ProtocolCapacityConfig"
           },
@@ -4535,70 +4488,6 @@
         "type": "object",
         "title": "GraphInputRef"
       },
-      "GrpcOverviewRead": {
-        "properties": {
-          "state": {
-            "type": "string",
-            "enum": [
-              "ready",
-              "needs_configuration",
-              "unavailable"
-            ],
-            "title": "State"
-          },
-          "workflow_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Workflow Id"
-          },
-          "workflow_revision": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Workflow Revision"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "state",
-          "workflow_id",
-          "workflow_revision"
-        ],
-        "title": "GrpcOverviewRead"
-      },
-      "GrpcWorkflowBindingUpdate": {
-        "properties": {
-          "workflow_id": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Workflow Id"
-          },
-          "expected_revision": {
-            "type": "integer",
-            "minimum": 1.0,
-            "title": "Expected Revision"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "workflow_id",
-          "expected_revision"
-        ],
-        "title": "GrpcWorkflowBindingUpdate"
-      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -4652,46 +4541,19 @@
             "type": "string",
             "title": "Database"
           },
-          "data_plane": {
-            "type": "string",
-            "title": "Data Plane"
-          },
           "problems": {
             "items": {
               "type": "string"
             },
             "type": "array",
             "title": "Problems"
-          },
-          "workflow_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Workflow Id"
-          },
-          "workflow_revision": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Workflow Revision"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "status",
-          "database",
-          "data_plane"
+          "database"
         ],
         "title": "HealthResponse"
       },
@@ -5303,7 +5165,6 @@
             "type": "string",
             "enum": [
               "control_plane",
-              "grpc",
               "realtime"
             ],
             "title": "Scope"
@@ -5378,9 +5239,6 @@
             ],
             "title": "Control Plane"
           },
-          "grpc": {
-            "$ref": "#/components/schemas/GrpcOverviewRead"
-          },
           "realtime": {
             "$ref": "#/components/schemas/RealtimeOverviewRead"
           },
@@ -5397,7 +5255,6 @@
         "required": [
           "status",
           "control_plane",
-          "grpc",
           "realtime",
           "issues"
         ],
@@ -5405,9 +5262,6 @@
       },
       "RuntimeStatusRead": {
         "properties": {
-          "grpc": {
-            "$ref": "#/components/schemas/RuntimeLimiterRead"
-          },
           "realtime": {
             "$ref": "#/components/schemas/RuntimeLimiterRead"
           },
@@ -5438,7 +5292,6 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "grpc",
           "realtime",
           "webrtc",
           "asr",
@@ -5686,6 +5539,12 @@
             "exclusiveMinimum": 0.0,
             "title": "Max Batch Seconds",
             "default": 120.0
+          },
+          "min_asr_segment_seconds": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Min Asr Segment Seconds",
+            "default": 0.5
           }
         },
         "additionalProperties": false,
@@ -6380,17 +6239,6 @@
             "title": "Result Queue Capacity",
             "default": 32
           },
-          "grpc_audio_workflow_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Grpc Audio Workflow Id"
-          },
           "revision": {
             "type": "integer",
             "title": "Revision"
@@ -6404,7 +6252,6 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "grpc_audio_workflow_id",
           "revision",
           "updated_at"
         ],

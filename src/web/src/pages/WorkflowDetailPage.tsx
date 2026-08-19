@@ -11,7 +11,6 @@ import type {
   AudioWorkflowValidation,
   EngineAsset,
   RealtimeRoute,
-  WorkflowSettings,
   VectorSpace,
 } from "../api/types";
 import { AudioGraphEditor } from "../components/AudioGraphEditor";
@@ -32,7 +31,6 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
   const [engines, setEngines] = useState<EngineAsset[]>([]);
   const [vectorSpaces, setVectorSpaces] = useState<VectorSpace[]>([]);
   const [routes, setRoutes] = useState<RealtimeRoute[]>([]);
-  const [workflowSettings, setWorkflowSettings] = useState<WorkflowSettings | null>(null);
   const [validation, setValidation] = useState<AudioWorkflowValidation>({ valid: false, diagnostics: [], topological_order: [] });
   const [revisions, setRevisions] = useState<AudioWorkflowRevision[]>([]);
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -45,15 +43,15 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [items, draft, types, engineList, history, nextRoutes, nextSettings, nextVectorSpaces] = await Promise.all([
+      const [items, draft, types, engineList, history, nextRoutes, nextVectorSpaces] = await Promise.all([
         api.listAudioWorkflows(), api.getAudioWorkflowDraft(workflowId), api.listAudioNodeTypes(),
-        api.listEngines({ limit: 200 }), api.listAudioWorkflowRevisions(workflowId), api.listRealtimeRoutes(), api.getWorkflowSettings(),
+        api.listEngines({ limit: 200 }), api.listAudioWorkflowRevisions(workflowId), api.listRealtimeRoutes(),
         typeof api.listVectorSpaces === "function" ? api.listVectorSpaces() : Promise.resolve([]),
       ]);
       const summary = items.find((item) => item.id === workflowId);
       if (!summary) throw new Error("语音工作流不存在");
       setWorkflow(summary); setDocument(draft.document); setNodeTypes(types); setEngines(engineList.items); setRevisions(history);
-      setRoutes(nextRoutes); setWorkflowSettings(nextSettings);
+      setRoutes(nextRoutes);
       setVectorSpaces(nextVectorSpaces);
       setDraftRevision(draft.revision); setSaveState("idle");
       setValidation(await api.validateAudioWorkflow(workflowId));
@@ -145,7 +143,7 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
     /> : <div className={`workflow-detail-layout ${sidebarOpen ? "palette-open" : "palette-closed"}`}>
       <WorkbenchSidebar open={sidebarOpen} expandedTitle="工作流工具" collapsedTitle="工作流" ariaLabel="工作流侧栏" content={sidebarContent} footer={sidebarFooter} onOpenChange={setSidebarOpen} />
       <section className="workflow-detail-content">
-        {tab === "access" && <div className="workflow-access-content">{publishReview}<DeploymentPanel api={api} targetType="audio_workflow" targetId={workflow.id} targetName={workflow.name} slug={workflow.slug} activeRevision={workflow.active_revision} routes={routes} workflowSettings={workflowSettings} onChanged={load} /></div>}
+        {tab === "access" && <div className="workflow-access-content">{publishReview}<DeploymentPanel api={api} targetType="audio_workflow" targetId={workflow.id} slug={workflow.slug} activeRevision={workflow.active_revision} routes={routes} onChanged={load} /></div>}
         {tab === "test" && <div className="workflow-test-content">
           {workflow.active_revision === null || !selectedModel ? <section className="panel test-prerequisite"><p className="eyebrow">REALTIME TEST</p><h2>{workflow.active_revision === null ? "发布后开始测试" : "配置公开路由后开始测试"}</h2><p>{workflow.active_revision === null ? "请先在接入页编译并发布活动版本。" : "测试只使用真实存在的公开 model，不会默认把工作流 slug 当成可用路由。"}</p><button className="secondary-button" onClick={() => navigate(`/audio-workflows/${workflowId}/access`)}>前往接入配置</button></section> : <RealtimeTestPanel api={api} model={selectedModel} workflowKind="transcription" canTest blockedReason="" />}
         </div>}

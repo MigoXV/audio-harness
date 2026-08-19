@@ -310,7 +310,7 @@ class RealtimeAgentRuntime:
         if "format" in audio_input:
             if audio_input["format"] is None:
                 raise ValueError("audio.input.format 不能为 null")
-            options.input_audio_format = self._validate_audio_format(
+            options.input_audio_format = self._validate_input_audio_format(
                 audio_input["format"]
             )
         if "turn_detection" in audio_input:
@@ -323,7 +323,7 @@ class RealtimeAgentRuntime:
         if "format" in audio_output:
             if audio_output["format"] is None:
                 raise ValueError("audio.output.format 不能为 null")
-            options.output_audio_format = self._validate_audio_format(
+            options.output_audio_format = self._validate_output_audio_format(
                 audio_output["format"]
             )
         if "voice" in audio_output and audio_output["voice"] is None:
@@ -376,18 +376,33 @@ class RealtimeAgentRuntime:
         return value
 
     @staticmethod
-    def _validate_audio_format(value: Any) -> dict[str, Any]:
-        payload = (
+    def _audio_format_payload(value: Any) -> dict[str, Any]:
+        return (
             value.model_dump(mode="json", exclude_none=True)
             if hasattr(value, "model_dump")
             else dict(value)
         )
+
+    @classmethod
+    def _validate_input_audio_format(cls, value: Any) -> dict[str, Any]:
+        payload = cls._audio_format_payload(value)
+        format_type = payload.get("type")
+        if format_type == "audio/pcm":
+            sample_rate = payload.get("rate", 24_000)
+            if sample_rate not in {16_000, 24_000}:
+                raise ValueError("audio/pcm 输入只支持 16 kHz 或 24 kHz")
+            return {"type": "audio/pcm", "rate": sample_rate}
+        raise ValueError(f"不支持的音频格式（输入）: {format_type}")
+
+    @classmethod
+    def _validate_output_audio_format(cls, value: Any) -> dict[str, Any]:
+        payload = cls._audio_format_payload(value)
         format_type = payload.get("type")
         if format_type == "audio/pcm":
             if payload.get("rate", 24_000) != 24_000:
-                raise ValueError("audio/pcm 只支持 24 kHz")
+                raise ValueError("audio/pcm 输出只支持 24 kHz")
             return {"type": "audio/pcm", "rate": 24_000}
-        raise ValueError(f"不支持的音频格式: {format_type}")
+        raise ValueError(f"不支持的音频格式（输出）: {format_type}")
 
     @staticmethod
     def _validate_turn_detection(value: Any) -> dict[str, Any] | None:
@@ -670,7 +685,7 @@ class RealtimeAgentRuntime:
             raise ValueError(f"不支持的 reasoning effort: {effort}")
         audio_output = ((values.get("audio") or {}).get("output") or {})
         output_format = (
-            self._validate_audio_format(audio_output["format"])
+            self._validate_output_audio_format(audio_output["format"])
             if audio_output.get("format") is not None
             else copy.deepcopy(self.options.output_audio_format)
         )

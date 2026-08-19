@@ -17,7 +17,7 @@ from audio_harness.workflows.runtime import (
     AudioWorkflowRuntime,
     AudioWorkflowOutput,
 )
-from audio_harness.workflows.service import ActiveAudioWorkflow, AudioWorkflowService
+from audio_harness.workflows.service import ActiveAudioWorkflow
 from audio_harness.workflows.settings import WorkflowSettingsStore
 from audio_harness.vectors.service import VectorService
 
@@ -183,7 +183,6 @@ class AudioWorkflowSessionService:
         self,
         *,
         inferencer_pool: InferencerPool,
-        workflows: AudioWorkflowService,
         workflow_settings: WorkflowSettingsStore,
         session_limiter: ResizableSessionLimiter,
         asr_limiter: ResizableConcurrencyLimiter,
@@ -191,18 +190,11 @@ class AudioWorkflowSessionService:
         vectors: VectorService | None = None,
     ) -> None:
         self.inferencer_pool = inferencer_pool
-        self.workflows = workflows
         self.workflow_settings = workflow_settings
         self.session_limiter = session_limiter
         self.asr_limiter = asr_limiter
         self.embedding_limiter = embedding_limiter
         self.vectors = vectors
-
-    def default_workflow(self) -> ActiveAudioWorkflow:
-        workflow_id = self.workflow_settings.current().grpc_audio_workflow_id
-        if workflow_id is None:
-            raise RuntimeError("尚未配置 gRPC 默认语音工作流")
-        return self.workflows.current(workflow_id)
 
     @asynccontextmanager
     async def reserve(self):
@@ -223,7 +215,7 @@ class AudioWorkflowSessionService:
         include_interim_transcripts: bool = False,
         include_vector_search: bool = False,
         include_diarization: bool = False,
-        workflow: ActiveAudioWorkflow | None = None,
+        workflow: ActiveAudioWorkflow,
     ):
         async with self.reserve() as reservation:
             session = await reservation.create(
@@ -261,15 +253,14 @@ class AudioWorkflowSessionReservation:
         include_interim_transcripts: bool = False,
         include_vector_search: bool = False,
         include_diarization: bool = False,
-        workflow: ActiveAudioWorkflow | None = None,
+        workflow: ActiveAudioWorkflow,
     ) -> AudioWorkflowSession:
         if self._closed:
             raise RuntimeError("会话容量预留已经关闭")
         if self._session is not None:
             raise RuntimeError("当前预留中已经存在语音工作流会话")
         settings = self._service.workflow_settings.current().config
-        active_workflow = workflow or self._service.default_workflow()
-        plan = active_workflow.plan
+        plan = workflow.plan
         lease = self._service.inferencer_pool.lease(plan.engine_snapshots)
         leased = await lease.__aenter__()
         session: AudioWorkflowSession | None = None
@@ -283,7 +274,7 @@ class AudioWorkflowSessionReservation:
             }
             session = AudioWorkflowSession(
                 inferencers=inferencers,
-                workflow=active_workflow,
+                workflow=workflow,
                 runtime_config=AudioRuntimeConfig(
                     segment_queue_capacity=settings.segment_queue_capacity,
                     result_queue_capacity=settings.result_queue_capacity,

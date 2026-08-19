@@ -3,7 +3,6 @@ from audio_harness.configs.base import StrictModel
 from audio_harness.configs.engine import EngineEndpoint
 from audio_harness.configs.serving import (
     CapacityConfig,
-    GrpcConfig,
     HttpConfig,
     LimitsConfig,
     ProtocolCapacityConfig,
@@ -20,7 +19,6 @@ __all__ = [
     "CapacityConfig",
     "DatabaseConfig",
     "EngineEndpoint",
-    "GrpcConfig",
     "HttpConfig",
     "IceServerConfig",
     "LimitsConfig",

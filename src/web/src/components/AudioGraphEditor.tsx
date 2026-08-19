@@ -220,7 +220,7 @@ function nodeConfig(kind: string): AudioNode {
       id,
       kind,
       engine_id: null,
-      config: { min_batch_seconds: 60, max_batch_seconds: 120 },
+      config: { min_batch_seconds: 60, max_batch_seconds: 120, min_asr_segment_seconds: 0.5 },
     } as AudioNode;
   }
   if (kind === "speaker_clustering") {

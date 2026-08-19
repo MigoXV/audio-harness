@@ -14,15 +14,11 @@ from openai.types.realtime import (
     InputAudioBufferAppendEvent,
     InputAudioBufferClearEvent,
     InputAudioBufferCommitEvent,
-    RealtimeClientEvent,
     RealtimeError,
     RealtimeErrorEvent,
-    RealtimeServerEvent,
-    RealtimeTranscriptionSessionCreateRequest,
-    SessionCreatedEvent,
     SessionUpdateEvent,
 )
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
 from audio_harness.errors import CapacityExceededError
@@ -41,15 +37,19 @@ from audio_harness.serving.realtime.session import (
     session_values,
 )
 from audio_harness.serving.realtime.agent import VoiceResolver
+from audio_harness.serving.realtime.protocol import (
+    AHA_REALTIME_CLIENT_EVENT_ADAPTER,
+    AHA_REALTIME_SERVER_EVENT_ADAPTER,
+    AhaRealtimeTranscriptionSessionCreateRequest,
+    AhaSessionCreatedEvent,
+    AhaV1ServerEventBase,
+)
 from audio_harness.sessions import AudioWorkflowSessionService
 from audio_harness.serving.realtime.tools import ToolRegistry
 from audio_harness.workflows.settings import WorkflowSettingsStore
 from audio_harness.voice_agents.service import ActiveVoiceAgent
 
 logger = logging.getLogger(__name__)
-
-_CLIENT_EVENT_ADAPTER = TypeAdapter(RealtimeClientEvent)
-_SERVER_EVENT_ADAPTER = TypeAdapter(RealtimeServerEvent)
 
 
 class RealtimeConnectionMode(str, Enum):
@@ -60,14 +60,25 @@ class RealtimeConnectionMode(str, Enum):
 
 
 class _OnlinePcmResampler:
-    def __init__(self, chunk_bytes: int) -> None:
+    def __init__(
+        self,
+        chunk_bytes: int,
+        input_sample_rate: int = INPUT_SAMPLE_RATE,
+    ) -> None:
         self.chunk_bytes = chunk_bytes
-        self._resampler = soxr.ResampleStream(
-            INPUT_SAMPLE_RATE,
-            ENGINE_SAMPLE_RATE,
-            1,
-            dtype="int16",
-            quality="HQ",
+        if input_sample_rate not in {ENGINE_SAMPLE_RATE, INPUT_SAMPLE_RATE}:
+            raise ValueError("输入采样率只支持 16 kHz 或 24 kHz")
+        self.input_sample_rate = input_sample_rate
+        self._resampler = (
+            None
+            if input_sample_rate == ENGINE_SAMPLE_RATE
+            else soxr.ResampleStream(
+                input_sample_rate,
+                ENGINE_SAMPLE_RATE,
+                1,
+                dtype="int16",
+                quality="HQ",
+            )
         )
         self._buffer = bytearray()
         self._finished = False
@@ -90,7 +101,11 @@ class _OnlinePcmResampler:
         if len(audio) % 2:
             raise ValueError("PCM S16LE 音频字节数必须为偶数")
         samples = np.frombuffer(audio, dtype="<i2")
-        converted = self._resampler.resample_chunk(samples, last=False)
+        converted = (
+            samples
+            if self._resampler is None
+            else self._resampler.resample_chunk(samples, last=False)
+        )
         self._buffer.extend(converted.astype("<i2", copy=False).tobytes())
         return self._take_chunks(flush=False)
 
@@ -98,9 +113,13 @@ class _OnlinePcmResampler:
         if self._finished:
             return []
         self._finished = True
-        converted = self._resampler.resample_chunk(
-            np.empty(0, dtype=np.int16),
-            last=True,
+        converted = (
+            np.empty(0, dtype=np.int16)
+            if self._resampler is None
+            else self._resampler.resample_chunk(
+                np.empty(0, dtype=np.int16),
+                last=True,
+            )
         )
         self._buffer.extend(converted.astype("<i2", copy=False).tobytes())
         return self._take_chunks(flush=True)
@@ -180,35 +199,39 @@ class _RealtimeConnection:
             if hasattr(event, "model_dump")
             else event
         )
-        event_type = str(payload.get("type", ""))
-        if event_type.startswith("x_aha."):
-            if self._aha_version != "v1":
-                raise RuntimeError("AHA extension event was not negotiated")
-        else:
-            _SERVER_EVENT_ADAPTER.validate_python(payload)
+        validated = AHA_REALTIME_SERVER_EVENT_ADAPTER.validate_python(payload)
+        if (
+            isinstance(validated, AhaV1ServerEventBase)
+            and self._aha_version != "v1"
+        ):
+            raise RuntimeError("AHA extension event was not negotiated")
         async with self._send_lock:
             await self.websocket.send_json(payload)
 
     async def run(self) -> None:
         if self._session is None:
             await self._send(
-                SessionCreatedEvent(
+                AhaSessionCreatedEvent(
                     event_id=event_id(),
-                    session=RealtimeTranscriptionSessionCreateRequest.model_validate(
-                        {
-                            "type": "transcription",
-                            "id": self._transcription_session_id,
-                            "object": "realtime.transcription_session",
-                            "audio": {
-                                "input": {
-                                    "format": {
-                                        "type": "audio/pcm",
-                                        "rate": INPUT_SAMPLE_RATE,
-                                    },
-                                    "turn_detection": {"type": "server_vad"},
-                                }
-                            },
-                        }
+                    session=(
+                        AhaRealtimeTranscriptionSessionCreateRequest.model_validate(
+                            {
+                                "type": "transcription",
+                                "id": self._transcription_session_id,
+                                "object": "realtime.transcription_session",
+                                "audio": {
+                                    "input": {
+                                        "format": {
+                                            "type": "audio/pcm",
+                                            "rate": INPUT_SAMPLE_RATE,
+                                        },
+                                        "turn_detection": {
+                                            "type": "server_vad"
+                                        },
+                                    }
+                                },
+                            }
+                        )
                     ),
                     type="session.created",
                 )
@@ -221,7 +244,9 @@ class _RealtimeConnection:
                 if raw is None:
                     continue
                 try:
-                    event = _CLIENT_EVENT_ADAPTER.validate_python(raw)
+                    event = AHA_REALTIME_CLIENT_EVENT_ADAPTER.validate_python(
+                        raw
+                    )
                 except ValidationError as exc:
                     await self._send_error(
                         message=(
@@ -269,6 +294,8 @@ class _RealtimeConnection:
                     await self._session.handle_client_event(event)
                     if isinstance(event, InputAudioBufferCommitEvent):
                         self._reset_resampler()
+                if isinstance(event, SessionUpdateEvent):
+                    self._sync_resampler_rate()
         except WebSocketDisconnect:
             pass
         finally:
@@ -337,6 +364,14 @@ class _RealtimeConnection:
             exclude_unset=True,
         )
         audio_input = ((payload.get("audio") or {}).get("input") or {})
+        requested_format = audio_input.get("format")
+        if requested_format is not None:
+            requested_rate = requested_format.get("rate", INPUT_SAMPLE_RATE)
+            current_rate = self._session.input_audio_format.get(
+                "rate", INPUT_SAMPLE_RATE
+            )
+            if requested_rate != current_rate:
+                return True
         if not self._dynamic_transcription:
             return False
         transcription = audio_input.get("transcription") or {}
@@ -350,11 +385,13 @@ class _RealtimeConnection:
     async def _handle_session_update(self, event: SessionUpdateEvent) -> None:
         current_model = self._session.model if self._session is not None else ""
         try:
-            requested = RealtimeTranscriptionSessionCreateRequest.model_validate(
-                event.session.model_dump(
-                    mode="json",
-                    exclude_none=False,
-                    exclude_unset=True,
+            requested = (
+                AhaRealtimeTranscriptionSessionCreateRequest.model_validate(
+                    event.session.model_dump(
+                        mode="json",
+                        exclude_none=False,
+                        exclude_unset=True,
+                    )
                 )
             )
             model, _ = session_values(
@@ -363,7 +400,10 @@ class _RealtimeConnection:
                 default_language=(
                     self._session.language
                     if self._session is not None
-                    else self._workflow_settings.current().config.default_language_code
+                    else (
+                        self._workflow_settings.current()
+                        .config.default_language_code
+                    )
                 ),
             )
             if not model:
@@ -483,8 +523,26 @@ class _RealtimeConnection:
             await self._session.append_engine_audio(chunk)
 
     def _reset_resampler(self) -> None:
-        self._resampler = _OnlinePcmResampler(self._chunk_bytes)
+        self._resampler = _OnlinePcmResampler(
+            self._chunk_bytes,
+            self._input_sample_rate(),
+        )
         self._input_contract_locked = False
+
+    def _input_sample_rate(self) -> int:
+        if self._session is None:
+            return INPUT_SAMPLE_RATE
+        return int(
+            self._session.input_audio_format.get("rate", INPUT_SAMPLE_RATE)
+        )
+
+    def _sync_resampler_rate(self) -> None:
+        input_sample_rate = self._input_sample_rate()
+        if self._resampler.input_sample_rate != input_sample_rate:
+            self._resampler = _OnlinePcmResampler(
+                self._chunk_bytes,
+                input_sample_rate,
+            )
 
 
 class RealtimeTranscriptionService:

@@ -7,7 +7,6 @@
 | 控制面 HTTP | `http://localhost:8000/api/v1` | UTF-8 JSON；音频/音色接口使用 `multipart/form-data` |
 | Realtime WebSocket | `ws://localhost:8000/v1/realtime` | UTF-8 JSON 文本消息，音频放在 Base64 字段中 |
 | WebRTC 信令 | `POST http://localhost:8000/v1/realtime/calls` | `multipart/form-data`，响应为 `application/sdp` |
-| gRPC 数据面 | `localhost:50051` | Protobuf + HTTP/2 |
 
 服务支持在 HTTP 监听器上配置证书；生产环境应使用 HTTPS/WSS。当前应用没有认证中间件，不校验 `Authorization`。部署方必须在受信网络或 API Gateway 后提供 TLS、身份认证、访问控制、审计和请求限流。该说明只描述 Audio Harness 本身，不代表下游 Responses 引擎不需要 API Key。
 
@@ -30,7 +29,7 @@
 
 ## 统一错误包络
 
-除 WebSocket 建连拒绝、WebRTC SDP 成功响应和 gRPC 外，应用错误使用：
+除 WebSocket 建连拒绝和 WebRTC SDP 成功响应外，应用错误使用：
 
 ```json
 {
@@ -68,8 +67,8 @@ Settings 使用字段名 `revision`，资源草稿和发布使用 `expected_revi
 
 ## 音频约定
 
-- Realtime WebSocket 输入：Base64 编码、单声道 PCM S16LE，协商格式为 `audio/pcm`、`24000 Hz`；服务在线重采样到内部 `16000 Hz`。
-- gRPC ASR 和引擎适配器：PCM S16LE，字节数必须为偶数；具体采样率由各协议配置字段给出。
+- Realtime WebSocket 输入：Base64 编码、单声道 PCM S16LE，协商格式为 `audio/pcm`、`16000 Hz` 或 `24000 Hz`，缺省仍为 `24000 Hz`；24 kHz 在线重采样，16 kHz 直接进入内部 16 kHz 音频链路。
+- 下游 gRPC 引擎适配器：PCM S16LE，字节数必须为偶数；具体采样率由各协议配置字段给出。
 - HTTP 音频上传允许常见容器，服务端解码后统一到内部格式；空音频、无法解码音频或不完整样本返回错误。
 - 单条协议消息受 `max_message_bytes` 限制，默认 `4 MiB`。
 
@@ -77,6 +76,5 @@ Settings 使用字段名 `revision`，资源草稿和发布使用 `expected_revi
 
 - HTTP API 版本前缀为 `/api/v1`；AHA Realtime 扩展通过 `x_aha=v1` 单独协商。
 - OpenAI Realtime 兼容表示“实现了本文列出的事件子集”，不表示代理 OpenAI 云端全部能力。
-- 未协商 AHA 时只发送通过当前 OpenAI SDK `RealtimeServerEvent` 校验的原生事件。
+- Realtime 边界统一使用项目内建联合类型：标准事件复用 OpenAI SDK 类型，16 kHz Session 和 AHA v1 事件使用本地扩展类型；未协商 AHA 时不会发送 `x_aha.*` 事件。
 - 下游 Proto 文件是引擎线协议的唯一结构定义；文档解释调用顺序和额外语义，不复制生成代码。
-

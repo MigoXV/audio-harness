@@ -420,6 +420,115 @@ async def test_voice_agent_x_aha_adds_pending_semantic_turn_event() -> None:
 
 
 @pytest.mark.asyncio
+async def test_x_aha_turn_progress_starts_item_after_semantic_rollover() -> None:
+    emitted: list[dict] = []
+
+    async def send_event(event) -> None:
+        emitted.append(
+            event.model_dump(mode="json", exclude_none=True)
+            if hasattr(event, "model_dump")
+            else event
+        )
+
+    session = RealtimeTranscriptionSession(
+        send_event=send_event,
+        session_service=object(),  # type: ignore[arg-type]
+        workflow_settings=_Settings(),  # type: ignore[arg-type]
+        model="voice-agent",
+        target=_profile(),
+        inferencer_pool=FakePool(),  # type: ignore[arg-type]
+        tool_registry=ToolRegistry(),
+        aha_version="v1",
+    )
+    await session.start()
+    await session._handle_workflow_event(
+        "speech_started",
+        SpeechStarted(start_sample=0, sample_rate=24_000),
+    )
+    first_item_id = emitted[-1]["item_id"]
+    await session._handle_workflow_event(
+        "speech_stopped",
+        SpeechStopped(
+            start_sample=0,
+            end_sample=24_000,
+            sample_rate=24_000,
+        ),
+    )
+    await session._handle_workflow_event(
+        "turn_progress",
+        AsrInferencer.Result(
+            transcript="",
+            is_final=True,
+            start_sample=24_000,
+            end_sample=36_000,
+            sample_rate=24_000,
+            turn_completed=False,
+        ),
+    )
+    await session.close()
+
+    recovered_started, progress = emitted[-2:]
+    assert recovered_started["type"] == "input_audio_buffer.speech_started"
+    assert recovered_started["audio_start_ms"] == 1_000
+    assert progress["type"] == "x_aha.vad.physical_speech_stopped"
+    assert progress["item_id"] == recovered_started["item_id"]
+    assert progress["item_id"] != first_item_id
+    assert all(
+        _SERVER_EVENTS.validate_python(event)
+        for event in emitted
+        if not event["type"].startswith("x_aha.")
+    )
+
+
+@pytest.mark.asyncio
+async def test_speech_stopped_starts_item_when_start_event_is_missing() -> None:
+    emitted: list[dict] = []
+
+    async def send_event(event) -> None:
+        emitted.append(
+            event.model_dump(mode="json", exclude_none=True)
+            if hasattr(event, "model_dump")
+            else event
+        )
+
+    session = RealtimeTranscriptionSession(
+        send_event=send_event,
+        session_service=object(),  # type: ignore[arg-type]
+        workflow_settings=_Settings(),  # type: ignore[arg-type]
+        model="voice-agent",
+        target=_profile(),
+        inferencer_pool=FakePool(),  # type: ignore[arg-type]
+        tool_registry=ToolRegistry(),
+        aha_version="v1",
+    )
+    await session.start()
+    await session._handle_workflow_event(
+        "speech_stopped",
+        SpeechStopped(
+            start_sample=24_000,
+            end_sample=48_000,
+            sample_rate=24_000,
+        ),
+    )
+    await session.close()
+
+    assert [event["type"] for event in emitted] == [
+        "session.created",
+        "input_audio_buffer.speech_started",
+        "input_audio_buffer.speech_stopped",
+        "input_audio_buffer.committed",
+        "conversation.item.added",
+        "conversation.item.done",
+    ]
+    item_ids = {
+        event["item_id"] for event in emitted if "item_id" in event
+    }
+    assert len(item_ids) == 1
+    assert emitted[1]["audio_start_ms"] == 1_000
+    assert all(_SERVER_EVENTS.validate_python(event) for event in emitted)
+
+
+@pytest.mark.asyncio
 async def test_x_aha_interim_transcript_is_cumulative_and_cleared_by_primary() -> None:
     emitted: list[dict] = []
 

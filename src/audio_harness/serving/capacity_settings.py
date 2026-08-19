@@ -39,9 +39,6 @@ SettingsListener = Callable[
 
 def _config_from_model(model: CapacitySetting) -> CapacityConfig:
     return CapacityConfig(
-        grpc=ProtocolCapacityConfig(
-            max_sessions=model.grpc_max_sessions
-        ),
         realtime=ProtocolCapacityConfig(
             max_sessions=model.realtime_max_sessions
         ),
@@ -117,7 +114,6 @@ class CapacitySettingsStore:
                     raise CapacityRevisionConflictError(
                         "容量设置已被其他操作更新，请重新加载"
                     )
-                model.grpc_max_sessions = config.grpc.max_sessions
                 model.realtime_max_sessions = (
                     config.realtime.max_sessions
                 )

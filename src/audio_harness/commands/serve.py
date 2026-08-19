@@ -7,8 +7,6 @@ from pathlib import Path
 import typer
 
 from audio_harness.commands.types import (
-    GrpcHostOption,
-    GrpcPortOption,
     HttpHostOption,
     HttpPortOption,
     LogLevelOption,
@@ -29,8 +27,6 @@ logger = logging.getLogger(__name__)
 def apply_serve_overrides(
     config: AppConfig,
     *,
-    grpc_host: str | None,
-    grpc_port: int | None,
     max_message_bytes: int,
     http_host: str | None,
     http_port: int | None,
@@ -40,12 +36,6 @@ def apply_serve_overrides(
     webrtc_negotiation_timeout_seconds: float,
     webrtc_disconnected_grace_seconds: float,
 ) -> AppConfig:
-    grpc_config = config.grpc.model_copy(
-        update={
-            **({"host": grpc_host} if grpc_host is not None else {}),
-            **({"port": grpc_port} if grpc_port is not None else {}),
-        }
-    )
     http_config = config.http.model_copy(
         update={
             **({"host": http_host} if http_host is not None else {}),
@@ -56,7 +46,6 @@ def apply_serve_overrides(
     )
     return config.model_copy(
         update={
-            "grpc": grpc_config,
             "http": http_config,
             "limits": config.limits.model_copy(
                 update={"max_message_bytes": max_message_bytes}
@@ -77,8 +66,6 @@ def apply_serve_overrides(
 
 
 def serve(
-    grpc_host: GrpcHostOption = None,
-    grpc_port: GrpcPortOption = None,
     max_message_bytes: MaxMessageBytesOption = 4 * 1024 * 1024,
     http_host: HttpHostOption = None,
     http_port: HttpPortOption = None,
@@ -101,8 +88,6 @@ def serve(
         ) from exc
     config = apply_serve_overrides(
         AppConfig.from_environment(),
-        grpc_host=grpc_host,
-        grpc_port=grpc_port,
         max_message_bytes=max_message_bytes,
         http_host=http_host,
         http_port=http_port,

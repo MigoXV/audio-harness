@@ -18,7 +18,6 @@ from audio_harness.database.models import (
     RealtimeRoute,
     VoiceAgentProfile,
     VoiceAgentRevision,
-    WorkflowSetting,
     utc_now,
 )
 from audio_harness.database.mappers import asset_data
@@ -353,9 +352,6 @@ class AudioWorkflowRepository:
             if workflow is None:
                 raise AudioWorkflowNotFoundError(f"语音工作流不存在: {workflow_id}")
             references: list[str] = []
-            settings = await session.get(WorkflowSetting, 1)
-            if settings is not None and settings.grpc_audio_workflow_id == workflow_id:
-                references.append("gRPC 默认绑定")
             route = await session.scalar(
                 select(RealtimeRoute.model).where(
                     RealtimeRoute.target_type

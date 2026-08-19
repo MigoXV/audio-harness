@@ -28,12 +28,9 @@ describe("audio harness API client", () => {
         jsonResponse(
           {
             status: "needs_configuration",
-            ready: false,
             control_plane: "ready",
-            problems: ["尚未绑定 gRPC 语音工作流"],
-            issues: [{ code: "grpc_workflow_unconfigured", scope: "grpc", message: "尚未绑定 gRPC 语音工作流" }],
-            grpc: { status: "needs_configuration", workflow_id: null, workflow_revision: null },
-            realtime: { status: "needs_configuration", public_routes: 0, internal_routes: 0, invalid_routes: 0 },
+            issues: [{ code: "realtime_route_unconfigured", scope: "realtime", severity: "warning", message: "尚未配置公开 Realtime 模型路由", resource_id: null }],
+            realtime: { state: "needs_configuration", public_routes: 0, internal_routes: 0 },
           },
         ),
       ),
@@ -41,7 +38,7 @@ describe("audio harness API client", () => {
 
     await expect(apiClient.getRuntimeOverview()).resolves.toMatchObject({
       status: "needs_configuration",
-      problems: ["尚未绑定 gRPC 语音工作流"],
+      issues: [{ code: "realtime_route_unconfigured" }],
     });
   });
 
@@ -113,9 +110,8 @@ describe("audio harness API client", () => {
     );
   });
 
-  it("updates per-protocol capacity with a shared ASR limit", async () => {
+  it("updates realtime capacity with a shared ASR limit", async () => {
     const response = {
-      grpc: { max_sessions: 64 },
       realtime: { max_sessions: 32 },
       webrtc: { max_sessions: 16 },
       max_asr_concurrency: 8,

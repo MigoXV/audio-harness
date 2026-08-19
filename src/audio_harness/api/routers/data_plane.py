@@ -4,16 +4,15 @@ import asyncio
 import json
 
 from fastapi import APIRouter, Query, Request, Response, WebSocket, status
-from openai.types.realtime import (
-    RealtimeSessionCreateRequest,
-    RealtimeTranscriptionSessionCreateRequest,
-)
 from pydantic import ValidationError
 
 from audio_harness.errors import CapacityExceededError
 from audio_harness.serving.realtime import (
     RealtimeConnectionMode,
     RealtimeTranscriptionService,
+)
+from audio_harness.serving.realtime.protocol import (
+    AHA_REALTIME_SESSION_ADAPTER,
 )
 from audio_harness.serving.webrtc import WebRtcCallService
 
@@ -110,10 +109,10 @@ def create_data_plane_router(
             payload = json.loads(session_json) if session_json is not None else None
             if payload is None:
                 session_config = None
-            elif payload.get("type") == "realtime":
-                session_config = RealtimeSessionCreateRequest.model_validate(payload)
             else:
-                session_config = RealtimeTranscriptionSessionCreateRequest.model_validate(payload)
+                session_config = AHA_REALTIME_SESSION_ADAPTER.validate_python(
+                    payload
+                )
             selected_model = model
             if selected_model is None and payload is not None:
                 if payload.get("type") == "realtime":

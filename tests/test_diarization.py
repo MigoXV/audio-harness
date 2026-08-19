@@ -21,6 +21,9 @@ from audio_harness.engines.models import (
 from audio_harness.inferencers.asr import AsrInferencer
 from audio_harness.inferencers.vad import VadInferencer
 from audio_harness.media.pcm import PcmChunk
+from audio_harness.serving.realtime.protocol import (
+    AHA_REALTIME_SERVER_EVENT_ADAPTER,
+)
 from audio_harness.serving.realtime.session import RealtimeTranscriptionSession
 from audio_harness.workflows import (
     AsrNode,
@@ -54,6 +57,14 @@ from audio_harness.workflows.models import (
 from audio_harness.workflows.runtime import DiarizationBatcher, _SegmentCandidate
 
 
+def _event_payload(event) -> dict:
+    return (
+        event.model_dump(mode="json", exclude_none=True)
+        if hasattr(event, "model_dump")
+        else event
+    )
+
+
 def candidate(start: int, samples: int, value: int = 1) -> _SegmentCandidate:
     return _SegmentCandidate(
         audio=bytes((value, 0)) * samples,
@@ -78,6 +89,17 @@ def test_diarization_config_rejects_minimum_above_maximum() -> None:
             min_batch_seconds=121,
             max_batch_seconds=120,
         )
+
+
+def test_diarization_config_defaults_to_half_second_asr_filter() -> None:
+    config = SpeakerDiarizationNodeConfig()
+
+    assert config.min_asr_segment_seconds == 0.5
+
+
+def test_diarization_config_rejects_negative_asr_filter() -> None:
+    with pytest.raises(ValidationError, match="min_asr_segment_seconds"):
+        SpeakerDiarizationNodeConfig(min_asr_segment_seconds=-0.1)
 
 
 def test_diarization_batcher_accumulates_until_minimum() -> None:
@@ -392,10 +414,29 @@ def _workflow() -> AudioWorkflowDocument:
     )
 
 
-def _speaker_workflow() -> AudioWorkflowDocument:
+def _speaker_workflow(
+    *,
+    min_asr_segment_seconds: float = 0.5,
+) -> AudioWorkflowDocument:
     document = _workflow()
+    diarization = next(
+        node for node in document.nodes if node.kind == "speaker_diarization"
+    )
+    diarization = diarization.model_copy(
+        update={
+            "config": diarization.config.model_copy(
+                update={
+                    "min_asr_segment_seconds": min_asr_segment_seconds,
+                }
+            )
+        }
+    )
     return document.model_copy(
         update={
+            "nodes": [
+                diarization if node.id == diarization.id else node
+                for node in document.nodes
+            ],
             "edges": [
                 edge
                 for edge in document.edges
@@ -525,6 +566,7 @@ async def _run_speaker_chain(
     diarization: _Diarization,
     *,
     include_diarization: bool = True,
+    min_asr_segment_seconds: float = 0.5,
 ) -> tuple[list, _Asr]:
     assets = {
         "vad-engine": _asset("vad-engine", EngineKind.VAD, EngineApi.UX_VAD),
@@ -537,7 +579,12 @@ async def _run_speaker_chain(
     }
     asr = _Asr()
     runtime = AudioWorkflowRuntime(
-        plan=compile_audio_graph(_speaker_workflow(), assets=assets),
+        plan=compile_audio_graph(
+            _speaker_workflow(
+                min_asr_segment_seconds=min_asr_segment_seconds,
+            ),
+            assets=assets,
+        ),
         inferencers={
             "vad": _Vad(),
             "asr": asr,
@@ -688,9 +735,46 @@ async def test_diarization_can_feed_asr_and_aggregate_the_source_turn() -> None:
 
 
 @pytest.mark.asyncio
+async def test_diarization_filters_short_segments_before_asr() -> None:
+    outputs, asr = await _run_speaker_chain(
+        _Diarization(),
+        min_asr_segment_seconds=2.5,
+    )
+    local_completed = next(
+        output.payload
+        for output in outputs
+        if output.name == "diarization_local"
+        and output.payload.phase == "completed"
+    )
+    primary = next(
+        output.payload
+        for output in outputs
+        if output.name == "primary_transcript"
+    )
+
+    assert asr.calls == []
+    assert len(local_completed.segments) == 2
+    assert not any(
+        output.name == "speaker_transcript" for output in outputs
+    )
+    assert primary.transcript == ""
+
+
+@pytest.mark.asyncio
+async def test_diarization_asr_filter_keeps_segment_at_threshold() -> None:
+    _, asr = await _run_speaker_chain(
+        _Diarization(),
+        min_asr_segment_seconds=2,
+    )
+
+    assert len(asr.calls) == 2
+
+
+@pytest.mark.asyncio
 async def test_diarization_failure_passes_original_audio_to_asr() -> None:
     outputs, asr = await _run_speaker_chain(
-        _Diarization(RuntimeError("service unavailable"))
+        _Diarization(RuntimeError("service unavailable")),
+        min_asr_segment_seconds=5,
     )
     speaker = next(
         output.payload
@@ -780,7 +864,7 @@ async def test_realtime_maps_local_diarization_to_versioned_aha_events() -> None
     sent: list[dict] = []
 
     async def send(event) -> None:
-        sent.append(event)
+        sent.append(_event_payload(event))
 
     session = object.__new__(RealtimeTranscriptionSession)
     session._aha_version = "v1"
@@ -834,7 +918,7 @@ async def test_realtime_does_not_emit_diarization_without_aha_v1() -> None:
     sent: list[dict] = []
 
     async def send(event) -> None:
-        sent.append(event)
+        sent.append(_event_payload(event))
 
     session = object.__new__(RealtimeTranscriptionSession)
     session._aha_version = None
@@ -863,7 +947,7 @@ async def test_realtime_emits_speaker_transcript_with_matching_item() -> None:
     sent: list[dict] = []
 
     async def send(event) -> None:
-        sent.append(event)
+        sent.append(_event_payload(event))
 
     session = object.__new__(RealtimeTranscriptionSession)
     session._aha_version = "v1"
@@ -906,11 +990,58 @@ async def test_realtime_emits_speaker_transcript_with_matching_item() -> None:
 
 
 @pytest.mark.asyncio
+async def test_realtime_emits_speaker_delta_without_pending_diarization_identity() -> None:
+    sent: list[dict] = []
+
+    async def send(event) -> None:
+        sent.append(_event_payload(event))
+
+    session = object.__new__(RealtimeTranscriptionSession)
+    session._aha_version = "v1"
+    session._send_event = send
+    session._pending_items = deque()
+    session._speaker_item_history = deque(
+        [SimpleNamespace(item_id="item-1", start_sample=0, end_sample=100)]
+    )
+    result = SpeakerTranscriptionResult(
+        phase="delta",
+        item_source_id="source-1",
+        segment_id="dseg-1",
+        batch_id="batch-1",
+        local_speaker_id=None,
+        speaker=None,
+        source_start_sample=0,
+        source_end_sample=100,
+        start_sample=10,
+        end_sample=50,
+        sample_rate=10,
+        text="你",
+        language_code="zh-CN",
+    )
+
+    await session._handle_workflow_event("speaker_transcript", result)
+
+    assert sent[0] == {
+        "type": "x_aha.input_audio_transcription.speaker.delta",
+        "event_id": sent[0]["event_id"],
+        "item_id": "item-1",
+        "item_source_id": "source-1",
+        "segment_id": "dseg-1",
+        "batch_id": "batch-1",
+        "audio_start_ms": 1000,
+        "audio_end_ms": 5000,
+        "language": "zh-CN",
+        "delta": "你",
+    }
+    AHA_REALTIME_SERVER_EVENT_ADAPTER.validate_python(sent[0])
+
+
+@pytest.mark.asyncio
 async def test_realtime_cluster_completed_is_a_full_snapshot() -> None:
     sent: list[dict] = []
 
     async def send(event) -> None:
-        sent.append(event)
+        sent.append(_event_payload(event))
 
     session = object.__new__(RealtimeTranscriptionSession)
     session._aha_version = "v1"
@@ -948,7 +1079,7 @@ async def test_realtime_maps_normal_and_final_vad_progress() -> None:
     sent: list[dict] = []
 
     async def send(event) -> None:
-        sent.append(event)
+        sent.append(_event_payload(event))
 
     session = object.__new__(RealtimeTranscriptionSession)
     session._aha_version = "v1"
@@ -977,7 +1108,7 @@ async def test_realtime_final_cluster_snapshot_advances_revision_and_duration() 
     sent: list[dict] = []
 
     async def send(event) -> None:
-        sent.append(event)
+        sent.append(_event_payload(event))
 
     result = DiarizationClusterResult(
         phase="completed",
@@ -1027,7 +1158,7 @@ async def test_realtime_final_cluster_snapshot_can_be_empty() -> None:
     sent: list[dict] = []
 
     async def send(event) -> None:
-        sent.append(event)
+        sent.append(_event_payload(event))
 
     session = object.__new__(RealtimeTranscriptionSession)
     session._aha_version = "v1"
@@ -1054,7 +1185,7 @@ async def test_realtime_final_cluster_snapshot_preserves_cluster_failure() -> No
     sent: list[dict] = []
 
     async def send(event) -> None:
-        sent.append(event)
+        sent.append(_event_payload(event))
 
     completed = DiarizationClusterResult(
         phase="completed",
@@ -1110,7 +1241,7 @@ async def test_finish_workflow_waits_for_outputs_before_final_cluster() -> None:
         order.append("vad-final")
 
     async def send(event) -> None:
-        if event["type"] == "x_aha.diarization.cluster.completed":
+        if _event_payload(event)["type"] == "x_aha.diarization.cluster.completed":
             order.append("cluster-final")
 
     session = object.__new__(RealtimeTranscriptionSession)
@@ -1145,7 +1276,7 @@ async def test_finish_workflow_emits_final_cluster_failure_when_finish_fails() -
         await asyncio.Event().wait()
 
     async def send(event) -> None:
-        sent.append(event)
+        sent.append(_event_payload(event))
 
     session = object.__new__(RealtimeTranscriptionSession)
     session._aha_version = "v1"

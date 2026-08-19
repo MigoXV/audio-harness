@@ -6,31 +6,13 @@ from typing import Annotated
 import typer
 
 
-GrpcHostOption = Annotated[
-    str | None,
-    typer.Option(
-        "--grpc-host",
-        envvar="GRPC_HOST",
-        help="覆盖 gRPC 监听地址。",
-    ),
-]
-GrpcPortOption = Annotated[
-    int | None,
-    typer.Option(
-        "--grpc-port",
-        envvar="GRPC_PORT",
-        min=0,
-        max=65535,
-        help="覆盖 gRPC 监听端口；设为 0 时自动选择空闲端口。",
-    ),
-]
 MaxMessageBytesOption = Annotated[
     int,
     typer.Option(
         "--max-message-bytes",
         envvar="MAX_MESSAGE_BYTES",
         min=1,
-        help="gRPC、WebSocket 与 WebRTC 信令单消息字节上限。",
+        help="WebSocket、WebRTC 与下游 gRPC 单消息字节上限。",
     ),
 ]
 HttpHostOption = Annotated[

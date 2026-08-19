@@ -50,6 +50,8 @@ ws://localhost:8000/v1/realtime?model=meeting-agent
 {"type":"input_audio_buffer.append","audio":"<base64-pcm-s16le>"}
 ```
 
+输入 PCM 也可在 Session 中声明 `rate:16000`；未声明时继续使用标准的 24 kHz。客户端发送的实际 PCM 采样率必须与 Session 配置一致。
+
 自动 VAD 会产生 speech started/stopped、commit、conversation item 和 transcription 事件。若 `turn_detection:null`，客户端需发送 `input_audio_buffer.commit`。
 
 完整 Python 示例见 [`examples/openai_realtime_python_demo`](../../examples/openai_realtime_python_demo/)。Voice Agent 示例见 [`examples/openai_realtime_voice_demo`](../../examples/openai_realtime_voice_demo/)。
@@ -61,4 +63,3 @@ ws://localhost:8000/v1/realtime?model=meeting-agent
 - [WebRTC 信令与媒体](webrtc.md)
 - [典型事件时序](event-flows.md)
 - [Realtime 错误](../reference/errors.md)
-

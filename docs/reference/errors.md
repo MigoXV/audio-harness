@@ -72,20 +72,7 @@ close 前没有统一 JSON body，客户端必须记录 close code/reason。建�
 
 `error.event_id` 是触发错误的客户端 event ID，可能为空；顶层 `event_id` 是服务端 error 事件 ID。
 
-## gRPC Status
-
-### 外部 `UxSpeech.StreamingRecognize`
-
-| Status | 语义 |
-| --- | --- |
-| `INVALID_ARGUMENT` | 流包顺序、编码、采样率、消息大小、PCM 对齐错误 |
-| `RESOURCE_EXHAUSTED` | 容量满 |
-| `DEADLINE_EXCEEDED` | 下游引擎超时 |
-| `UNAVAILABLE` | 下游引擎不可用 |
-| `FAILED_PRECONDITION` | 默认 Workflow 未激活或 Engine 配置无效 |
-| `INTERNAL` | 未分类异常 |
-
-### 下游引擎
+## 下游 gRPC Status
 
 Audio Harness 将下游 `DEADLINE_EXCEEDED` 归类为 deadline；其他 `AioRpcError` 归类为 unavailable。引擎实现方仍应精确返回 `INVALID_ARGUMENT`、`FAILED_PRECONDITION`、`RESOURCE_EXHAUSTED` 等，便于日志定位和未来细化映射。
 
@@ -95,4 +82,3 @@ Audio Harness 将下游 `DEADLINE_EXCEEDED` 归类为 deadline；其他 `AioRpcE
 - 条件重试：revision conflict 先重新读取并合并；Route conflict 需要明确用户确认。
 - 不可直接重试：校验、图编译、未发布、unsupported event、认证/权限（由网关返回）。
 - 创建/发布等非幂等动作重试前先查询资源状态；不要因为网络超时重复创建 slug。
-

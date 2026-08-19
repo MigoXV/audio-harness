@@ -36,8 +36,8 @@ COPY --from=frontend-build /app/src/web/dist /app/src/web/dist
 # 安装当前包
 RUN poetry install
 
-# 暴露 gRPC 与 HTTP/HTTPS/WSS 服务端口
-EXPOSE 50051 8000
+# 暴露 HTTP/HTTPS/WSS 与 WebRTC 信令端口
+EXPOSE 8000
 
 # 默认入口
 CMD ["poetry", "run", "audio-harness"]

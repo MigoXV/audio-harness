@@ -51,9 +51,8 @@ export type WorkflowSettingsUpdate = Schemas["WorkflowSettingsUpdate"];
 type GeneratedCapacitySettings = Schemas["CapacitySettingsRead"];
 export type CapacitySettings = Omit<
   GeneratedCapacitySettings,
-  "grpc" | "realtime" | "webrtc"
+  "realtime" | "webrtc"
 > & {
-  grpc: Schemas["ProtocolCapacityConfig"];
   realtime: Schemas["ProtocolCapacityConfig"];
   webrtc: Schemas["ProtocolCapacityConfig"];
 };
@@ -116,7 +115,6 @@ export interface AudioHarnessApi {
   getRuntimeOverview(signal?: AbortSignal): Promise<RuntimeOverview>;
   getWorkflowSettings(signal?: AbortSignal): Promise<WorkflowSettings>;
   updateWorkflowSettings(payload: WorkflowSettingsUpdate): Promise<WorkflowSettings>;
-  setGrpcAudioWorkflow(workflowId: string, expectedRevision: number): Promise<WorkflowSettings>;
   getCapacitySettings(signal?: AbortSignal): Promise<CapacitySettings>;
   updateCapacitySettings(payload: CapacitySettingsUpdate): Promise<CapacitySettings>;
   getRuntimeStatus(signal?: AbortSignal): Promise<RuntimeStatus>;
