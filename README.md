@@ -6,12 +6,13 @@ Audio Harness 是一个面向实时语音推理的异步编排服务。它把推
 
 ## 核心设计
 
-系统围绕四个明确对象组织：
+系统围绕五个明确对象组织：
 
 1. `EngineAsset` 描述一个可连接的推理引擎；发布时会生成不可变 `EngineSnapshot`。
 2. `AudioWorkflow` 只描述 PCM、VAD、语音片段和 ASR 转写之间的类型化 DAG。
 3. `VoiceAgentProfile` 在已发布的语音工作流之上绑定 Responses、TTS、工具和对话策略。
-4. `RealtimeRoute` 把外部 `model` 名称指向一个已发布的语音工作流或语音智能体。
+4. `AgentBackendAsset` 描述一个远端智能体运行服务；首个适配器是 DSH Web v1。
+5. `RealtimeRoute` 把外部 `model` 名称指向一个已发布的语音工作流或语音智能体。
 
 ```text
 HTTP 控制面
@@ -19,6 +20,7 @@ HTTP 控制面
     ├── EngineCatalog ───────────────┐
     ├── AudioWorkflowService         │
     ├── VoiceAgentService            ├── InferencerPool
+    ├── AgentBackendCatalog          │       │
     └── RealtimeRouteService         │       │
                                       │       └── 不可变引擎快照租约
 Realtime / WebRTC 数据面 ───────────┘
@@ -101,6 +103,7 @@ src/audio_harness/
 ├── realtime_routes/    # Realtime 模型路由控制面
 ├── workflows/          # AudioWorkflow 文档、编译器、运行时、仓储与发布服务
 ├── voice_agents/       # 语音智能体配置、仓储与发布服务
+├── agent_backends/     # 通用智能体后端协议与 DSH Web 适配器
 ├── engines/            # 引擎资产目录与 InferencerPool
 ├── inferencers/        # 按能力分组的推理客户端适配器
 ├── media/              # PCM 等媒体数据类型
@@ -120,12 +123,12 @@ src/web/
 
 ## 数据库策略
 
-数据库只支持 `sqlite+aiosqlite`。当前 Alembic head 为 `0004_remove_grpc_server`。
+数据库只支持 `sqlite+aiosqlite`。当前 Alembic head 为 `0006_agent_backends`。
 
 启动命令只接受：
 
 - 不存在或空的数据库；
-- 已处于 `0002_vector_search`、`0003_remove_vector_spaces` 或当前 head 的数据库。
+- 已处于迁移链中可升级的 revision 或当前 head 的数据库。
 
 发现旧 revision 时会直接拒绝启动。请先停止服务，人工移走 SQLite 主文件及对应的 `-wal`、`-shm` 文件，再启动服务创建干净数据库。系统不会隐式删除或转换旧业务数据。
 
@@ -151,6 +154,25 @@ poetry run audio-harness serve
 | `QDRANT_GRPC_TARGET` | 未配置 | Qdrant 正式数据面，例如 `192.168.0.222:16334` |
 | `QDRANT_HTTP_URL` | 未配置 | Qdrant Dashboard 与健康检查，例如 `http://192.168.0.222:16333` |
 
+## DSH Agent Backend
+
+Responses 仍是 Voice Agent 的必选组件，直接处理对话历史、现有工具/MCP 和 TTS；DSH
+不会注册成 Responses tool。Voice Agent v2 可以选择一个 DSH Agent Backend，Responses
+以严格结构化决策决定直接回复、委派、steer、取消、回答审批或回答结构化问题。DSH
+完成后，结果会进入一次独立、禁用工具的 Responses 总结调用，再流式送入 TTS。
+
+本仓库本次不交付 DSH 镜像或 Docker Compose。生产环境应让 DSH 作为独立容器运行，
+并通过私有网络或带 TLS、鉴权和访问控制的代理暴露同一个 HTTP/WS endpoint。
+Audio Harness 的 `target` 指向该 endpoint；如果代理要求请求头，可用 `headers_env`
+把请求头名称映射到 Audio Harness 容器中的环境变量。SQLite 只保存环境变量名，不保存
+真实远端凭据。DSH 调用模型所需的 API Key 必须由 DSH 容器自行持有，不能复用或依赖
+Audio Harness 数据库中的 Responses 密钥。
+
+开发时可以在同一容器临时启动 DSH，先验证 HTTP JSON-RPC 与两个 WebSocket 事件流，
+但这不是生产拓扑。每条 Realtime/WebRTC 连接按需创建并复用一个 DSH session；连接
+断开会取消运行任务，但 DSH session 和服务端日志保留。`response.cancel` 只取消当前
+Responses/TTS 输出，取消 DSH 必须显式发送 `x_aha.agent_backend.cancel`。
+
 ## 音频向量检索
 
 Qdrant 是 Collection、Named Vector、Point 和 payload 的唯一事实来源；Audio Harness
@@ -161,13 +183,14 @@ Qdrant 是 Collection、Named Vector、Point 和 payload 的唯一事实来源�
 完整字段、curl 示例和 `x_aha.vector.*` 事件分别见[向量检索接口](docs/control-plane/vectors.md)
 与 [AHA v1 协议](docs/realtime-api/aha-v1.md)。
 
-控制台按“语音工作流、语音智能体、推理引擎、接入与运行”四个任务域组织。首次启动后的推荐顺序：
+控制台按语音工作流、语音智能体、Agent Backends、推理引擎和接入运行等任务域组织。首次启动后的推荐顺序：
 
 1. 在“推理引擎”中注册 VAD 与 ASR 引擎，并完成连通性校验。
 2. 打开默认语音工作流，在 DAG 画布绑定节点引擎、连线和命名出口。
 3. 校验并发布语音工作流，再在“接入”页显式创建 Realtime model。
-4. 如需对话能力，通过四步向导创建语音智能体，依次选择语音工作流、Responses 引擎和 TTS 引擎。
-5. 发布语音智能体后显式创建公开 Realtime Route，再进入“测试”页发起连接。
+4. 如需 DSH 委派，先在“Agent Backends”注册远端服务并完成能力探测。
+5. 通过四步向导创建语音智能体，选择语音工作流、Responses、TTS 和可选 Agent Backend。
+6. 发布语音智能体后显式创建公开 Realtime Route，再进入“测试”页发起连接。
 
 发布和接入是两个独立动作。发布只生成不可变活动版本，不会自动创建外部入口；Realtime model 冲突时接口返回 `409 realtime_route_conflict`，只有用户确认后才允许替换原目标。测试页会先读取路由并检查其可见性，避免把未部署资源误报为 WebSocket 故障。
 
@@ -194,12 +217,18 @@ PCM S16LE 音频；默认每 5 秒提交一个后台写入块，每 300 秒发�
 
 缓存根目录由 `RECEIVED_AUDIO_CACHE_DIR` 环境变量配置，默认是
 `./data-bin/cache`。文件写入该目录下的
-`<UTC 日期>/<session-id>/<缓存实例>/`。当前文件使用
-`.wav.part` 后缀，正常收口后原子改名为 `.wav`；异常退出遗留的临时文件原样
-保留。缓存队列拥塞或磁盘写入失败只会停用当前会话的后续缓存，不会中断实时
-处理。设置更新只影响新会话，已建立的会话继续使用创建时的配置快照。
+`<UTC 日期>/<首段音频接收时间>__<短会话 ID>/`，例如
+`2026-08-20/20260820T081308.665Z__sess-a9044150/`。时间表示服务端首次
+接收并处理该缓存 PCM 的时刻，而非落盘时刻；目录内的每个 WAV 文件也使用其
+首段音频的接收时间和序号命名。`metadata.json` 保存完整会话 ID、缓存开始时间、
+音频格式与当时生效的分片设置，以便与日志反查。若同一毫秒的目录名冲突，会追加
+`__02`、`__03` 等递增序号。当前文件使用 `.wav.part` 后缀，正常收口后原子改名为
+`.wav`；异常退出遗留的临时文件原样保留。缓存队列拥塞或磁盘写入失败只会停用当前
+会话的后续缓存，不会中断实时处理。设置更新只影响新会话，已建立的会话继续使用
+创建时的配置快照。
 
 主程序不会删除任何历史缓存，也不提供缓存浏览、下载或保留期清理 API。
+既有缓存目录不会被迁移或改写。
 生产环境应把该目录放在独立缓存卷中，并由具有独立、受限权限的运维设施负责
 容量监控和生命周期管理。
 

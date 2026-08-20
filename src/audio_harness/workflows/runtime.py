@@ -1958,6 +1958,15 @@ class AudioWorkflowRuntime:
         revision = 0
         last_completed_revision: int | None = None
         last_labels: tuple[int, ...] = ()
+        fallback_speaker_ids: dict[str, int] = {}
+        next_fallback_speaker_id = -1
+
+        def fallback_speaker_id(local_speaker_id: str) -> int:
+            nonlocal next_fallback_speaker_id
+            if local_speaker_id not in fallback_speaker_ids:
+                fallback_speaker_ids[local_speaker_id] = next_fallback_speaker_id
+                next_fallback_speaker_id -= 1
+            return fallback_speaker_ids[local_speaker_id]
 
         def assignments(labels: tuple[int, ...]) -> tuple[DiarizationClusterAssignment, ...]:
             if len(labels) != len(vectors):
@@ -1967,11 +1976,16 @@ class AudioWorkflowRuntime:
                 )
             values = list(failed_assignments)
             for record, label in zip(vectors, labels, strict=True):
+                speaker_id = (
+                    label
+                    if label >= 0
+                    else fallback_speaker_id(record.local_speaker_id)
+                )
                 values.extend(
                     DiarizationClusterAssignment(
                         segment_id=segment_id,
                         local_speaker_id=record.local_speaker_id,
-                        speaker_id=label,
+                        speaker_id=speaker_id,
                     )
                     for segment_id in record.segment_ids
                 )
@@ -2015,14 +2029,14 @@ class AudioWorkflowRuntime:
                     raise
                 except Exception as exc:
                     logger.warning(
-                        "说话人聚类向量提取失败，片段标记为噪声: %s",
+                        "说话人聚类向量提取失败，片段暂未归档: %s",
                         exc,
                     )
                     failed_assignments.extend(
                         DiarizationClusterAssignment(
                             segment_id=segment_id,
                             local_speaker_id=local_speaker_id,
-                            speaker_id=-1,
+                            speaker_id=fallback_speaker_id(local_speaker_id),
                         )
                         for segment_id in segment_ids
                     )

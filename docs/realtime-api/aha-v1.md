@@ -26,6 +26,36 @@ AHA v1 为 OpenAI Realtime 事件流追加 Audio Harness 特有的中间转写�
 | `x_aha.diarization.local.delta/completed/failed` | Workflow 有本地 diarization 出口 | 失败时原始 VAD 音频直通 ASR |
 | `x_aha.input_audio_transcription.speaker.delta/completed/failed` | ASR 消费 diarization segment | 单片段失败，不替代标准聚合转写 |
 | `x_aha.diarization.cluster.completed/failed` | Workflow 有 speaker clustering 出口 | 保留上一成功 revision，后续重连重放 |
+| `x_aha.agent_backend.session/turn.*` | Voice Agent 已绑定并实际调用 Agent Backend | 展示远端 session 与任务状态 |
+| `x_aha.agent_backend.text.delta/tool.*` | DSH 输出文本进度或工具事件 | 观测事件，字段有长度上限 |
+| `x_aha.agent_backend.approval.*` | DSH 请求或完成审批 | 超时默认拒绝，界面/语音先到者生效 |
+| `x_aha.agent_backend.question.*` | DSH 请求或完成结构化提问 | 超时按 cancelled 回传 DSH |
+| `x_aha.agent_backend.failed/cancelled` | 任务失败、超时或显式取消 | 只结束后台任务，不关闭 Realtime 连接 |
+
+## Agent Backend 事件与控制
+
+Agent Backend 事件只在 Voice Agent 绑定 backend 且客户端协商 AHA v1 后发送。服务不会
+透传 DSH reasoning；文本 delta、工具参数、工具结果和最终文本都有服务端长度上限。
+典型执行顺序为 `session` → `turn.started` → 零到多个 `text.delta/tool.*` →
+`turn.completed`，之后 Responses 通过标准事件输出最终总结与 TTS。
+
+审批请求包含 `request_id`、`approval_id`、`tool_name` 和可选 `reason`。客户端回答：
+
+```json
+{"type":"x_aha.agent_backend.approval.respond","request_id":"req_xxx","approval_id":"approval_xxx","approved":true}
+```
+
+结构化问题包含 `questions`，每项有 `id/question/options/multiSelect`。回答中的
+`selected` 是选项 label 数组，`custom` 可以为空：
+
+```json
+{"type":"x_aha.agent_backend.question.respond","request_id":"req_xxx","answers":[{"id":"scope","selected":["当前目录"],"custom":null}]}
+```
+
+界面与下一句语音通过同一原子 pending 状态竞争，先到者生效；迟到回答会收到
+`.resolved` 且 `resolution=already_processed`。审批超时返回 rejected，问题超时返回
+cancelled。显式取消使用 `{"type":"x_aha.agent_backend.cancel"}`；标准
+`response.cancel` 只取消当前 Responses/TTS 输出，不会隐式取消 DSH。
 
 ## 物理 VAD 状态
 
@@ -207,7 +237,7 @@ Workflow 的 `include_embedding=true` 时额外返回 `embedding:number[]`，可
 }
 ```
 
-客户端只接受比当前 revision 新的 completed，并整体覆盖 assignments，绝不能按增量合并。`speaker_id=-1` 表示数据不足以形成稳定聚类。失败事件包含 `revision/replaces_revision/error`，不含 full snapshot；收到失败后保留上一成功快照。
+客户端只接受比当前 revision 新的 completed，并整体覆盖 assignments，绝不能按增量合并。`speaker_id>=0` 表示已经归档到全局聚类；`speaker_id<0` 表示暂未成功归档，不同负数仍代表不同的临时说话人。同一 `local_speaker_id` 在会话内复用同一个负数，后续数据足够时可在新 revision 中转为非负 ID。失败事件包含 `revision/replaces_revision/error`，不含 full snapshot；收到失败后保留上一成功快照。
 
 commit 完成全部 Workflow 输出后，会再发送一个更高 revision 的最终全量快照。即使没有说话人，`assignments` 也会是空数组；其 `processed_audio_ms` 与最终 VAD 进度相同并包含尾部静音。
 

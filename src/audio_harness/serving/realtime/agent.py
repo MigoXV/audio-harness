@@ -5,7 +5,7 @@ import base64
 import binascii
 import copy
 import json
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
@@ -14,11 +14,20 @@ from uuid import uuid4
 import numpy as np
 import soxr
 
+from audio_harness.agent_backends.base import AgentBackendGateway
+from audio_harness.agent_backends.coordinator import (
+    AgentBackendDecisionError,
+    decide_agent_backend_action,
+)
 from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
 from audio_harness.engines.pool import InferencerPool
 from audio_harness.inferencers.responses.http import ResponsesInferencer
 from audio_harness.inferencers.tts.base import TtsInferencer
 from audio_harness.serving.realtime.conversation import RealtimeConversation
+from audio_harness.serving.realtime.backend import (
+    AgentBackendTurnResult,
+    RealtimeAgentBackendRuntime,
+)
 from audio_harness.serving.realtime.tools import (
     McpToolPool,
     ToolRegistry,
@@ -126,6 +135,8 @@ class RealtimeAgentRuntime:
         tool_registry: ToolRegistry,
         voice_resolver: VoiceResolver | None = None,
         finish_audio: AudioFinisher | None = None,
+        agent_backend_gateway: AgentBackendGateway | None = None,
+        backend_extension_events_enabled: bool = False,
     ) -> None:
         self._pool = inferencer_pool
         self._send_event = send_event
@@ -176,6 +187,24 @@ class RealtimeAgentRuntime:
         ] = {}
         self._closed = False
         self._voice_locked = False
+        self._background_tasks: set[asyncio.Task[Any]] = set()
+        self._special_response_lock = asyncio.Lock()
+        self._backend: RealtimeAgentBackendRuntime | None = None
+        binding = profile.definition.agent_backend
+        if binding is not None:
+            if profile.agent_backend is None:
+                raise RuntimeError("语音智能体执行计划缺少 Agent Backend 快照")
+            if agent_backend_gateway is None:
+                raise RuntimeError("语音智能体会话缺少 Agent Backend gateway")
+            self._backend = RealtimeAgentBackendRuntime(
+                snapshot=profile.agent_backend,
+                binding=binding,
+                gateway=agent_backend_gateway,
+                send_event=self._send_event,
+                speak_notice=self._schedule_backend_notice,
+                summarize=self._schedule_backend_summary,
+                extension_events_enabled=backend_extension_events_enabled,
+            )
 
     @property
     def active(self) -> bool:
@@ -575,6 +604,9 @@ class RealtimeAgentRuntime:
         options: ResponseRunOptions,
         *,
         history: list[dict[str, Any]] | None = None,
+        turn_mode: Literal["normal", "fixed", "backend_summary"] = "normal",
+        fixed_text: str | None = None,
+        backend_result: AgentBackendTurnResult | None = None,
     ) -> str:
         audio_response = options.output_modalities == ["audio"]
         async with self._response_lock:
@@ -644,6 +676,9 @@ class RealtimeAgentRuntime:
                             history=list(
                                 history if history is not None else self._history
                             ),
+                            turn_mode=turn_mode,
+                            fixed_text=fixed_text,
+                            backend_result=backend_result,
                         ),
                         name=f"realtime-agent-response-{epoch}",
                     )
@@ -908,6 +943,100 @@ class RealtimeAgentRuntime:
             response_ids = list(self._response_tasks)
         for response_id in response_ids:
             await self.interrupt(response_id=response_id, emit=False)
+        for task in tuple(self._background_tasks):
+            task.cancel()
+        await asyncio.gather(*self._background_tasks, return_exceptions=True)
+        if self._backend is not None:
+            await self._backend.close()
+
+    def _spawn_background(self, coroutine: Awaitable[Any], name: str) -> None:
+        if self._closed:
+            if hasattr(coroutine, "close"):
+                coroutine.close()  # type: ignore[union-attr]
+            return
+        task = asyncio.create_task(coroutine, name=name)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def _schedule_backend_notice(self, text: str) -> None:
+        self._spawn_background(
+            self._start_special_response_when_idle(
+                turn_mode="fixed",
+                fixed_text=text,
+            ),
+            "realtime-agent-backend-notice",
+        )
+
+    async def _schedule_backend_summary(
+        self,
+        result: AgentBackendTurnResult,
+    ) -> None:
+        self._spawn_background(
+            self._start_special_response_when_idle(
+                turn_mode="backend_summary",
+                backend_result=result,
+            ),
+            "realtime-agent-backend-summary",
+        )
+
+    async def _start_special_response_when_idle(
+        self,
+        *,
+        turn_mode: Literal["fixed", "backend_summary"],
+        fixed_text: str | None = None,
+        backend_result: AgentBackendTurnResult | None = None,
+    ) -> None:
+        async with self._special_response_lock:
+            while not self._closed:
+                async with self._response_lock:
+                    tasks = [
+                        task
+                        for task in self._response_tasks.values()
+                        if not task.done()
+                    ]
+                if not tasks:
+                    break
+                await asyncio.gather(*tasks, return_exceptions=True)
+            if self._closed:
+                return
+            await self._start_response(
+                self._snapshot_response_options(
+                    None,
+                    add_to_conversation=True,
+                ),
+                turn_mode=turn_mode,
+                fixed_text=fixed_text,
+                backend_result=backend_result,
+            )
+
+    async def submit_backend_approval(
+        self,
+        request_id: str,
+        approval_id: str,
+        *,
+        approved: bool,
+    ) -> bool:
+        if self._backend is None:
+            raise ValueError("当前语音智能体未绑定 Agent Backend")
+        return await self._backend.submit_approval(
+            request_id,
+            approval_id,
+            approved=approved,
+        )
+
+    async def submit_backend_question(
+        self,
+        request_id: str,
+        answers: Sequence[Mapping[str, Any]],
+    ) -> bool:
+        if self._backend is None:
+            raise ValueError("当前语音智能体未绑定 Agent Backend")
+        return await self._backend.submit_question(request_id, answers)
+
+    async def cancel_backend(self) -> bool:
+        if self._backend is None:
+            raise ValueError("当前语音智能体未绑定 Agent Backend")
+        return await self._backend.cancel()
 
     def _forget_response(self, response_id: str) -> None:
         task = self._response_tasks.pop(response_id, None)
@@ -965,58 +1094,33 @@ class RealtimeAgentRuntime:
         options: ResponseRunOptions,
         output_state: _ResponseOutput,
         history: list[dict[str, Any]],
+        turn_mode: Literal["normal", "fixed", "backend_summary"],
+        fixed_text: str | None,
+        backend_result: AgentBackendTurnResult | None,
     ) -> None:
         output_item_id = output_state.item_id
         try:
-            response_slot = (
-                self._responses_limiter.try_slot()
-                if self._responses_limiter is not None
-                else _unlimited_slot()
-            )
-            audio_output = options.output_modalities == ["audio"]
-            tts_slot = (
-                self._tts_limiter.try_slot()
-                if audio_output and self._tts_limiter is not None
-                else _unlimited_slot()
-            )
-            async with response_slot, tts_slot:
-                async with self._pool.lease(
-                    (self._response_snapshot, self._tts_snapshot)
-                    if audio_output
-                    else (self._response_snapshot,)
-                ) as leased:
-                    responses = cast(
-                        ResponsesInferencer,
-                        leased[
-                            (
-                                self._response_snapshot.id,
-                                self._response_snapshot.revision,
-                            )
-                        ],
-                    )
-                    tts = (
-                        cast(
-                            TtsInferencer,
-                            leased[
-                                (
-                                    self._tts_snapshot.id,
-                                    self._tts_snapshot.revision,
-                                )
-                            ],
-                        )
-                        if audio_output
-                        else None
-                    )
-                    completed_item = await self._stream_turn(
-                        epoch=epoch,
-                        response_id=response_id,
-                        output_item_id=output_item_id,
-                        output_state=output_state,
-                        responses=responses,
-                        tts=tts,
-                        options=options,
-                        history=history,
-                    )
+            if turn_mode == "fixed":
+                completed_item = await self._run_fixed_turn(
+                    epoch=epoch,
+                    response_id=response_id,
+                    output_item_id=output_item_id,
+                    output_state=output_state,
+                    options=options,
+                    history=history,
+                    text=fixed_text or "",
+                )
+            else:
+                completed_item = await self._run_inference_turn(
+                    epoch=epoch,
+                    response_id=response_id,
+                    output_item_id=output_item_id,
+                    output_state=output_state,
+                    options=options,
+                    history=history,
+                    turn_mode=turn_mode,
+                    backend_result=backend_result,
+                )
             await self._send_event(
                 {
                     "type": "response.done",
@@ -1072,7 +1176,443 @@ class RealtimeAgentRuntime:
                 self._terminal_responses.discard(response_id)
                 self._response_outputs.pop(response_id, None)
 
+    async def _run_inference_turn(
+        self,
+        *,
+        epoch: int,
+        response_id: str,
+        output_item_id: str,
+        output_state: _ResponseOutput,
+        options: ResponseRunOptions,
+        history: list[dict[str, Any]],
+        turn_mode: Literal["normal", "backend_summary"],
+        backend_result: AgentBackendTurnResult | None,
+    ) -> dict[str, Any]:
+        response_slot = (
+            self._responses_limiter.try_slot()
+            if self._responses_limiter is not None
+            else _unlimited_slot()
+        )
+        audio_output = options.output_modalities == ["audio"]
+        tts_slot = (
+            self._tts_limiter.try_slot()
+            if audio_output and self._tts_limiter is not None
+            else _unlimited_slot()
+        )
+        async with response_slot, tts_slot:
+            async with self._pool.lease(
+                (self._response_snapshot, self._tts_snapshot)
+                if audio_output
+                else (self._response_snapshot,)
+            ) as leased:
+                responses = cast(
+                    ResponsesInferencer,
+                    leased[
+                        (
+                            self._response_snapshot.id,
+                            self._response_snapshot.revision,
+                        )
+                    ],
+                )
+                tts = (
+                    cast(
+                        TtsInferencer,
+                        leased[
+                            (
+                                self._tts_snapshot.id,
+                                self._tts_snapshot.revision,
+                            )
+                        ],
+                    )
+                    if audio_output
+                    else None
+                )
+                if turn_mode == "backend_summary":
+                    if backend_result is None:
+                        raise RuntimeError("Agent Backend 总结缺少结果")
+                    return await self._stream_backend_summary(
+                        epoch=epoch,
+                        response_id=response_id,
+                        output_item_id=output_item_id,
+                        output_state=output_state,
+                        responses=responses,
+                        tts=tts,
+                        options=options,
+                        history=history,
+                        result=backend_result,
+                    )
+                return await self._stream_turn(
+                    epoch=epoch,
+                    response_id=response_id,
+                    output_item_id=output_item_id,
+                    output_state=output_state,
+                    responses=responses,
+                    tts=tts,
+                    options=options,
+                    history=history,
+                )
+
+    async def _run_fixed_turn(
+        self,
+        *,
+        epoch: int,
+        response_id: str,
+        output_item_id: str,
+        output_state: _ResponseOutput,
+        options: ResponseRunOptions,
+        history: list[dict[str, Any]],
+        text: str,
+    ) -> dict[str, Any]:
+        audio_output = options.output_modalities == ["audio"]
+        if not audio_output:
+            return await self._stream_fixed_text(
+                epoch=epoch,
+                response_id=response_id,
+                output_item_id=output_item_id,
+                output_state=output_state,
+                tts=None,
+                options=options,
+                history=history,
+                text=text,
+            )
+        tts_slot = (
+            self._tts_limiter.try_slot()
+            if self._tts_limiter is not None
+            else _unlimited_slot()
+        )
+        async with tts_slot:
+            async with self._pool.lease((self._tts_snapshot,)) as leased:
+                tts = cast(
+                    TtsInferencer,
+                    leased[(self._tts_snapshot.id, self._tts_snapshot.revision)],
+                )
+                return await self._stream_fixed_text(
+                    epoch=epoch,
+                    response_id=response_id,
+                    output_item_id=output_item_id,
+                    output_state=output_state,
+                    tts=tts,
+                    options=options,
+                    history=history,
+                    text=text,
+                )
+
+    async def _stream_fixed_text(
+        self,
+        *,
+        epoch: int,
+        response_id: str,
+        output_item_id: str,
+        output_state: _ResponseOutput,
+        tts: TtsInferencer | None,
+        options: ResponseRunOptions,
+        history: list[dict[str, Any]],
+        text: str,
+    ) -> dict[str, Any]:
+        await self._emit_output_started(
+            response_id=response_id,
+            item_id=output_item_id,
+            audio=tts is not None,
+            add_to_conversation=options.add_to_conversation,
+            previous_item_id=output_state.previous_item_id,
+        )
+        output_state.started = True
+        text_queue: asyncio.Queue[str | object] = asyncio.Queue()
+        audio_task = (
+            asyncio.create_task(
+                self._stream_tts(
+                    epoch=epoch,
+                    response_id=response_id,
+                    output_item_id=output_item_id,
+                    tts=tts,
+                    text_queue=text_queue,
+                    voice=options.voice,
+                )
+            )
+            if tts is not None
+            else None
+        )
+        try:
+            if text:
+                await self._send_event(
+                    {
+                        "type": (
+                            "response.output_audio_transcript.delta"
+                            if tts is not None
+                            else "response.output_text.delta"
+                        ),
+                        "event_id": f"event_{uuid4().hex}",
+                        "response_id": response_id,
+                        "item_id": output_item_id,
+                        "output_index": 0,
+                        "content_index": 0,
+                        "delta": text,
+                    }
+                )
+                output_state.text.append(text)
+                if tts is not None:
+                    await text_queue.put(text)
+            await text_queue.put(_TEXT_END)
+            if audio_task is not None:
+                await audio_task
+        except BaseException:
+            if audio_task is not None:
+                audio_task.cancel()
+                await asyncio.gather(audio_task, return_exceptions=True)
+            raise
+        if text:
+            history.append(
+                {
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": text}],
+                }
+            )
+        item = await self._finish_output(output_state, status="completed")
+        assert item is not None
+        return item
+
     async def _stream_turn(
+        self,
+        *,
+        epoch: int,
+        response_id: str,
+        output_item_id: str,
+        output_state: _ResponseOutput,
+        responses: ResponsesInferencer,
+        tts: TtsInferencer | None,
+        options: ResponseRunOptions,
+        history: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        if self._backend is None:
+            return await self._stream_responses_turn(
+                epoch=epoch,
+                response_id=response_id,
+                output_item_id=output_item_id,
+                output_state=output_state,
+                responses=responses,
+                tts=tts,
+                options=options,
+                history=history,
+            )
+        try:
+            decision = await decide_agent_backend_action(
+                responses,
+                model=self._response_config.model,
+                history=history,
+                backend_context=self._backend.context(),
+                coordinator_instructions=(
+                    self._backend.binding.coordinator_instructions
+                ),
+                reasoning_effort=options.reasoning_effort,
+            )
+        except AgentBackendDecisionError:
+            return await self._stream_fixed_text(
+                epoch=epoch,
+                response_id=response_id,
+                output_item_id=output_item_id,
+                output_state=output_state,
+                tts=tts,
+                options=options,
+                history=history,
+                text=(
+                    "我没能可靠判断是否应该调用后台智能体，"
+                    "所以这次没有执行后台操作。"
+                ),
+            )
+        if decision.action == "reply":
+            return await self._stream_responses_turn(
+                epoch=epoch,
+                response_id=response_id,
+                output_item_id=output_item_id,
+                output_state=output_state,
+                responses=responses,
+                tts=tts,
+                options=options,
+                history=history,
+            )
+        confirmation = decision.message
+        try:
+            if decision.action in {"delegate", "steer"}:
+                task = (decision.task or self._latest_user_text(history)).strip()
+                if not task:
+                    raise ValueError("协调决策缺少 backend task")
+                mode: Literal["queue", "steer"] = (
+                    "steer" if self._backend.running else "queue"
+                )
+                await self._backend.delegate(task, mode=mode)
+                confirmation = confirmation or (
+                    "好的，我已经把补充要求发给后台智能体。"
+                    if mode == "steer"
+                    else "好的，我已交给后台智能体处理，完成后告诉你。"
+                )
+            elif decision.action == "cancel":
+                cancelled = await self._backend.cancel()
+                confirmation = confirmation or (
+                    "后台任务已经取消。"
+                    if cancelled
+                    else "当前没有正在运行的后台任务。"
+                )
+            elif decision.action == "approve":
+                pending = self._backend.latest_pending()
+                if (
+                    pending is None
+                    or pending.kind != "approval"
+                    or pending.approval_id is None
+                    or decision.approval is None
+                ):
+                    raise ValueError("当前没有匹配的后台审批")
+                handled = await self._backend.submit_approval(
+                    pending.request_id,
+                    pending.approval_id,
+                    approved=decision.approval,
+                )
+                confirmation = confirmation or (
+                    ("已允许这次操作。" if decision.approval else "已拒绝这次操作。")
+                    if handled
+                    else "这个审批已经处理过了。"
+                )
+            elif decision.action == "answer":
+                pending = self._backend.latest_pending()
+                if pending is None or pending.kind != "question" or decision.answers is None:
+                    raise ValueError("当前没有匹配的后台问题")
+                handled = await self._backend.submit_question(
+                    pending.request_id,
+                    [answer.model_dump(mode="json") for answer in decision.answers],
+                )
+                confirmation = confirmation or (
+                    "答案已经发给后台智能体。"
+                    if handled
+                    else "这个问题已经处理过了。"
+                )
+        except Exception as exc:
+            confirmation = f"后台操作没有执行成功：{str(exc)[:500]}"
+        return await self._stream_fixed_text(
+            epoch=epoch,
+            response_id=response_id,
+            output_item_id=output_item_id,
+            output_state=output_state,
+            tts=tts,
+            options=options,
+            history=history,
+            text=(confirmation or "后台操作已处理。")[:4_000],
+        )
+
+    @staticmethod
+    def _latest_user_text(history: list[dict[str, Any]]) -> str:
+        for item in reversed(history):
+            if item.get("role") != "user":
+                continue
+            parts: list[str] = []
+            for block in item.get("content") or []:
+                if not isinstance(block, Mapping):
+                    continue
+                text = block.get("text") or block.get("transcript")
+                if isinstance(text, str):
+                    parts.append(text)
+            if parts:
+                return "\n".join(parts)
+        return ""
+
+    async def _stream_backend_summary(
+        self,
+        *,
+        epoch: int,
+        response_id: str,
+        output_item_id: str,
+        output_state: _ResponseOutput,
+        responses: ResponsesInferencer,
+        tts: TtsInferencer | None,
+        options: ResponseRunOptions,
+        history: list[dict[str, Any]],
+        result: AgentBackendTurnResult,
+    ) -> dict[str, Any]:
+        await self._emit_output_started(
+            response_id=response_id,
+            item_id=output_item_id,
+            audio=tts is not None,
+            add_to_conversation=options.add_to_conversation,
+            previous_item_id=output_state.previous_item_id,
+        )
+        output_state.started = True
+        text_queue: asyncio.Queue[str | object] = asyncio.Queue()
+        audio_task = (
+            asyncio.create_task(
+                self._stream_tts(
+                    epoch=epoch,
+                    response_id=response_id,
+                    output_item_id=output_item_id,
+                    tts=tts,
+                    text_queue=text_queue,
+                    voice=options.voice,
+                )
+            )
+            if tts is not None
+            else None
+        )
+        summary_payload = {
+            "backend_session_id": result.backend_session_id,
+            "final_text": result.final_text,
+            "tool_results": list(result.tool_results),
+        }
+        summary_history = list(history)
+        summary_history.append(
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": (
+                            "以下是 Agent Backend 的有界执行结果。"
+                            "请用适合语音播报的简洁中文总结，忠实说明成功、失败和限制；"
+                            "不要调用任何工具，也不要提及内部协调协议。\n"
+                            + json.dumps(summary_payload, ensure_ascii=False)
+                        ),
+                    }
+                ],
+            }
+        )
+        try:
+            calls = await self._responses_round(
+                responses=responses,
+                instructions=(
+                    self._response_config.instructions
+                    + "\n\n你正在总结 Agent Backend 已经完成的结果。"
+                ),
+                tools=[],
+                tool_choice="none",
+                response_id=response_id,
+                output_item_id=output_item_id,
+                text_queue=text_queue,
+                full_text=output_state.text,
+                audio=tts is not None,
+                function_output_index=1,
+                options=options,
+                output_state=output_state,
+                history=summary_history,
+            )
+            if calls:
+                raise RuntimeError("Agent Backend 总结调用不得产生工具调用")
+            await text_queue.put(_TEXT_END)
+            if audio_task is not None:
+                await audio_task
+        except BaseException:
+            if audio_task is not None:
+                audio_task.cancel()
+                await asyncio.gather(audio_task, return_exceptions=True)
+            raise
+        text = "".join(output_state.text)
+        if text:
+            history.append(
+                {
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": text}],
+                }
+            )
+        item = await self._finish_output(output_state, status="completed")
+        assert item is not None
+        return item
+
+    async def _stream_responses_turn(
         self,
         *,
         epoch: int,

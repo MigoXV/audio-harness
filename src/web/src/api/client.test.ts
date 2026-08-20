@@ -83,6 +83,19 @@ describe("audio harness API client", () => {
     );
   });
 
+  it("manages and probes Agent Backend resources", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ items: [{ id: "backend-1" }], total: 1, limit: 200, offset: 0 }))
+      .mockResolvedValueOnce(jsonResponse({ backend_id: "backend-1", outcome: "healthy", name: "DSH", revision: 1 }))
+      .mockResolvedValueOnce(jsonResponse({ backend_id: "backend-1", backend_revision: 1, wire_version: "0.0.1", provider: "deepseek", model: "deepseek-v4-flash", cwd: "/workspace", presets: ["standard"], plugins: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(apiClient.listAgentBackends?.()).resolves.toEqual([{ id: "backend-1" }]);
+    await expect(apiClient.validateAgentBackend?.("backend-1")).resolves.toMatchObject({ outcome: "healthy" });
+    await expect(apiClient.getAgentBackendCapabilities?.("backend-1")).resolves.toMatchObject({ presets: ["standard"] });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/agent-backends/backend-1/validate", expect.objectContaining({ method: "POST" }));
+  });
+
   it("updates workflow settings with the complete revision snapshot", async () => {
     const response = {
       min_chunk_bytes: 640,

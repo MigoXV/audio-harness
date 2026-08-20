@@ -54,6 +54,7 @@ class VoiceAgentRevisionRead(StrictSchema):
     audio_workflow_id: str
     audio_workflow_revision: int
     engine_revisions: dict[str, int]
+    agent_backend_revision: int | None = None
 
 
 class ConfigurationDiagnosticRead(StrictSchema):

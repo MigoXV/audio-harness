@@ -80,13 +80,12 @@ export function getProgress(state, { sentBytes = 0, totalBytes = 0, totalAudioMs
 }
 
 function laneIdentity(item, assigned, clusterFinal) {
-  if (assigned != null && assigned >= 0) {
+  if (assigned != null) {
     return {
       key: `cluster:${assigned}`,
-      label: `说话人 ${assigned + 1}`,
+      label: assigned >= 0 ? `说话人 ${assigned + 1}` : `说话人 ${assigned}`,
       colorKey: `cluster:${assigned}`,
       clustered: true,
-      noise: false,
       unassigned: false,
     };
   }
@@ -97,7 +96,6 @@ function laneIdentity(item, assigned, clusterFinal) {
     label: `本地说话人 ${localId}`,
     colorKey: `local:${localId}`,
     clustered: false,
-    noise: assigned === -1,
     unassigned: assigned === undefined && clusterFinal,
   };
 }
@@ -111,7 +109,6 @@ export function buildSpeakerLanes(state) {
     if (!identity) continue;
     if (!lanes.has(identity.key)) lanes.set(identity.key, { ...identity, segments: [] });
     const lane = lanes.get(identity.key);
-    lane.noise ||= identity.noise;
     lane.unassigned ||= identity.unassigned;
     lane.segments.push(item);
   }
@@ -134,7 +131,6 @@ export function buildSpeakerTranscript(state) {
     laneKey: lane.key,
     label: lane.label,
     colorKey: lane.colorKey,
-    noise: lane.noise,
     unassigned: lane.unassigned,
     segmentId: segment.segmentId,
     audioStartMs: number(segment.audio_start_ms),

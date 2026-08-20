@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -59,16 +60,37 @@ class DuplexTtsConfig(StrictModel):
         return self
 
 
+class AgentBackendBinding(StrictModel):
+    backend_id: str = Field(min_length=1, max_length=100)
+    cwd: str = Field(min_length=1, max_length=4096)
+    agent_preset: str = Field(default="standard", min_length=1, max_length=100)
+    coordinator_instructions: str = Field(default="", max_length=32_768)
+    task_timeout_seconds: float = Field(default=900, gt=0, le=86_400)
+    interaction_timeout_seconds: float = Field(default=120, gt=0, le=3_600)
+
+    @model_validator(mode="after")
+    def validate_cwd(self) -> "AgentBackendBinding":
+        if not (
+            PurePosixPath(self.cwd).is_absolute()
+            or PureWindowsPath(self.cwd).is_absolute()
+        ):
+            raise ValueError("Agent Backend cwd 必须是远端绝对路径")
+        return self
+
+
 class VoiceAgentDefinition(StrictModel):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 1
     audio_workflow_id: str = Field(min_length=1, max_length=100)
     responses_engine_id: str | None = None
     responses: ResponsesConfig = Field(default_factory=ResponsesConfig)
     tts_engine_id: str | None = None
     tts: DuplexTtsConfig = Field(default_factory=DuplexTtsConfig)
+    agent_backend: AgentBackendBinding | None = None
 
     @model_validator(mode="after")
     def validate_ready_configuration(self) -> "VoiceAgentDefinition":
+        if self.schema_version == 1 and self.agent_backend is not None:
+            raise ValueError("schema_version=1 不支持 Agent Backend 绑定")
         if self.responses_engine_id is not None and not self.responses.model.strip():
             raise ValueError("Responses 引擎已绑定时必须填写模型名称")
         if self.tts_engine_id is not None:

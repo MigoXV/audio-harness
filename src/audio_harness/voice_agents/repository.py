@@ -9,10 +9,12 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from audio_harness.agent_backends.models import AgentBackendSnapshot
 from audio_harness.engines.models import EngineAssetData, EngineSnapshot
 from audio_harness.database.mappers import asset_data
 from audio_harness.database.models import (
     EngineAsset,
+    AgentBackendAsset,
     RealtimeRoute,
     VoiceAgentActivation,
     VoiceAgentProfile,
@@ -228,6 +230,7 @@ class VoiceAgentRepository:
         compiled_profile: dict[str, Any],
         audio_workflow_revision_id: int,
         engine_snapshots: tuple[EngineSnapshot, ...],
+        agent_backend_snapshot: AgentBackendSnapshot | None = None,
     ) -> StoredVoiceAgentRevision:
         now = utc_now()
         async with self._session_factory() as session:
@@ -240,6 +243,19 @@ class VoiceAgentRepository:
                 asset = await session.get(EngineAsset, snapshot.id)
                 if asset is None or asset.revision != snapshot.revision or not asset.enabled:
                     raise VoiceAgentConflictError("语音智能体引用的引擎在验证期间发生变化")
+            if agent_backend_snapshot is not None:
+                backend = await session.get(
+                    AgentBackendAsset,
+                    agent_backend_snapshot.id,
+                )
+                if (
+                    backend is None
+                    or backend.revision != agent_backend_snapshot.revision
+                    or not backend.enabled
+                ):
+                    raise VoiceAgentConflictError(
+                        "语音智能体引用的 Agent Backend 在验证期间发生变化"
+                    )
             latest = await session.scalar(
                 select(func.max(VoiceAgentRevision.revision)).where(
                     VoiceAgentRevision.voice_agent_id == profile_id

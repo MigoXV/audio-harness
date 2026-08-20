@@ -24,11 +24,12 @@
 
 1. 先阅读[通用 API 约定](api-conventions.md)。
 2. 注册并验证[推理引擎](control-plane/engines.md)。
-3. 创建、校验并发布[语音工作流](control-plane/workflows.md)。
-4. 如需对话，创建并发布[语音智能体](control-plane/voice-agents.md)。
-5. 配置 [Realtime Route 与运行参数](control-plane/routes-runtime.md)。
-6. 选择 [Realtime WebSocket](realtime-api/README.md)或 [WebRTC](realtime-api/webrtc.md)接入。
-7. 如需人物检索，阅读[向量检索接口](control-plane/vectors.md)；如需扩展观测事件，阅读 [AHA v1](realtime-api/aha-v1.md)。
+3. 如需远端智能体，注册并验证 [Agent Backend](control-plane/agent-backends.md)。
+4. 创建、校验并发布[语音工作流](control-plane/workflows.md)。
+5. 如需对话，创建并发布[语音智能体](control-plane/voice-agents.md)。
+6. 配置 [Realtime Route 与运行参数](control-plane/routes-runtime.md)。
+7. 选择 [Realtime WebSocket](realtime-api/README.md)或 [WebRTC](realtime-api/webrtc.md)接入。
+8. 如需人物检索，阅读[向量检索接口](control-plane/vectors.md)；如需扩展观测事件，阅读 [AHA v1](realtime-api/aha-v1.md)。
 
 ## 实现下游推理引擎
 

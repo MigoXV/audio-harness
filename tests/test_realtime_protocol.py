@@ -17,6 +17,8 @@ from audio_harness.serving.realtime.protocol import (
     AhaSessionUpdateEvent,
     AhaSessionUpdatedEvent,
     AhaV1ServerEventBase,
+    AhaAgentBackendApprovalResponseEvent,
+    AhaAgentBackendQuestionResponseEvent,
 )
 
 
@@ -203,6 +205,48 @@ def test_standard_client_events_still_use_openai_models() -> None:
             "replaces_revision": None,
             "error": {"code": "failed", "message": "failed"},
         },
+        {
+            "type": "x_aha.agent_backend.session",
+            "event_id": "e",
+            "backend_id": "b",
+            "backend_session_id": "s",
+            "status": "running",
+        },
+        {
+            "type": "x_aha.agent_backend.tool.started",
+            "event_id": "e",
+            "backend_id": "b",
+            "backend_session_id": "s",
+            "seq": 1,
+            "call_id": "c",
+            "name": "bash",
+            "arguments": "{}",
+        },
+        {
+            "type": "x_aha.agent_backend.approval.requested",
+            "event_id": "e",
+            "backend_id": "b",
+            "backend_session_id": "s",
+            "request_id": "r",
+            "approval_id": "a",
+            "tool_name": "bash",
+        },
+        {
+            "type": "x_aha.agent_backend.question.requested",
+            "event_id": "e",
+            "backend_id": "b",
+            "backend_session_id": "s",
+            "request_id": "r",
+            "questions": [],
+        },
+        {
+            "type": "x_aha.agent_backend.failed",
+            "event_id": "e",
+            "backend_id": "b",
+            "backend_session_id": "s",
+            "code": "offline",
+            "message": "offline",
+        },
     ],
 )
 def test_all_aha_v1_events_are_part_of_server_union(payload: dict) -> None:
@@ -221,3 +265,27 @@ def test_aha_v1_events_forbid_unknown_fields() -> None:
                 "typo": True,
             }
         )
+
+
+def test_agent_backend_control_events_are_part_of_client_union() -> None:
+    approval = AHA_REALTIME_CLIENT_EVENT_ADAPTER.validate_python(
+        {
+            "type": "x_aha.agent_backend.approval.respond",
+            "event_id": "e",
+            "request_id": "r",
+            "approval_id": "a",
+            "approved": True,
+        }
+    )
+    question = AHA_REALTIME_CLIENT_EVENT_ADAPTER.validate_python(
+        {
+            "type": "x_aha.agent_backend.question.respond",
+            "request_id": "r",
+            "answers": [
+                {"id": "q", "selected": ["one"], "custom": None}
+            ],
+        }
+    )
+
+    assert isinstance(approval, AhaAgentBackendApprovalResponseEvent)
+    assert isinstance(question, AhaAgentBackendQuestionResponseEvent)

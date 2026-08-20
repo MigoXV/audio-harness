@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import httpx
@@ -14,6 +14,10 @@ from audio_harness.errors import (
     EngineUnavailableError,
 )
 from audio_harness.serving.host import AudioHarnessHost
+from tests.test_agent_backend_control_api import (
+    FakeAgentBackendGateway,
+    backend_payload,
+)
 
 
 class ReadyInferencer:
@@ -478,7 +482,28 @@ async def test_voice_agent_is_a_profile_over_a_published_audio_workflow(
         json={"expected_revision": 1},
     )
     assert published.status_code == 200
+    assert published.json()["agent_backend_revision"] is None
     assert published.json()["audio_workflow_revision"] == 1
+    stored_revision = (
+        await control_plane.host.voice_agents.repository.get_revision(
+            agent_id,
+            1,
+        )
+    )
+    legacy_document = {
+        key: value
+        for key, value in stored_revision.compiled_profile.items()
+        if key != "agent_backend"
+    }
+    legacy_document["schema_version"] = 1
+    restored_legacy = await control_plane.host.voice_agents._restore(
+        replace(
+            stored_revision,
+            compiled_profile=legacy_document,
+        )
+    )
+    assert restored_legacy.definition.schema_version == 1
+    assert restored_legacy.agent_backend is None
 
     route = await control_plane.client.put(
         "/api/v1/realtime-routes/assistant",
@@ -562,6 +587,154 @@ async def test_voice_agent_is_a_profile_over_a_published_audio_workflow(
     ).status_code == 204
 
 
+@pytest.mark.asyncio
+async def test_voice_agent_v2_freezes_agent_backend_snapshot_and_preset(
+    control_plane: ControlPlane,
+) -> None:
+    gateway = FakeAgentBackendGateway()
+    control_plane.host.agent_backends._gateway = gateway
+    backend = await control_plane.client.post(
+        "/api/v1/agent-backends",
+        json=backend_payload("voice-dsh"),
+    )
+    assert backend.status_code == 201
+    backend_id = backend.json()["id"]
+    await bind_and_publish_audio_workflow(control_plane.client)
+    responses = await control_plane.client.post(
+        "/api/v1/engines",
+        json=engine_payload(
+            "responses-v2",
+            kind="llm",
+            api="responses",
+            protocol="https",
+        ),
+    )
+    tts = await control_plane.client.post(
+        "/api/v1/engines",
+        json=engine_payload("tts-v2", kind="tts", api="qwen_tts_duplex"),
+    )
+    definition = {
+        "schema_version": 2,
+        "audio_workflow_id": "default-audio",
+        "responses_engine_id": responses.json()["id"],
+        "responses": {"model": "test-model"},
+        "tts_engine_id": tts.json()["id"],
+        "tts": {
+            "default_voice": "voice-a",
+            "allowed_voices": ["voice-a"],
+        },
+        "agent_backend": {
+            "backend_id": backend_id,
+            "cwd": "/srv/project",
+            "agent_preset": "standard",
+            "coordinator_instructions": "文件操作交给 DSH",
+            "task_timeout_seconds": 900,
+            "interaction_timeout_seconds": 120,
+        },
+    }
+    created = await control_plane.client.post(
+        "/api/v1/voice-agents",
+        json={
+            "slug": "assistant-v2",
+            "name": "Assistant V2",
+            "definition": definition,
+        },
+    )
+    assert created.status_code == 201
+    agent_id = created.json()["id"]
+    validation = await control_plane.client.post(
+        f"/api/v1/voice-agents/{agent_id}/validate"
+    )
+    assert validation.json() == {"valid": True, "diagnostics": []}
+    published = await control_plane.client.post(
+        f"/api/v1/voice-agents/{agent_id}/publish",
+        json={"expected_revision": 1},
+    )
+    assert published.status_code == 200
+    assert published.json()["agent_backend_revision"] == 1
+    active = control_plane.host.voice_agents.current(agent_id)
+    assert active.agent_backend is not None
+    assert active.agent_backend.id == backend_id
+    assert active.agent_backend.revision == 1
+    stored = await control_plane.host.voice_agents.repository.get_revision(
+        agent_id,
+        1,
+    )
+    assert stored.compiled_profile["schema_version"] == 2
+    assert stored.compiled_profile["agent_backend"]["revision"] == 1
+    assert stored.compiled_profile["agent_backend"]["headers_env"] == {
+        "Authorization": "DSH_AUTHORIZATION"
+    }
+
+    changed = await control_plane.client.patch(
+        f"/api/v1/agent-backends/{backend_id}",
+        json={"target": "http://127.0.0.1:3081"},
+    )
+    assert changed.status_code == 200
+    assert changed.json()["revision"] == 2
+    assert active.agent_backend.revision == 1
+    assert active.agent_backend.target == "http://127.0.0.1:3080"
+
+    missing_preset = dict(definition)
+    missing_preset["agent_backend"] = {
+        **definition["agent_backend"],
+        "agent_preset": "missing",
+    }
+    updated = await control_plane.client.put(
+        f"/api/v1/voice-agents/{agent_id}/draft",
+        json={"expected_revision": 1, "definition": missing_preset},
+    )
+    assert updated.status_code == 200
+    invalid = await control_plane.client.post(
+        f"/api/v1/voice-agents/{agent_id}/validate"
+    )
+    assert invalid.json()["valid"] is False
+    assert invalid.json()["diagnostics"] == [
+        {
+            "code": "agent_backend_preset_missing",
+            "message": "Agent Backend 不存在 preset: missing",
+            "field": "agent_backend.agent_preset",
+        }
+    ]
+
+    restored_draft = await control_plane.client.put(
+        f"/api/v1/voice-agents/{agent_id}/draft",
+        json={"expected_revision": 2, "definition": definition},
+    )
+    assert restored_draft.status_code == 200
+    gateway.failure = RuntimeError("DSH offline")
+    unavailable = await control_plane.client.post(
+        f"/api/v1/voice-agents/{agent_id}/validate"
+    )
+    assert unavailable.json()["diagnostics"][0]["code"] == (
+        "agent_backend_unavailable"
+    )
+    gateway.failure = None
+
+    disabled_payload = backend_payload("disabled-dsh")
+    disabled_payload["enabled"] = False
+    disabled = await control_plane.client.post(
+        "/api/v1/agent-backends",
+        json=disabled_payload,
+    )
+    disabled_definition = dict(definition)
+    disabled_definition["agent_backend"] = {
+        **definition["agent_backend"],
+        "backend_id": disabled.json()["id"],
+    }
+    disabled_draft = await control_plane.client.put(
+        f"/api/v1/voice-agents/{agent_id}/draft",
+        json={"expected_revision": 3, "definition": disabled_definition},
+    )
+    assert disabled_draft.status_code == 200
+    disabled_validation = await control_plane.client.post(
+        f"/api/v1/voice-agents/{agent_id}/validate"
+    )
+    assert disabled_validation.json()["diagnostics"][0]["code"] == (
+        "agent_backend_disabled"
+    )
+
+
 def test_old_database_revision_is_rejected(tmp_path: Path) -> None:
     path = tmp_path / "old.db"
     import sqlite3
@@ -590,7 +763,7 @@ def test_vector_space_registry_revision_can_be_cleaned_up(tmp_path: Path) -> Non
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
     assert "vector_spaces" not in tables
-    assert revision == ("0005_received_audio_cache",)
+    assert revision == ("0006_agent_backends",)
 
 
 def test_grpc_server_columns_are_removed_without_losing_settings(

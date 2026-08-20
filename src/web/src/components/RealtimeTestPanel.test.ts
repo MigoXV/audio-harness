@@ -8,6 +8,9 @@ import {
   isResponseTextDelta,
   isTtsFirstAudio,
   appendGroupedEvent,
+  backendApprovalResponse,
+  backendCancelEvent,
+  backendQuestionResponse,
   completedTranscriptIsSuperseded,
   eventDetail,
   nextTranscriptView,
@@ -183,6 +186,20 @@ describe("eventDetail", () => {
       audio_start_ms: 100,
       audio_end_ms: 2300,
     })).toBe("过滤失败 · 人物检索不可用 · 100–2300 ms");
+  });
+
+  it("describes DSH progress without exposing reasoning", () => {
+    expect(eventDetail({ type: "x_aha.agent_backend.tool.started", name: "bash", arguments: "df -h" })).toBe("bash · df -h");
+    expect(eventDetail({ type: "x_aha.agent_backend.turn.completed" })).toBe("DSH 执行结束，等待 Responses 总结");
+    expect(eventDetail({ type: "x_aha.agent_backend.failed", message: "连接中断" })).toBe("连接中断");
+  });
+});
+
+describe("Agent Backend AHA controls", () => {
+  it("builds approval, question and explicit cancel events", () => {
+    expect(backendApprovalResponse("request-1", "approval-1", true)).toEqual({ type: "x_aha.agent_backend.approval.respond", request_id: "request-1", approval_id: "approval-1", approved: true });
+    expect(backendQuestionResponse("request-2", [{ id: "scope", selected: ["当前目录"], custom: null }])).toEqual({ type: "x_aha.agent_backend.question.respond", request_id: "request-2", answers: [{ id: "scope", selected: ["当前目录"], custom: null }] });
+    expect(backendCancelEvent()).toEqual({ type: "x_aha.agent_backend.cancel" });
   });
 });
 

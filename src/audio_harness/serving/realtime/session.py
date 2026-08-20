@@ -43,6 +43,7 @@ from openai.types.realtime.conversation_item_input_audio_transcription_failed_ev
 )
 
 from audio_harness.inferencers.asr.base import AsrInferencer
+from audio_harness.agent_backends.base import AgentBackendGateway
 from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
 from audio_harness.engines.pool import InferencerPool
 from audio_harness.media.audio_cache import ReceivedAudioCache
@@ -58,6 +59,9 @@ from audio_harness.serving.realtime.agent import (
     VoiceResolver,
 )
 from audio_harness.serving.realtime.protocol import (
+    AhaAgentBackendApprovalResponseEvent,
+    AhaAgentBackendCancelEvent,
+    AhaAgentBackendQuestionResponseEvent,
     AhaDiarizationClusterCompletedEvent,
     AhaDiarizationClusterFailedEvent,
     AhaDiarizationLocalCompletedEvent,
@@ -291,6 +295,7 @@ class RealtimeTranscriptionSession:
         transport: Literal["websocket", "webrtc"] = "websocket",
         session_identifier: str | None = None,
         received_audio_cache_dir: Path = Path("./data-bin/cache"),
+        agent_backend_gateway: AgentBackendGateway | None = None,
     ) -> None:
         self._send_event = send_event
         self._session_service = session_service
@@ -359,6 +364,8 @@ class RealtimeTranscriptionSession:
                 tool_registry=tool_registry or ToolRegistry(),
                 voice_resolver=voice_resolver,
                 finish_audio=finish_audio,
+                agent_backend_gateway=agent_backend_gateway,
+                backend_extension_events_enabled=aha_version == "v1",
             )
             if initial_session is not None:
                 self._agent.update_options(
@@ -451,6 +458,55 @@ class RealtimeTranscriptionSession:
             )
 
     async def handle_client_event(self, event: AhaRealtimeClientEvent) -> None:
+        if isinstance(
+            event,
+            (
+                AhaAgentBackendApprovalResponseEvent,
+                AhaAgentBackendQuestionResponseEvent,
+                AhaAgentBackendCancelEvent,
+            ),
+        ):
+            if self._aha_version != "v1":
+                await self.send_error(
+                    message="Agent Backend 控制事件需要协商 x_aha=v1",
+                    code="aha_not_negotiated",
+                    client_event_id=event.event_id,
+                    param="type",
+                )
+                return
+            if self._agent is None:
+                await self.send_error(
+                    message="当前会话不是语音智能体",
+                    code="unsupported_event",
+                    client_event_id=event.event_id,
+                    param="type",
+                )
+                return
+            try:
+                if isinstance(event, AhaAgentBackendApprovalResponseEvent):
+                    await self._agent.submit_backend_approval(
+                        event.request_id,
+                        event.approval_id,
+                        approved=event.approved,
+                    )
+                elif isinstance(event, AhaAgentBackendQuestionResponseEvent):
+                    await self._agent.submit_backend_question(
+                        event.request_id,
+                        [
+                            answer.model_dump(mode="json")
+                            for answer in event.answers
+                        ],
+                    )
+                else:
+                    await self._agent.cancel_backend()
+            except ValueError as exc:
+                await self.send_error(
+                    message=str(exc),
+                    code="agent_backend_invalid",
+                    client_event_id=event.event_id,
+                    param="type",
+                )
+            return
         if isinstance(event, SessionUpdateEvent):
             await self._handle_session_update(event)
             return

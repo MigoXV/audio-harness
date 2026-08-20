@@ -14,6 +14,9 @@ from .aha_v1 import (
     AhaDiarizationLocalFailedEvent,
     AhaDiarizationSegment,
     AhaError,
+    AhaAgentBackendApprovalResponseEvent,
+    AhaAgentBackendCancelEvent,
+    AhaAgentBackendQuestionResponseEvent,
     AhaInputAudioTranscriptionInterimClearedEvent,
     AhaInputAudioTranscriptionInterimEvent,
     AhaSpeakerTranscriptionCompletedEvent,
@@ -24,6 +27,7 @@ from .aha_v1 import (
     AhaSpeakerFilterRejectedEvent,
     AhaV1ServerEvent,
     AhaV1ServerEventBase,
+    AhaV1ClientEvent,
     AhaVadPhysicalSpeechStoppedEvent,
     AhaVadProgressEvent,
     AhaVectorObservation,
@@ -41,7 +45,9 @@ from .session import (
     AhaSessionUpdatedEvent,
 )
 
-AhaRealtimeClientEvent: TypeAlias = AhaSessionUpdateEvent | RealtimeClientEvent
+AhaRealtimeClientEvent: TypeAlias = (
+    AhaSessionUpdateEvent | AhaV1ClientEvent | RealtimeClientEvent
+)
 AhaRealtimeServerEvent: TypeAlias = (
     AhaSessionCreatedEvent
     | AhaSessionUpdatedEvent
@@ -58,6 +64,9 @@ __all__ = [
     "AHA_REALTIME_SERVER_EVENT_ADAPTER",
     "AHA_REALTIME_SESSION_ADAPTER",
     "AhaAudioPCM",
+    "AhaAgentBackendApprovalResponseEvent",
+    "AhaAgentBackendCancelEvent",
+    "AhaAgentBackendQuestionResponseEvent",
     "AhaDiarizationClusterAssignment",
     "AhaDiarizationClusterCompletedEvent",
     "AhaDiarizationClusterFailedEvent",

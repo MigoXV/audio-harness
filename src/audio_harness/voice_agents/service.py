@@ -4,6 +4,15 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any
 
+from audio_harness.agent_backends.catalog import (
+    AgentBackendCatalog,
+    AgentBackendCatalogError,
+)
+from audio_harness.agent_backends.models import (
+    AgentBackendKind,
+    AgentBackendProtocol,
+    AgentBackendSnapshot,
+)
 from audio_harness.engines.models import EngineApi, EngineProtocol, EngineSnapshot
 from audio_harness.engines.pool import InferencerPool
 from audio_harness.voice_agents.models import VoiceAgentDefinition
@@ -37,6 +46,7 @@ class _VoiceAgentInputs:
     audio: ActiveAudioWorkflow
     responses: EngineSnapshot
     tts: EngineSnapshot
+    agent_backend: AgentBackendSnapshot | None
 
 
 @dataclass(frozen=True)
@@ -47,6 +57,7 @@ class ActiveVoiceAgent:
     audio_workflow: ActiveAudioWorkflow
     responses_engine: EngineSnapshot
     tts_engine: EngineSnapshot
+    agent_backend: AgentBackendSnapshot | None = None
 
     @property
     def engine_snapshots(self) -> tuple[EngineSnapshot, EngineSnapshot]:
@@ -95,6 +106,40 @@ def _restore_snapshot(raw: object) -> EngineSnapshot:
     )
 
 
+def _agent_backend_snapshot_document(
+    snapshot: AgentBackendSnapshot,
+) -> dict[str, Any]:
+    return {
+        "id": snapshot.id,
+        "revision": snapshot.revision,
+        "name": snapshot.name,
+        "kind": snapshot.kind.value,
+        "protocol": snapshot.protocol.value,
+        "target": snapshot.target,
+        "connect_timeout_seconds": snapshot.connect_timeout_seconds,
+        "request_timeout_seconds": snapshot.request_timeout_seconds,
+        "headers_env": dict(snapshot.headers_env),
+        "details": dict(snapshot.details),
+    }
+
+
+def _restore_agent_backend_snapshot(raw: object) -> AgentBackendSnapshot:
+    if not isinstance(raw, dict):
+        raise ValueError("语音智能体执行计划缺少 Agent Backend 快照")
+    return AgentBackendSnapshot(
+        id=str(raw["id"]),
+        revision=int(raw["revision"]),
+        name=str(raw["name"]),
+        kind=AgentBackendKind(str(raw["kind"])),
+        protocol=AgentBackendProtocol(str(raw["protocol"])),
+        target=str(raw["target"]),
+        connect_timeout_seconds=float(raw["connect_timeout_seconds"]),
+        request_timeout_seconds=float(raw["request_timeout_seconds"]),
+        headers_env=dict(raw.get("headers_env") or {}),
+        details=dict(raw.get("details") or {}),
+    )
+
+
 class VoiceAgentService:
     def __init__(
         self,
@@ -102,10 +147,12 @@ class VoiceAgentService:
         *,
         audio_workflows: AudioWorkflowService,
         inferencer_pool: InferencerPool,
+        agent_backends: AgentBackendCatalog | None = None,
     ) -> None:
         self.repository = repository
         self.audio_workflows = audio_workflows
         self._inferencer_pool = inferencer_pool
+        self._agent_backends = agent_backends
         self._active: dict[str, ActiveVoiceAgent] = {}
         self._publish_lock = asyncio.Lock()
 
@@ -251,6 +298,65 @@ class VoiceAgentService:
                     field="tts_engine_id",
                 )
             )
+        backend_snapshot: AgentBackendSnapshot | None = None
+        binding = definition.agent_backend
+        if binding is not None:
+            if self._agent_backends is None:
+                diagnostics.append(
+                    VoiceAgentDiagnostic(
+                        code="agent_backend_unavailable",
+                        message="Agent Backend 控制面未配置",
+                        field="agent_backend.backend_id",
+                    )
+                )
+            else:
+                try:
+                    backend_asset = await self._agent_backends.get_asset(
+                        binding.backend_id
+                    )
+                    if not backend_asset.enabled:
+                        diagnostics.append(
+                            VoiceAgentDiagnostic(
+                                code="agent_backend_disabled",
+                                message="Agent Backend 已停用",
+                                field="agent_backend.backend_id",
+                            )
+                        )
+                        backend_asset = None
+                    if backend_asset is not None:
+                        backend_asset, capabilities = (
+                            await self._agent_backends.capabilities(
+                                binding.backend_id
+                            )
+                        )
+                except AgentBackendCatalogError as exc:
+                    diagnostics.append(
+                        VoiceAgentDiagnostic(
+                            code=getattr(
+                                exc,
+                                "code",
+                                "agent_backend_unavailable",
+                            ),
+                            message=str(exc),
+                            field="agent_backend.backend_id",
+                        )
+                    )
+                else:
+                    if backend_asset is None:
+                        pass
+                    elif binding.agent_preset not in capabilities.presets:
+                        diagnostics.append(
+                            VoiceAgentDiagnostic(
+                                code="agent_backend_preset_missing",
+                                message=(
+                                    "Agent Backend 不存在 preset: "
+                                    f"{binding.agent_preset}"
+                                ),
+                                field="agent_backend.agent_preset",
+                            )
+                        )
+                    else:
+                        backend_snapshot = backend_asset.snapshot()
         if diagnostics or audio is None or responses_asset is None or tts_asset is None:
             return tuple(diagnostics), None
         return (
@@ -259,6 +365,7 @@ class VoiceAgentService:
                 audio=audio,
                 responses=responses_asset.snapshot(),
                 tts=tts_asset.snapshot(),
+                agent_backend=backend_snapshot,
             ),
         )
 
@@ -289,6 +396,7 @@ class VoiceAgentService:
             audio = inputs.audio
             responses = inputs.responses
             tts = inputs.tts
+            agent_backend = inputs.agent_backend
             try:
                 await self._inferencer_pool.prepare_all((responses, tts))
             except asyncio.CancelledError:
@@ -296,10 +404,15 @@ class VoiceAgentService:
             except Exception as exc:
                 raise VoiceAgentPublishError(f"语音智能体引擎准备失败: {exc}") from exc
             compiled = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "audio_workflow_revision_id": audio.database_revision_id,
                 "responses_engine": _snapshot_document(responses),
                 "tts_engine": _snapshot_document(tts),
+                "agent_backend": (
+                    _agent_backend_snapshot_document(agent_backend)
+                    if agent_backend is not None
+                    else None
+                ),
             }
             stored = await self.repository.activate(
                 profile_id,
@@ -308,6 +421,7 @@ class VoiceAgentService:
                 compiled_profile=compiled,
                 audio_workflow_revision_id=audio.database_revision_id,
                 engine_snapshots=(responses, tts),
+                agent_backend_snapshot=agent_backend,
             )
             active = ActiveVoiceAgent(
                 id=profile_id,
@@ -316,6 +430,7 @@ class VoiceAgentService:
                 audio_workflow=audio,
                 responses_engine=responses,
                 tts_engine=tts,
+                agent_backend=agent_backend,
             )
             previous = self._active.get(profile_id)
             self._active[profile_id] = active
@@ -329,6 +444,24 @@ class VoiceAgentService:
                     if (snapshot.id, snapshot.revision) not in live:
                         await self._inferencer_pool.retire_snapshot(
                             snapshot.id, snapshot.revision
+                        )
+                if (
+                    self._agent_backends is not None
+                    and previous.agent_backend is not None
+                ):
+                    live_backends = {
+                        (profile.agent_backend.id, profile.agent_backend.revision)
+                        for profile in self._active.values()
+                        if profile.agent_backend is not None
+                    }
+                    previous_backend = previous.agent_backend
+                    if (
+                        previous_backend.id,
+                        previous_backend.revision,
+                    ) not in live_backends:
+                        await self._agent_backends.retire_snapshot(
+                            previous_backend.id,
+                            previous_backend.revision,
                         )
             return active
 
@@ -379,10 +512,23 @@ class VoiceAgentService:
                     snapshot.id,
                     snapshot.revision,
                 )
+        if self._agent_backends is not None and previous.agent_backend is not None:
+            live_backends = {
+                (profile.agent_backend.id, profile.agent_backend.revision)
+                for profile in self._active.values()
+                if profile.agent_backend is not None
+            }
+            backend = previous.agent_backend
+            if (backend.id, backend.revision) not in live_backends:
+                await self._agent_backends.retire_snapshot(
+                    backend.id,
+                    backend.revision,
+                )
 
     async def _restore(self, stored: StoredVoiceAgentRevision) -> ActiveVoiceAgent:
         document = stored.compiled_profile
-        if document.get("schema_version") != 1:
+        schema_version = document.get("schema_version")
+        if schema_version not in {1, 2}:
             raise ValueError("语音智能体执行计划版本不支持")
         responses = _restore_snapshot(document.get("responses_engine"))
         tts = _restore_snapshot(document.get("tts_engine"))
@@ -390,6 +536,11 @@ class VoiceAgentService:
             raise ValueError("语音智能体 Responses 快照 API 不匹配")
         if tts.api is not EngineApi.QWEN_TTS_DUPLEX:
             raise ValueError("语音智能体 TTS 快照 API 不匹配")
+        agent_backend = (
+            _restore_agent_backend_snapshot(document.get("agent_backend"))
+            if schema_version == 2 and document.get("agent_backend") is not None
+            else None
+        )
         return ActiveVoiceAgent(
             id=stored.voice_agent_id,
             revision=stored.revision,
@@ -399,4 +550,5 @@ class VoiceAgentService:
             ),
             responses_engine=responses,
             tts_engine=tts,
+            agent_backend=agent_backend,
         )

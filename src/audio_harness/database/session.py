@@ -15,11 +15,12 @@ from sqlalchemy.ext.asyncio import (
 )
 
 
-DATABASE_BASELINE_REVISION = "0005_received_audio_cache"
+DATABASE_BASELINE_REVISION = "0006_agent_backends"
 DATABASE_CLEANUP_REVISIONS = {
     "0002_vector_search",
     "0003_remove_vector_spaces",
     "0004_remove_grpc_server",
+    "0005_received_audio_cache",
 }
 
 

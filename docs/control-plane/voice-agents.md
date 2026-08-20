@@ -36,7 +36,7 @@ Voice Agent 在已发布 Audio Workflow 上绑定 OpenAI-compatible Responses、
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "audio_workflow_id": "wf_xxx",
   "responses_engine_id": "eng_responses",
   "responses": {
@@ -57,11 +57,26 @@ Voice Agent 在已发布 Audio Workflow 上绑定 OpenAI-compatible Responses、
     "allowed_voices": ["voice_xxx"],
     "language": "Auto",
     "decoder_chunk_size": 0
+  },
+  "agent_backend": {
+    "backend_id": "backend_dsh",
+    "cwd": "/workspace/project",
+    "agent_preset": "standard",
+    "coordinator_instructions": "代码任务优先委派给 DSH。",
+    "task_timeout_seconds": 900,
+    "interaction_timeout_seconds": 120
   }
 }
 ```
 
-约束：Responses Engine 已绑定时 `model` 不能为空；TTS Engine 已绑定时 `allowed_voices` 非空且包含 `default_voice`。发布要求所引用 Workflow 已激活，Responses/TTS Engine 存在、启用且 API 匹配，引用 Voice Asset 存在。
+`schema_version=1` 的历史草稿与发布 revision 仍可读取且无需重写；只有 v2 能绑定
+`agent_backend`。`cwd` 必须是由远端后端解释的绝对路径。发布时会重新探测 backend，
+验证 preset 存在且资源 revision 未发生并发变化，并把完整 backend snapshot 固化到
+compiled profile。后续编辑或停用资源不会热改已运行的旧 revision。
+
+其他约束：Responses Engine 已绑定时 `model` 不能为空；TTS Engine 已绑定时
+`allowed_voices` 非空且包含 `default_voice`。发布要求所引用 Workflow 已激活，
+Responses/TTS Engine 存在、启用且 API 匹配，引用 Voice Asset 存在。
 
 ## Responses、历史和工具
 
@@ -72,6 +87,10 @@ Voice Agent 在已发布 Audio Workflow 上绑定 OpenAI-compatible Responses、
 - 主转写工作流包含 `speaker_filter` 时，默认自动响应会在用户指令之后追加当前匹配的 `speaker_id` 与 `score`。该可信上下文只用于当前发言，不写入历史，不包含 embedding 或 Qdrant payload，也不得被表述为账户级身份认证。
 - 控制台提供“仅向量解锁”“按 Speaker ID 个性化”“多人物白名单”模板；模板只写入现有 `instructions`，应用后仍可编辑。
 - MCP 工具公开名为 `mcp__<server_label>__<remote_name>`，连接先尝试 Streamable HTTP，失败后回退 SSE。
+- Agent Backend 不会加入 Responses 工具列表。绑定后，Responses 通过严格 JSON Schema
+  选择直接回复、委派、steer、取消或回答待处理交互；协调结果解析失败只修复重试一次。
+- DSH 最终文本和有界工具结果进入单独的无工具 Responses 总结调用。每条 Realtime
+  连接复用一个 DSH session，连接关闭取消运行任务但保留远端 session 和日志。
 
 MCP 配置：
 
@@ -110,4 +129,6 @@ curl -sS http://localhost:8000/api/v1/voices \
 
 ## 发布结果
 
-`VoiceAgentRevisionRead` 固定 Agent `revision`、完整 definition、`audio_workflow_id/revision`，并分别记录 Responses 与 TTS Engine revision。发布不会自动创建 Realtime Route；必须在[接入与运行](routes-runtime.md)中显式配置公开 model。
+`VoiceAgentRevisionRead` 固定 Agent `revision`、完整 definition、`audio_workflow_id/revision`，
+分别记录 Responses 与 TTS Engine revision，并在绑定时记录 `agent_backend_revision`。
+发布不会自动创建 Realtime Route；必须在[接入与运行](routes-runtime.md)中显式配置公开 model。

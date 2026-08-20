@@ -1,5 +1,9 @@
 import type {
   AudioHarnessApi,
+  AgentBackend,
+  AgentBackendCapabilities,
+  AgentBackendCreate,
+  AgentBackendValidation,
   AudioNodeType,
   AudioWorkflow,
   AudioWorkflowDraft,
@@ -119,6 +123,15 @@ export const apiClient: AudioHarnessApi = {
   getRealtimeRoute(model, signal) { return request<RealtimeRoute>(`/api/v1/realtime-routes/${encodeURIComponent(model)}`, { signal }); },
   putRealtimeRoute(route) { return request<RealtimeRoute>(`/api/v1/realtime-routes/${encodeURIComponent(route.model)}`, { method: "PUT", body: JSON.stringify(route) }); },
   async deleteRealtimeRoute(model) { await request(`/api/v1/realtime-routes/${encodeURIComponent(model)}`, { method: "DELETE" }); },
+
+  async listAgentBackends(signal) { return (await request<{ items: AgentBackend[] }>("/api/v1/agent-backends?limit=200", { signal })).items; },
+  getAgentBackend(id, signal) { return request<AgentBackend>(`/api/v1/agent-backends/${encodeURIComponent(id)}`, { signal }); },
+  createAgentBackend(payload: AgentBackendCreate) { return request<AgentBackend>("/api/v1/agent-backends", { method: "POST", body: JSON.stringify(payload) }); },
+  updateAgentBackend(id, payload) { return request<AgentBackend>(`/api/v1/agent-backends/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) }); },
+  async deleteAgentBackend(id) { await request(`/api/v1/agent-backends/${encodeURIComponent(id)}`, { method: "DELETE" }); },
+  validateAgentBackend(id) { return request<AgentBackendValidation>(`/api/v1/agent-backends/${encodeURIComponent(id)}/validate`, { method: "POST" }); },
+  getAgentBackendCapabilities(id, signal) { return request<AgentBackendCapabilities>(`/api/v1/agent-backends/${encodeURIComponent(id)}/capabilities`, { signal }); },
+  getAgentBackendUsage(id, signal) { return request(`/api/v1/agent-backends/${encodeURIComponent(id)}/usage`, { signal }); },
 
   getRuntimeOverview(signal) { return request<RuntimeOverview>("/api/v1/runtime/overview", { signal }); },
   getWorkflowSettings(signal) { return request<WorkflowSettings>("/api/v1/settings/workflow", { signal }); },

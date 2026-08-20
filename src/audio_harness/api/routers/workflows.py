@@ -67,6 +67,11 @@ def voice_agent_revision(value) -> VoiceAgentRevisionRead:
             "responses": value.responses_engine.revision,
             "tts": value.tts_engine.revision,
         },
+        agent_backend_revision=(
+            value.agent_backend.revision
+            if value.agent_backend is not None
+            else None
+        ),
     )
 
 
