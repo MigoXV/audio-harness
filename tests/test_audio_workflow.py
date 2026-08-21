@@ -55,7 +55,12 @@ from audio_harness.workflows.models import (
     VectorSearchNode,
     VectorSearchNodeConfig,
 )
-from audio_harness.workflows.runtime import PhysicalVadSession, VadProgressLimiter
+from audio_harness.workflows.runtime import (
+    PhysicalVadSession,
+    SemanticVadSession,
+    VadProgressLimiter,
+    _SegmentCandidate,
+)
 from audio_harness.vectors.models import SpeakerMatch, VectorObservation
 
 
@@ -249,6 +254,39 @@ def test_physical_vad_keeps_speech_start_across_max_length_segments() -> None:
         ("speech_stopped", 0),
     ]
     assert second[-1][1].end_sample == 8
+
+
+@pytest.mark.asyncio
+async def test_semantic_vad_preserves_gaps_in_the_session_timeline() -> None:
+    state = SemanticVadSession(
+        config=SemanticVadNode(id="semantic", engine_id="vad-engine").config,
+        sample_rate=1,
+    )
+    inferencer = _Vad([], turns=[False, True])
+
+    first = await state.accept(
+        _SegmentCandidate(bytes(4), start_sample=10, end_sample=12),
+        inferencer=inferencer,
+        failure_policy=FailurePolicy.FAIL_OPEN,
+    )
+    second = await state.accept(
+        _SegmentCandidate(bytes(4), start_sample=20, end_sample=22),
+        inferencer=inferencer,
+        failure_policy=FailurePolicy.FAIL_OPEN,
+    )
+
+    segment = next(payload for port, payload in second if port == "segments")
+    stopped = next(
+        payload for port, payload in second if port == "speech_stopped"
+    )
+    assert [port for port, _ in first] == ["turn_progress"]
+    assert segment.audio == bytes(8)
+    assert (segment.start_sample, segment.end_sample) == (10, 22)
+    assert [
+        (span.input_start_sample, span.input_end_sample, span.session_start_sample)
+        for span in segment.timeline_spans
+    ] == [(0, 2, 10), (2, 4, 20)]
+    assert (stopped.start_sample, stopped.end_sample) == (10, 22)
 
 
 def test_speaker_clustering_uses_safe_hdbscan_defaults() -> None:

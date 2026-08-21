@@ -141,6 +141,20 @@ class _Envelope:
     payload: object
 
 
+class _TimelineSpan(NamedTuple):
+    """压缩音频区间到会话绝对采样位置的映射。"""
+
+    input_start_sample: int
+    input_end_sample: int
+    session_start_sample: int
+
+    @property
+    def session_end_sample(self) -> int:
+        return self.session_start_sample + (
+            self.input_end_sample - self.input_start_sample
+        )
+
+
 class _SegmentCandidate(NamedTuple):
     audio: bytes
     start_sample: int
@@ -148,6 +162,43 @@ class _SegmentCandidate(NamedTuple):
     turn_completed: bool = True
     evaluate_turn: bool = True
     diarization: "_DiarizationContext | None" = None
+    timeline_spans: tuple[_TimelineSpan, ...] = ()
+
+
+def _candidate_timeline_spans(
+    candidate: _SegmentCandidate,
+) -> tuple[_TimelineSpan, ...]:
+    if candidate.timeline_spans:
+        return candidate.timeline_spans
+    samples = len(candidate.audio) // 2
+    if samples <= 0:
+        return ()
+    return (_TimelineSpan(0, samples, candidate.start_sample),)
+
+
+def _slice_timeline_spans(
+    spans: tuple[_TimelineSpan, ...],
+    start_sample: int,
+    end_sample: int,
+) -> tuple[_TimelineSpan, ...]:
+    result: list[_TimelineSpan] = []
+    for span in spans:
+        overlap_start = max(start_sample, span.input_start_sample)
+        overlap_end = min(end_sample, span.input_end_sample)
+        if overlap_end <= overlap_start:
+            continue
+        result.append(
+            _TimelineSpan(
+                input_start_sample=overlap_start - start_sample,
+                input_end_sample=overlap_end - start_sample,
+                session_start_sample=(
+                    span.session_start_sample
+                    + overlap_start
+                    - span.input_start_sample
+                ),
+            )
+        )
+    return tuple(result)
 
 
 @dataclass(frozen=True)
@@ -454,32 +505,40 @@ class DiarizationBatcher:
     def pending_samples(self) -> int:
         return len(self._audio) // 2
 
-    def _append(
+    def _append_candidate_slice(
         self,
-        audio: bytes,
-        session_start_sample: int,
+        candidate: _SegmentCandidate,
+        start_sample: int,
+        end_sample: int,
         *,
         source_id: str,
-        source_start_sample: int,
-        source_end_sample: int,
         source_completed: bool,
     ) -> None:
+        audio = candidate.audio[start_sample * 2 : end_sample * 2]
         samples = len(audio) // 2
         if samples <= 0:
             return
         input_start = self.pending_samples
         self._audio.extend(audio)
-        self._spans.append(
-            _DiarizationSourceSpan(
-                input_start_sample=input_start,
-                input_end_sample=input_start + samples,
-                session_start_sample=session_start_sample,
-                source_id=source_id,
-                source_start_sample=source_start_sample,
-                source_end_sample=source_end_sample,
-                source_completed=source_completed,
-            )
+        spans = _slice_timeline_spans(
+            _candidate_timeline_spans(candidate),
+            start_sample,
+            end_sample,
         )
+        for index, span in enumerate(spans):
+            self._spans.append(
+                _DiarizationSourceSpan(
+                    input_start_sample=input_start + span.input_start_sample,
+                    input_end_sample=input_start + span.input_end_sample,
+                    session_start_sample=span.session_start_sample,
+                    source_id=source_id,
+                    source_start_sample=candidate.start_sample,
+                    source_end_sample=candidate.end_sample,
+                    source_completed=(
+                        source_completed and index == len(spans) - 1
+                    ),
+                )
+            )
 
     def _flush(self) -> _DiarizationBatch | None:
         if not self._audio:
@@ -505,12 +564,11 @@ class DiarizationBatcher:
                 emitted.append(previous)
         while total - offset > self._max_samples:
             end = offset + self._max_samples
-            self._append(
-                candidate.audio[offset * 2 : end * 2],
-                candidate.start_sample + offset,
+            self._append_candidate_slice(
+                candidate,
+                offset,
+                end,
                 source_id=source_id,
-                source_start_sample=candidate.start_sample,
-                source_end_sample=candidate.end_sample,
                 source_completed=False,
             )
             batch = self._flush()
@@ -518,12 +576,11 @@ class DiarizationBatcher:
             emitted.append(batch)
             offset = end
         if offset < total:
-            self._append(
-                candidate.audio[offset * 2 :],
-                candidate.start_sample + offset,
+            self._append_candidate_slice(
+                candidate,
+                offset,
+                total,
                 source_id=source_id,
-                source_start_sample=candidate.start_sample,
-                source_end_sample=candidate.end_sample,
                 source_completed=True,
             )
         if self.pending_samples >= self._min_samples:
@@ -807,21 +864,22 @@ class SemanticVadSession:
         self._sample_rate = sample_rate
         self._max_samples = max(1, int(round(config.max_buffer_seconds * sample_rate)))
         self._pending_audio = bytearray()
-        self._pending_start: int | None = None
+        self._pending_spans: list[_TimelineSpan] = []
         self._pending_last_segment_start: int | None = None
 
     def _complete(self) -> list[SemanticEmission]:
-        if self._pending_start is None or not self._pending_audio:
+        if not self._pending_spans or not self._pending_audio:
             self._pending_audio.clear()
-            self._pending_start = None
+            self._pending_spans.clear()
             self._pending_last_segment_start = None
             return []
-        start = self._pending_start
+        start = self._pending_spans[0].session_start_sample
+        end = self._pending_spans[-1].session_end_sample
         last_segment_start = self._pending_last_segment_start
         audio = bytes(self._pending_audio)
-        end = start + len(audio) // 2
+        spans = tuple(self._pending_spans)
         self._pending_audio.clear()
-        self._pending_start = None
+        self._pending_spans.clear()
         self._pending_last_segment_start = None
         return [
             (
@@ -832,6 +890,7 @@ class SemanticVadSession:
                     end_sample=end,
                     turn_completed=True,
                     evaluate_turn=False,
+                    timeline_spans=spans,
                 ),
             ),
             (
@@ -844,6 +903,32 @@ class SemanticVadSession:
                 ),
             ),
         ]
+
+    def _append_candidate_slice(
+        self,
+        candidate: _SegmentCandidate,
+        start_sample: int,
+        end_sample: int,
+    ) -> None:
+        input_start = len(self._pending_audio) // 2
+        self._pending_audio.extend(
+            candidate.audio[start_sample * 2 : end_sample * 2]
+        )
+        spans = _slice_timeline_spans(
+            _candidate_timeline_spans(candidate),
+            start_sample,
+            end_sample,
+        )
+        self._pending_spans.extend(
+            _TimelineSpan(
+                input_start_sample=input_start + span.input_start_sample,
+                input_end_sample=input_start + span.input_end_sample,
+                session_start_sample=span.session_start_sample,
+            )
+            for span in spans
+        )
+        if spans:
+            self._pending_last_segment_start = spans[0].session_start_sample
 
     async def accept(
         self,
@@ -859,21 +944,16 @@ class SemanticVadSession:
             offset = 0
             while offset < samples:
                 end = min(offset + self._max_samples, samples)
-                self._pending_start = candidate.start_sample + offset
-                self._pending_last_segment_start = candidate.start_sample
-                self._pending_audio.extend(candidate.audio[offset * 2 : end * 2])
+                self._append_candidate_slice(candidate, offset, end)
                 result.extend(self._complete())
                 offset = end
             return result
         if (
-            self._pending_start is not None
+            self._pending_spans
             and len(self._pending_audio) // 2 + samples > self._max_samples
         ):
             result.extend(self._complete())
-        if self._pending_start is None:
-            self._pending_start = candidate.start_sample
-        self._pending_last_segment_start = candidate.start_sample
-        self._pending_audio.extend(candidate.audio)
+        self._append_candidate_slice(candidate, 0, samples)
         completed = not candidate.evaluate_turn
         if candidate.evaluate_turn:
             try:

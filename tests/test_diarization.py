@@ -55,7 +55,11 @@ from audio_harness.workflows.models import (
     SpeakerDiarizationNodeConfig,
     SpeakerDiarizationPostprocessingOptions,
 )
-from audio_harness.workflows.runtime import DiarizationBatcher, _SegmentCandidate
+from audio_harness.workflows.runtime import (
+    DiarizationBatcher,
+    _SegmentCandidate,
+    _TimelineSpan,
+)
 
 
 def _event_payload(event) -> dict:
@@ -188,6 +192,30 @@ def test_diarization_result_is_split_and_mapped_across_vad_gaps() -> None:
     emitted = state.accept(candidate(20, 2))
 
     mapped = emitted[0].map_segments(
+        (DiarizationInferencer.Segment(1, 3, 7),)
+    )
+
+    assert [(item.start_sample, item.end_sample, item.speaker) for item in mapped] == [
+        (11, 12, 7),
+        (20, 21, 7),
+    ]
+
+
+def test_diarization_maps_semantic_audio_across_preserved_gaps() -> None:
+    state = batcher(0, 5)
+    batch = state.accept(
+        _SegmentCandidate(
+            audio=bytes((1, 0)) * 4,
+            start_sample=10,
+            end_sample=22,
+            timeline_spans=(
+                _TimelineSpan(0, 2, 10),
+                _TimelineSpan(2, 4, 20),
+            ),
+        )
+    )[0]
+
+    mapped = batch.map_segments(
         (DiarizationInferencer.Segment(1, 3, 7),)
     )
 
