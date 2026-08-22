@@ -10,6 +10,7 @@ from audio_harness.engines.models import EngineApi, EngineSnapshot
 from audio_harness.errors import EngineConfigurationInvalidError
 from audio_harness.inferencers import Inferencer
 from audio_harness.inferencers.responses.http import ResponsesInferencer
+from audio_harness.inferencers.tts.base import TtsInferencer
 
 
 @dataclass(eq=False)
@@ -117,6 +118,25 @@ class InferencerPool:
         )
         try:
             return await inferencer.list_models()
+        finally:
+            await inferencer.close()
+
+    async def list_preset_voices(
+        self,
+        snapshot: EngineSnapshot,
+    ) -> TtsInferencer.PresetVoiceCatalog:
+        """从临时 Qwen TTS 客户端读取预置音色目录。"""
+
+        if snapshot.api is not EngineApi.QWEN_TTS_DUPLEX:
+            raise EngineConfigurationInvalidError(
+                "只有 Qwen Duplex TTS 引擎可以读取音色目录"
+            )
+        async with self._lock:
+            if self._closed:
+                raise RuntimeError("推理客户端池已经关闭")
+        inferencer = cast(TtsInferencer, self._create_inferencer(snapshot))
+        try:
+            return await inferencer.list_preset_voices()
         finally:
             await inferencer.close()
 

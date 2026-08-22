@@ -15,7 +15,13 @@ from audio_harness.agent_backends.models import (
 )
 from audio_harness.engines.models import EngineApi, EngineProtocol, EngineSnapshot
 from audio_harness.engines.pool import InferencerPool
+from audio_harness.voice_agents.agent_backend_context import (
+    agent_backend_system_context_instructions,
+)
 from audio_harness.voice_agents.models import VoiceAgentDefinition
+from audio_harness.voice_agents.speaker_context import (
+    speaker_context_policy_instructions,
+)
 from audio_harness.voice_agents.repository import (
     StoredVoiceAgentRevision,
     VoiceAgentConflictError,
@@ -58,6 +64,13 @@ class ActiveVoiceAgent:
     responses_engine: EngineSnapshot
     tts_engine: EngineSnapshot
     agent_backend: AgentBackendSnapshot | None = None
+    agent_backend_context: str | None = None
+    speaker_context_policy: str | None = None
+
+    @property
+    def speaker_context_enabled(self) -> bool:
+        config = self.definition.speaker_context
+        return config is None or config.enabled
 
     @property
     def engine_snapshots(self) -> tuple[EngineSnapshot, EngineSnapshot]:
@@ -229,8 +242,20 @@ class VoiceAgentService:
         definition: VoiceAgentDefinition,
     ) -> tuple[tuple[VoiceAgentDiagnostic, ...], _VoiceAgentInputs | None]:
         diagnostics: list[VoiceAgentDiagnostic] = []
-        audio = self.audio_workflows.current_or_none(definition.audio_workflow_id)
-        if audio is None:
+        audio = (
+            self.audio_workflows.current_or_none(definition.audio_workflow_id)
+            if definition.audio_workflow_id
+            else None
+        )
+        if not definition.audio_workflow_id:
+            diagnostics.append(
+                VoiceAgentDiagnostic(
+                    code="audio_workflow_missing",
+                    message="尚未绑定语音工作流",
+                    field="audio_workflow_id",
+                )
+            )
+        elif audio is None:
             diagnostics.append(
                 VoiceAgentDiagnostic(
                     code="audio_workflow_not_active",
@@ -357,6 +382,22 @@ class VoiceAgentService:
                         )
                     else:
                         backend_snapshot = backend_asset.snapshot()
+        speaker_context = definition.speaker_context
+        if (
+            speaker_context is not None
+            and speaker_context.enabled
+            and audio is not None
+            and not any(
+                output.name == "speaker_filter" for output in audio.document.outputs
+            )
+        ):
+            diagnostics.append(
+                VoiceAgentDiagnostic(
+                    code="speaker_context_source_missing",
+                    message="已启用声纹身份上下文，但语音工作流未暴露 speaker_filter 出口",
+                    field="speaker_context.enabled",
+                )
+            )
         if diagnostics or audio is None or responses_asset is None or tts_asset is None:
             return tuple(diagnostics), None
         return (
@@ -376,6 +417,27 @@ class VoiceAgentService:
         draft = await self.get_draft(profile_id)
         diagnostics, _inputs = await self._inspect_definition(draft.definition)
         return diagnostics
+
+    async def validate_draft_with_context(
+        self,
+        profile_id: str,
+    ) -> tuple[tuple[VoiceAgentDiagnostic, ...], str | None, str | None]:
+        draft = await self.get_draft(profile_id)
+        diagnostics, inputs = await self._inspect_definition(draft.definition)
+        binding = draft.definition.agent_backend
+        preview = (
+            agent_backend_system_context_instructions(inputs.agent_backend, binding)
+            if inputs is not None and inputs.agent_backend is not None and binding is not None
+            else None
+        )
+        speaker_preview = (
+            speaker_context_policy_instructions(draft.definition.speaker_context)
+            if draft.definition.speaker_context is not None
+            and draft.definition.speaker_context.enabled
+            and inputs is not None
+            else None
+        )
+        return diagnostics, preview, speaker_preview
 
     async def publish(
         self,
@@ -397,6 +459,18 @@ class VoiceAgentService:
             responses = inputs.responses
             tts = inputs.tts
             agent_backend = inputs.agent_backend
+            binding = definition.agent_backend
+            agent_backend_context = (
+                agent_backend_system_context_instructions(agent_backend, binding)
+                if agent_backend is not None and binding is not None
+                else None
+            )
+            speaker_context_policy = (
+                speaker_context_policy_instructions(definition.speaker_context)
+                if definition.speaker_context is not None
+                and definition.speaker_context.enabled
+                else None
+            )
             try:
                 await self._inferencer_pool.prepare_all((responses, tts))
             except asyncio.CancelledError:
@@ -413,6 +487,8 @@ class VoiceAgentService:
                     if agent_backend is not None
                     else None
                 ),
+                "agent_backend_context": agent_backend_context,
+                "speaker_context_policy": speaker_context_policy,
             }
             stored = await self.repository.activate(
                 profile_id,
@@ -431,6 +507,8 @@ class VoiceAgentService:
                 responses_engine=responses,
                 tts_engine=tts,
                 agent_backend=agent_backend,
+                agent_backend_context=agent_backend_context,
+                speaker_context_policy=speaker_context_policy,
             )
             previous = self._active.get(profile_id)
             self._active[profile_id] = active
@@ -541,6 +619,32 @@ class VoiceAgentService:
             if schema_version == 2 and document.get("agent_backend") is not None
             else None
         )
+        binding = stored.definition.agent_backend
+        agent_backend_context = (
+            str(document["agent_backend_context"])
+            if agent_backend is not None
+            and binding is not None
+            and isinstance(document.get("agent_backend_context"), str)
+            and document["agent_backend_context"]
+            else (
+                agent_backend_system_context_instructions(agent_backend, binding)
+                if agent_backend is not None and binding is not None
+                else None
+            )
+        )
+        speaker_config = stored.definition.speaker_context
+        speaker_context_policy = (
+            str(document["speaker_context_policy"])
+            if speaker_config is not None
+            and speaker_config.enabled
+            and isinstance(document.get("speaker_context_policy"), str)
+            and document["speaker_context_policy"]
+            else (
+                speaker_context_policy_instructions(speaker_config)
+                if speaker_config is not None and speaker_config.enabled
+                else None
+            )
+        )
         return ActiveVoiceAgent(
             id=stored.voice_agent_id,
             revision=stored.revision,
@@ -551,4 +655,6 @@ class VoiceAgentService:
             responses_engine=responses,
             tts_engine=tts,
             agent_backend=agent_backend,
+            agent_backend_context=agent_backend_context,
+            speaker_context_policy=speaker_context_policy,
         )

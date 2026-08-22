@@ -55,7 +55,6 @@ from audio_harness.serving.realtime.agent import (
     AudioFinisher,
     AudioSender,
     RealtimeAgentRuntime,
-    SpeakerContext,
     VoiceResolver,
 )
 from audio_harness.serving.realtime.protocol import (
@@ -92,6 +91,10 @@ from audio_harness.sessions import (
 )
 from audio_harness.realtime_routes.service import RealtimeTarget
 from audio_harness.voice_agents.service import ActiveVoiceAgent
+from audio_harness.voice_agents.speaker_context import (
+    SpeakerContext,
+    speaker_context_from_result,
+)
 from audio_harness.workflows.settings import WorkflowSettingsStore
 from audio_harness.workflows.compiler import speech_started_physical_vad
 from audio_harness.workflows.service import ActiveAudioWorkflow
@@ -350,6 +353,11 @@ class RealtimeTranscriptionSession:
                 self._turn_detection,
             ) = _transcription_audio_settings(initial_session)
         self._agent: RealtimeAgentRuntime | None = None
+        self._speaker_context_enabled = (
+            target.speaker_context_enabled
+            if isinstance(target, ActiveVoiceAgent)
+            else False
+        )
         if isinstance(target, ActiveVoiceAgent):
             if inferencer_pool is None:
                 raise RuntimeError("语音智能体会话缺少引擎路由器")
@@ -1290,15 +1298,15 @@ class RealtimeTranscriptionSession:
             SpeakerFilterResult,
         ):
             key = (event.start_sample, event.end_sample, event.sample_rate)
-            if (
-                event.status == "matched"
-                and event.speaker_id is not None
-                and event.score is not None
-            ):
-                self._speaker_contexts[key] = SpeakerContext(
-                    speaker_id=event.speaker_id,
-                    score=event.score,
-                )
+            speaker_context = (
+                speaker_context_from_result(event)
+                if self._speaker_context_enabled
+                else None
+            )
+            if speaker_context is None:
+                self._speaker_contexts.pop(key, None)
+            else:
+                self._speaker_contexts[key] = speaker_context
             if self._aha_version != "v1":
                 return
             common = {

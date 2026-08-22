@@ -12,7 +12,12 @@ from audio_harness.inferencers.transports.grpc import (
     raise_grpc_error,
 )
 from audio_harness.inferencers.tts.base import TtsInferencer
-from audio_harness.protos.tts import tts_pb2, tts_pb2_grpc
+from audio_harness.protos.tts import (
+    preset_voice_pb2,
+    preset_voice_pb2_grpc,
+    tts_pb2,
+    tts_pb2_grpc,
+)
 
 
 class QwenDuplexTtsInferencer(TtsInferencer):
@@ -27,6 +32,9 @@ class QwenDuplexTtsInferencer(TtsInferencer):
             max_message_bytes=max_message_bytes,
         )
         self.stub = tts_pb2_grpc.TtsServiceStub(self._transport.channel)
+        self.preset_voice_stub = preset_voice_pb2_grpc.PresetVoiceServiceStub(
+            self._transport.channel
+        )
 
     async def ready(self) -> None:
         await self._transport.ready()
@@ -36,6 +44,29 @@ class QwenDuplexTtsInferencer(TtsInferencer):
 
     async def close(self) -> None:
         await self._transport.close()
+
+    async def list_preset_voices(self) -> TtsInferencer.PresetVoiceCatalog:
+        try:
+            response = await self.preset_voice_stub.ListPresetVoices(
+                preset_voice_pb2.ListPresetVoicesRequest(),
+                timeout=self._transport.endpoint.request_timeout_seconds,
+            )
+        except grpc.aio.AioRpcError as exc:
+            raise_grpc_error(exc, "TTS 音色目录")
+        return TtsInferencer.PresetVoiceCatalog(
+            voices=tuple(
+                TtsInferencer.PresetVoice(
+                    voice_id=item.voice_id,
+                    name=item.name,
+                    language=item.language,
+                    supports_synthesize=item.supports_synthesize,
+                    supports_duplex=item.supports_duplex,
+                    available_on_instance=item.available_on_instance,
+                )
+                for item in response.voices
+            ),
+            serving_mode=response.serving_mode,
+        )
 
     @staticmethod
     def _voice_source(voice: TtsInferencer.Voice) -> tts_pb2.VoiceSource:

@@ -1,7 +1,8 @@
 import type { Edge, Node } from "@xyflow/react";
 import { describe, expect, it } from "vitest";
 
-import { hasNodeCollisions, layoutAudioGraph, needsAutoLayout, orderOutputPorts, orthogonalPath, routeAudioGraph, routeIntersectsNode, routingPortKey, type PortOffsets } from "./audioGraphLayout";
+import { hasNodeCollisions, layoutAudioGraph, needsAutoLayout, orderOutputPorts, orthogonalPath, routeAudioGraph, routeIntersectsNode } from "./audioGraphLayout";
+import { routingPortKey, type PortOffsets } from "./graphLayout";
 
 function node(id: string, x = 0, y = 0, height = 160): Node {
   return { id, position: { x, y }, data: {}, measured: { width: 244, height } };

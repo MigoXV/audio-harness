@@ -20,6 +20,15 @@ interface EventLine {
   count: number;
 }
 
+export interface StreamEventSummary {
+  key: string;
+  type: "x_aha.vad.progress" | "response.output_audio.delta";
+  status: "streaming" | "completed";
+  time: string;
+  detail: string;
+  count: number;
+}
+
 interface Latencies {
   interim?: number;
   transcription?: number;
@@ -396,6 +405,50 @@ export function isTtsFirstAudio(type: string): boolean {
   return type === "response.output_audio.delta";
 }
 
+function audioSummaryKey(event: Record<string, unknown>): string {
+  return `audio:${String(event.response_id ?? "unattributed") || "unattributed"}`;
+}
+
+export function isStreamSummaryEvent(type: string): boolean {
+  return type === "x_aha.vad.progress" || type === "response.output_audio.delta";
+}
+
+export function updateStreamSummaries(
+  current: StreamEventSummary[],
+  event: Record<string, unknown>,
+  time: string,
+): StreamEventSummary[] {
+  const type = String(event.type ?? "");
+  if (type === "response.output_audio.done") {
+    const key = audioSummaryKey(event);
+    return current.map((summary) => summary.key === key
+      ? { ...summary, status: "completed", time }
+      : summary);
+  }
+  if (!isStreamSummaryEvent(type)) return current;
+  const summaryType: StreamEventSummary["type"] = type === "x_aha.vad.progress"
+    ? "x_aha.vad.progress"
+    : "response.output_audio.delta";
+  const key = summaryType === "x_aha.vad.progress" ? "vad" : audioSummaryKey(event);
+  const summary: StreamEventSummary = {
+    key,
+    type: summaryType,
+    status: summaryType === "x_aha.vad.progress" && event.final === true ? "completed" : "streaming",
+    time,
+    detail: summaryType === "response.output_audio.delta" ? "TTS 音频块" : eventDetail(event),
+    count: 1,
+  };
+  const existing = current.find((item) => item.key === key);
+  if (existing) {
+    return current.map((item) => item.key === key
+      ? { ...summary, count: item.count + 1 }
+      : item);
+  }
+  const next = [summary, ...current];
+  const audio = next.filter((item) => item.type === "response.output_audio.delta").slice(0, 10);
+  return [...next.filter((item) => item.type === "x_aha.vad.progress"), ...audio];
+}
+
 export function backendApprovalResponse(requestId: string, approvalId: string, approved: boolean) {
   return { type: "x_aha.agent_backend.approval.respond", request_id: requestId, approval_id: approvalId, approved };
 }
@@ -428,6 +481,7 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
   const [assistant, setAssistant] = useState("");
   const [events, setEvents] = useState<EventLine[]>([]);
   const [eventTotal, setEventTotal] = useState(0);
+  const [streamSummaries, setStreamSummaries] = useState<StreamEventSummary[]>([]);
   const [vectorSearch, setVectorSearch] = useState<VectorSearchEventView | null>(null);
   const [vectorResultsOpen, setVectorResultsOpen] = useState(true);
   const [speakerFilter, setSpeakerFilter] = useState<SpeakerFilterEventView | null>(null);
@@ -452,14 +506,17 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
   const transcriptAt = useRef<number | null>(null);
   const modelAt = useRef<number | null>(null);
 
-  const appendEvent = (event: Record<string, unknown>) => {
-    const detail = eventDetail(event);
+  const recordEvent = (event: Record<string, unknown>) => {
+    const time = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+    const type = String(event.type ?? "unknown");
     setEventTotal((current) => current + 1);
+    setStreamSummaries((current) => updateStreamSummaries(current, event, time));
+    if (isStreamSummaryEvent(type)) return;
     setEvents((current) => appendGroupedEvent(current, {
       id: String(event.event_id ?? `${event.type}-${performance.now()}`),
-      type: String(event.type ?? "unknown"),
-      time: new Date().toLocaleTimeString("zh-CN", { hour12: false }),
-      detail,
+      type,
+      time,
+      detail: eventDetail(event),
       count: 1,
     }));
   };
@@ -479,7 +536,7 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
   };
 
   const handleServerEvent = (event: Record<string, unknown>) => {
-    appendEvent(event);
+    recordEvent(event);
     const type = String(event.type ?? "");
     if (type === "x_aha.agent_backend.session") {
       setBackendActivity((current) => ({ ...current, sessionId: String(event.backend_session_id ?? "") || null, status: event.status === "running" ? "running" : current.status }));
@@ -766,6 +823,7 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
     setNotice("正在检查资源、路由和麦克风");
     setEvents([]);
     setEventTotal(0);
+    setStreamSummaries([]);
     setVectorSearch(null);
     setVectorResultsOpen(true);
     setSpeakerFilter(null);
@@ -825,10 +883,14 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
       </section>
 
       {ahaEnabled && workflowKind === "voice_agent" && backendVisible && <section className="panel backend-runtime-panel" aria-label="Agent Backend 执行状态">
-        <div className="panel-heading"><div><p className="eyebrow">AGENT BACKEND</p><h2>DSH 执行进度</h2><p>{backendActivity.sessionId ? `Session ${backendActivity.sessionId}` : "正在建立 DSH session"}</p></div><div className="inline-actions"><span className={`status-chip backend-status-${backendActivity.status}`}>{backendStatusLabel}</span>{backendActivity.status === "running" && <button className="danger-button" onClick={cancelBackend}>取消 DSH 任务</button>}</div></div>
-        {backendActivity.text && <div className="backend-progress-text">{backendActivity.text}</div>}
-        {backendActivity.tools.length > 0 && <div className="backend-tool-list">{backendActivity.tools.map((tool) => <article key={tool.callId}><span className={`backend-tool-state backend-tool-${tool.status}`}>{tool.status === "running" ? "运行中" : tool.status === "completed" ? "完成" : "失败"}</span><strong>{tool.name}</strong><code>{tool.detail || "等待结果"}</code></article>)}</div>}
-        {backendActivity.message && <div className={backendActivity.status === "failed" ? "alert alert-error" : "alert alert-warning"}>{backendActivity.message}</div>}
+        <details className="backend-runtime-details"><summary><div><p className="eyebrow">AGENT BACKEND</p><strong>DSH 执行进度</strong><small>{backendActivity.sessionId ? `Session ${backendActivity.sessionId}` : "正在建立 DSH session"}</small></div><span className={`status-chip backend-status-${backendActivity.status}`}>{backendStatusLabel}</span><i aria-hidden="true">⌄</i></summary>
+          <div className="backend-runtime-content">
+            {backendActivity.status === "running" && <div className="panel-actions"><button className="danger-button" onClick={cancelBackend}>取消 DSH 任务</button></div>}
+            {backendActivity.text && <div className="backend-progress-text">{backendActivity.text}</div>}
+            {backendActivity.tools.length > 0 && <div className="backend-tool-list">{backendActivity.tools.map((tool) => <article key={tool.callId}><span className={`backend-tool-state backend-tool-${tool.status}`}>{tool.status === "running" ? "运行中" : tool.status === "completed" ? "完成" : "失败"}</span><strong>{tool.name}</strong><code>{tool.detail || "等待结果"}</code></article>)}</div>}
+            {backendActivity.message && <div className={backendActivity.status === "failed" ? "alert alert-error" : "alert alert-warning"}>{backendActivity.message}</div>}
+          </div>
+        </details>
       </section>}
 
       {ahaEnabled && backendApproval && <section className="panel backend-interaction-card backend-approval-card" aria-label="DSH 审批请求"><div><p className="eyebrow">APPROVAL REQUIRED</p><h2>{backendApproval.toolName} 请求执行</h2><p>{backendApproval.reason || "DSH 未提供额外审批原因。"}</p></div><div className="panel-actions"><button className="danger-button" disabled={backendApproval.submitting} onClick={() => answerApproval(false)}>拒绝</button><button className="primary-button" disabled={backendApproval.submitting} onClick={() => answerApproval(true)}>{backendApproval.submitting ? "正在提交…" : "仅允许这次"}</button></div></section>}
@@ -859,6 +921,16 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
           </div>
         </section>}
       </div>}
+
+      {streamSummaries.length > 0 && <section className="panel stream-event-summaries" aria-label="流式事件摘要">
+        <details><summary><span>流式事件摘要</span><small>高频事件已汇总 · {streamSummaries.length} 项</small><i aria-hidden="true">⌄</i></summary>
+        <div>{streamSummaries.map((summary) => <article key={summary.key}>
+          <code>{summary.type}</code>
+          <b className={`stream-event-status stream-event-status-${summary.status}`}>{summary.status === "completed" ? "完成" : "流式中"}</b>
+          <small>{summary.time} · ×{summary.count}</small>
+          <span>{summary.detail}</span>
+        </article>)}</div></details>
+      </section>}
 
       <details className="panel event-log"><summary>协议事件 <span>{eventTotal}</span></summary><div>{events.map((event) => <div className="event-row" key={event.id}><time>{event.time}</time><code>{event.type}</code>{event.count > 1 && <b>×{event.count}</b>}<span>{event.detail}</span></div>)}</div></details>
     </div>

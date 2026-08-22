@@ -11,6 +11,7 @@ export type EngineListResponse = Schemas["EngineList"];
 export type EngineValidation = Schemas["EngineValidationRead"];
 export type EngineValidationResult = Schemas["EngineValidationResultRead"];
 export type EngineModelList = Schemas["EngineModelListRead"];
+export type EnginePresetVoiceList = Schemas["EnginePresetVoiceListRead"];
 export type EngineWritePayload = Schemas["EngineCreate"];
 export type EngineFilters = {
   limit?: number;
@@ -92,6 +93,7 @@ export interface AudioHarnessApi {
   probeEngine(engineId: string): Promise<EngineValidationResult>;
   getEngineUsage(engineId: string, signal?: AbortSignal): Promise<Schemas["EngineUsageRead"]>;
   listEngineModels(engineId: string, signal?: AbortSignal): Promise<EngineModelList>;
+  listEnginePresetVoices(engineId: string, signal?: AbortSignal): Promise<EnginePresetVoiceList>;
 
   listAudioNodeTypes(signal?: AbortSignal): Promise<AudioNodeType[]>;
   listAudioWorkflows(signal?: AbortSignal): Promise<AudioWorkflow[]>;

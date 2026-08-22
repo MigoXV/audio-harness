@@ -18,6 +18,18 @@ class TtsInferencer(ABC):
         sample_rate: int
         chunk_index: int
 
+    class PresetVoice(NamedTuple):
+        voice_id: str
+        name: str
+        language: str
+        supports_synthesize: bool
+        supports_duplex: bool
+        available_on_instance: bool
+
+    class PresetVoiceCatalog(NamedTuple):
+        voices: tuple[PresetVoice, ...]
+        serving_mode: str
+
     @abstractmethod
     async def ready(self) -> None: ...
 
@@ -26,6 +38,9 @@ class TtsInferencer(ABC):
 
     @abstractmethod
     async def close(self) -> None: ...
+
+    @abstractmethod
+    async def list_preset_voices(self) -> PresetVoiceCatalog: ...
 
     @abstractmethod
     def duplex_synthesize(

@@ -18,6 +18,9 @@ from audio_harness.agent_backends.models import (
     AgentBackendEventKind,
     AgentBackendSnapshot,
 )
+from audio_harness.voice_agents.agent_backend_context import (
+    agent_backend_system_context_instructions,
+)
 from audio_harness.voice_agents.models import AgentBackendBinding
 
 EventSender = Callable[[dict[str, Any]], Awaitable[None]]
@@ -106,6 +109,7 @@ class RealtimeAgentBackendRuntime:
         speak_notice: TextSender,
         summarize: Callable[[AgentBackendTurnResult], Awaitable[None]],
         extension_events_enabled: bool,
+        system_context: str | None = None,
     ) -> None:
         self.snapshot = snapshot
         self.binding = binding
@@ -114,6 +118,10 @@ class RealtimeAgentBackendRuntime:
         self._speak_notice = speak_notice
         self._summarize = summarize
         self._extension_events_enabled = extension_events_enabled
+        self._system_context = system_context or agent_backend_system_context_instructions(
+            snapshot,
+            binding,
+        )
         self._session: AgentBackendSession | None = None
         self._session_lock = asyncio.Lock()
         self._event_task: asyncio.Task[None] | None = None
@@ -145,10 +153,30 @@ class RealtimeAgentBackendRuntime:
         ]
         return {
             "backend_id": self.snapshot.id,
+            "backend": {
+                "name": self.snapshot.name,
+                "kind": self.snapshot.kind.value,
+                "agent_preset": self.binding.agent_preset,
+            },
             "backend_session_id": self.session_id,
             "running": self._running,
             "pending_interactions": pending,
         }
+
+    def response_context_instructions(self) -> str:
+        if self._pending:
+            status = "等待用户处理后台审批或结构化问题"
+        elif self._running:
+            status = "后台任务执行中"
+        elif self._session is not None:
+            status = "后台会话已建立，当前空闲"
+        else:
+            status = "后台会话尚未建立"
+        return (
+            "\n\n" + self._system_context
+            + "\n\n[Audio Harness Agent Backend 运行状态]\n"
+            + f"当前状态：{status}。"
+        )
 
     def latest_pending(self) -> _PendingInteraction | None:
         return next(reversed(self._pending.values()), None)

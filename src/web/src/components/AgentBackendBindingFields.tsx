@@ -12,6 +12,8 @@ interface Props {
   api: AudioHarnessApi;
   backends: AgentBackend[];
   definition: VoiceAgentDefinition;
+  contextPreview?: string | null;
+  contextPreviewStale?: boolean;
   onChange: (definition: VoiceAgentDefinition) => void;
 }
 
@@ -26,7 +28,7 @@ export function createAgentBackendBinding(backendId: string, cwd = "") {
   };
 }
 
-export function AgentBackendBindingFields({ api, backends, definition, onChange }: Props) {
+export function AgentBackendBindingFields({ api, backends, definition, contextPreview, contextPreviewStale = false, onChange }: Props) {
   const binding = definition.agent_backend ?? null;
   const [capabilities, setCapabilities] = useState<AgentBackendCapabilities | null>(null);
   const [capabilityError, setCapabilityError] = useState<{ backendId: string; message: string } | null>(null);
@@ -64,5 +66,6 @@ export function AgentBackendBindingFields({ api, backends, definition, onChange 
     </div>
     {activeCapabilityError && <div className="alert alert-warning">{activeCapabilityError}</div>}
     {activeCapabilities && <p className="backend-capability-summary">DSH {activeCapabilities.provider} / {activeCapabilities.model} · {activeCapabilities.plugins.filter((plugin) => plugin.enabled).length} 个已启用插件 · backend r{activeCapabilities.backend_revision}</p>}
+    {binding && <section className="agent-backend-context-preview"><h4>自动注入的系统上下文</h4><p>该内容由服务端在发布时冻结，Responses 与协调器都会使用；运行时仅额外叠加会话状态。</p>{contextPreview ? <pre>{contextPreview}</pre> : <p className="empty-copy">保存草稿后生成预览。</p>}{contextPreviewStale && <small>草稿包含未保存修改；请保存后刷新此预览。</small>}</section>}
   </section>;
 }

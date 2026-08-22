@@ -60,6 +60,13 @@ class DuplexTtsConfig(StrictModel):
         return self
 
 
+class SpeakerContextConfig(StrictModel):
+    """语音智能体私有的可信说话人身份使用策略。"""
+
+    enabled: bool = False
+    speaker_prompt: str = Field(default="", max_length=32_768)
+
+
 class AgentBackendBinding(StrictModel):
     backend_id: str = Field(min_length=1, max_length=100)
     cwd: str = Field(min_length=1, max_length=4096)
@@ -80,11 +87,12 @@ class AgentBackendBinding(StrictModel):
 
 class VoiceAgentDefinition(StrictModel):
     schema_version: Literal[1, 2] = 1
-    audio_workflow_id: str = Field(min_length=1, max_length=100)
+    audio_workflow_id: str = Field(max_length=100)
     responses_engine_id: str | None = None
     responses: ResponsesConfig = Field(default_factory=ResponsesConfig)
     tts_engine_id: str | None = None
     tts: DuplexTtsConfig = Field(default_factory=DuplexTtsConfig)
+    speaker_context: SpeakerContextConfig | None = None
     agent_backend: AgentBackendBinding | None = None
 
     @model_validator(mode="after")

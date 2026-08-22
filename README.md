@@ -189,7 +189,7 @@ Qdrant 是 Collection、Named Vector、Point 和 payload 的唯一事实来源�
 2. 打开默认语音工作流，在 DAG 画布绑定节点引擎、连线和命名出口。
 3. 校验并发布语音工作流，再在“接入”页显式创建 Realtime model。
 4. 如需 DSH 委派，先在“Agent Backends”注册远端服务并完成能力探测。
-5. 通过四步向导创建语音智能体，选择语音工作流、Responses、TTS 和可选 Agent Backend。
+5. 创建语音智能体空白草稿，在固定拓扑画布中配置语音工作流、Responses、TTS 和可选 Agent Backend。该画布用于表达与配置当前运行关系，暂不提供节点增删或连线编排。
 6. 发布语音智能体后显式创建公开 Realtime Route，再进入“测试”页发起连接。
 
 发布和接入是两个独立动作。发布只生成不可变活动版本，不会自动创建外部入口；Realtime model 冲突时接口返回 `409 realtime_route_conflict`，只有用户确认后才允许替换原目标。测试页会先读取路由并检查其可见性，避免把未部署资源误报为 WebSocket 故障。

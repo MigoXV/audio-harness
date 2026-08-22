@@ -22,7 +22,12 @@ from audio_harness.inferencers.embedding import AudioEmbeddingInferencer
 from audio_harness.protos.embedding import engine_pb2, engine_pb2_grpc
 from audio_harness.protos.asr import ux_speech_pb2 as speech_pb2
 from audio_harness.protos.asr import ux_speech_pb2_grpc as speech_pb2_grpc
-from audio_harness.protos.tts import tts_pb2, tts_pb2_grpc
+from audio_harness.protos.tts import (
+    preset_voice_pb2,
+    preset_voice_pb2_grpc,
+    tts_pb2,
+    tts_pb2_grpc,
+)
 from audio_harness.protos.vad import ux_vad_pb2 as vad_pb2
 from audio_harness.protos.vad import ux_vad_pb2_grpc as vad_pb2_grpc
 from audio_harness.protos.diarization import (
@@ -115,6 +120,33 @@ class DelayedTtsServicer(tts_pb2_grpc.TtsServiceServicer):
             pcm_s16le=b"\0\0",
             sample_rate=24_000,
             chunk_index=0,
+        )
+
+
+class FakePresetVoiceServicer(
+    preset_voice_pb2_grpc.PresetVoiceServiceServicer
+):
+    async def ListPresetVoices(self, _request, _context):
+        return preset_voice_pb2.ListPresetVoicesResponse(
+            serving_mode="duplex",
+            voices=[
+                preset_voice_pb2.PresetVoiceInfo(
+                    voice_id="voice-rita",
+                    name="Rita",
+                    language="Chinese",
+                    supports_synthesize=True,
+                    supports_duplex=True,
+                    available_on_instance=True,
+                ),
+                preset_voice_pb2.PresetVoiceInfo(
+                    voice_id="voice-offline",
+                    name="Offline",
+                    language="English",
+                    supports_synthesize=True,
+                    supports_duplex=False,
+                    available_on_instance=False,
+                ),
+            ],
         )
 
 
@@ -424,3 +456,34 @@ async def test_grpc_tts_stream_is_not_cut_off_by_request_timeout() -> None:
         await server.stop(0)
 
     assert [chunk.pcm_s16le for chunk in chunks] == [b"\0\0"]
+
+
+@pytest.mark.asyncio
+async def test_grpc_tts_lists_preset_voice_catalog() -> None:
+    server = grpc.aio.server()
+    preset_voice_pb2_grpc.add_PresetVoiceServiceServicer_to_server(
+        FakePresetVoiceServicer(),
+        server,
+    )
+    port = server.add_insecure_port("127.0.0.1:0")
+    await server.start()
+    inferencer = QwenDuplexTtsInferencer(
+        EngineEndpoint(target=f"127.0.0.1:{port}"),
+        max_message_bytes=1024,
+    )
+    try:
+        catalog = await inferencer.list_preset_voices()
+    finally:
+        await inferencer.close()
+        await server.stop(0)
+
+    assert catalog.serving_mode == "duplex"
+    assert catalog.voices[0] == TtsInferencer.PresetVoice(
+        voice_id="voice-rita",
+        name="Rita",
+        language="Chinese",
+        supports_synthesize=True,
+        supports_duplex=True,
+        available_on_instance=True,
+    )
+    assert catalog.voices[1].supports_duplex is False

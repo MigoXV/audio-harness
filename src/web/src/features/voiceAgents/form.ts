@@ -25,6 +25,10 @@ export function defaultVoiceAgentDefinition(workflowId = ""): VoiceAgentDefiniti
       language: "Auto",
       decoder_chunk_size: 0,
     },
+    speaker_context: {
+      enabled: false,
+      speaker_prompt: "",
+    },
     agent_backend: null,
   };
 }

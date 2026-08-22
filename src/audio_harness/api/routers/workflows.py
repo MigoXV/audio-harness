@@ -305,15 +305,18 @@ def create_workflow_router(
     @router.post(
         "/voice-agents/{profile_id}/validate",
         response_model=VoiceAgentValidationRead,
+        response_model_exclude_none=True,
     )
     async def validate_voice_agent(profile_id: str) -> VoiceAgentValidationRead:
-        diagnostics = await voice_agents.validate_draft(profile_id)
+        diagnostics, context_preview, speaker_context_preview = await voice_agents.validate_draft_with_context(profile_id)
         return VoiceAgentValidationRead(
             valid=not diagnostics,
             diagnostics=[
                 ConfigurationDiagnosticRead(**item.__dict__)
                 for item in diagnostics
             ],
+            agent_backend_context_preview=context_preview,
+            speaker_context_preview=speaker_context_preview,
         )
 
     @router.post("/voice-agents/{profile_id}/publish", response_model=VoiceAgentRevisionRead)

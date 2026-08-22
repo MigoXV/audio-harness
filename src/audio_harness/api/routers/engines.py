@@ -7,11 +7,13 @@ from audio_harness.schemas.engines import (
     EngineCreate,
     EngineList,
     EngineModelListRead,
+    EnginePresetVoiceListRead,
     EnginePatch,
     EngineRead,
     EngineUsageRead,
     EngineValidationRead,
     EngineValidationResultRead,
+    PresetVoiceRead,
 )
 from audio_harness.engines.models import EngineApi, EngineAssetData, EngineKind
 
@@ -78,6 +80,31 @@ def create_engine_router(catalog: EngineCatalog) -> APIRouter:
             engine_id=asset.id,
             engine_revision=asset.revision,
             items=list(models),
+        )
+
+    @router.get(
+        "/engines/{engine_id}/voices",
+        response_model=EnginePresetVoiceListRead,
+    )
+    async def list_engine_preset_voices(
+        engine_id: str,
+    ) -> EnginePresetVoiceListRead:
+        asset, catalog_result = await catalog.list_preset_voices(engine_id)
+        return EnginePresetVoiceListRead(
+            engine_id=asset.id,
+            engine_revision=asset.revision,
+            serving_mode=catalog_result.serving_mode,
+            items=[
+                PresetVoiceRead(
+                    voice_id=item.voice_id,
+                    name=item.name,
+                    language=item.language,
+                    supports_synthesize=item.supports_synthesize,
+                    supports_duplex=item.supports_duplex,
+                    available_on_instance=item.available_on_instance,
+                )
+                for item in catalog_result.voices
+            ],
         )
 
     @router.patch("/engines/{engine_id}", response_model=EngineRead)

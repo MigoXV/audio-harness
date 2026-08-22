@@ -34,6 +34,10 @@ from audio_harness.serving.realtime.tools import (
     json_tool_output,
 )
 from audio_harness.voice_agents.models import McpServerConfig
+from audio_harness.voice_agents.speaker_context import (
+    SpeakerContext,
+    speaker_context_instructions,
+)
 from audio_harness.voice_agents.service import ActiveVoiceAgent
 
 EventSender = Callable[[dict[str, Any]], Awaitable[None]]
@@ -72,12 +76,6 @@ class AgentSessionOptions:
     turn_detection: dict[str, Any] | None = field(
         default_factory=lambda: {"type": "server_vad"}
     )
-
-
-@dataclass(frozen=True)
-class SpeakerContext:
-    speaker_id: str
-    score: float
 
 
 @dataclass(frozen=True)
@@ -151,6 +149,7 @@ class RealtimeAgentRuntime:
         self._tts_snapshot = profile.tts_engine
         self._response_config = profile.definition.responses
         self._tts_config = profile.definition.tts
+        self._speaker_context_policy = profile.speaker_context_policy
         self.options = AgentSessionOptions(
             voice=self._tts_config.default_voice,
             max_output_tokens=self._response_config.max_output_tokens,
@@ -204,6 +203,7 @@ class RealtimeAgentRuntime:
                 speak_notice=self._schedule_backend_notice,
                 summarize=self._schedule_backend_summary,
                 extension_events_enabled=backend_extension_events_enabled,
+                system_context=profile.agent_backend_context,
             )
 
     @property
@@ -1665,16 +1665,12 @@ class RealtimeAgentRuntime:
         if options.instructions:
             instructions += "\n\n" + options.instructions
         if options.speaker_context is not None:
-            context = options.speaker_context
-            instructions += (
-                "\n\n[Audio Harness 可信说话人上下文]\n"
-                "当前发言已通过内部说话人过滤。"
-                f"speaker_id={context.speaker_id}，score={context.score:.6f}。"
-                "仅将这些字段用于当前发言的身份上下文；只有用户指令明确"
-                "定义了 speaker_id 的含义时才能据此个性化。不要猜测任何"
-                "其他个人资料，不要主动披露声纹、向量、匹配分数或内部机制，"
-                "也不要把本次匹配描述为账户级身份认证。"
+            instructions += speaker_context_instructions(
+                options.speaker_context,
+                policy=self._speaker_context_policy,
             )
+        if self._backend is not None:
+            instructions += self._backend.response_context_instructions()
         tool_choice, constraint = self._tool_choice(options)
         if constraint:
             instructions += "\n\n" + constraint

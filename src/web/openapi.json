@@ -331,6 +331,48 @@
         }
       }
     },
+    "/api/v1/engines/{engine_id}/voices": {
+      "get": {
+        "tags": [
+          "engines"
+        ],
+        "summary": "List Engine Preset Voices",
+        "operationId": "list_engine_preset_voices_api_v1_engines__engine_id__voices_get",
+        "parameters": [
+          {
+            "name": "engine_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Engine Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnginePresetVoiceListRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/engines/{engine_id}/validate": {
       "post": {
         "tags": [
@@ -5084,6 +5126,38 @@
         "type": "object",
         "title": "EnginePatch"
       },
+      "EnginePresetVoiceListRead": {
+        "properties": {
+          "engine_id": {
+            "type": "string",
+            "title": "Engine Id"
+          },
+          "engine_revision": {
+            "type": "integer",
+            "title": "Engine Revision"
+          },
+          "serving_mode": {
+            "type": "string",
+            "title": "Serving Mode"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PresetVoiceRead"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "engine_id",
+          "engine_revision",
+          "serving_mode",
+          "items"
+        ],
+        "title": "EnginePresetVoiceListRead"
+      },
       "EngineProtocol": {
         "type": "string",
         "enum": [
@@ -5996,6 +6070,45 @@
         ],
         "title": "PhysicalVadNode"
       },
+      "PresetVoiceRead": {
+        "properties": {
+          "voice_id": {
+            "type": "string",
+            "title": "Voice Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "language": {
+            "type": "string",
+            "title": "Language"
+          },
+          "supports_synthesize": {
+            "type": "boolean",
+            "title": "Supports Synthesize"
+          },
+          "supports_duplex": {
+            "type": "boolean",
+            "title": "Supports Duplex"
+          },
+          "available_on_instance": {
+            "type": "boolean",
+            "title": "Available On Instance"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "voice_id",
+          "name",
+          "language",
+          "supports_synthesize",
+          "supports_duplex",
+          "available_on_instance"
+        ],
+        "title": "PresetVoiceRead"
+      },
       "ProtocolCapacityConfig": {
         "properties": {
           "max_sessions": {
@@ -6561,6 +6674,25 @@
         "type": "object",
         "title": "SpeakerClusteringNodeConfig"
       },
+      "SpeakerContextConfig": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "speaker_prompt": {
+            "type": "string",
+            "maxLength": 32768,
+            "title": "Speaker Prompt",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SpeakerContextConfig",
+        "description": "语音智能体私有的可信说话人身份使用策略。"
+      },
       "SpeakerDiarizationNode": {
         "properties": {
           "id": {
@@ -7039,7 +7171,6 @@
           "audio_workflow_id": {
             "type": "string",
             "maxLength": 100,
-            "minLength": 1,
             "title": "Audio Workflow Id"
           },
           "responses_engine_id": {
@@ -7069,6 +7200,16 @@
           },
           "tts": {
             "$ref": "#/components/schemas/DuplexTtsConfig"
+          },
+          "speaker_context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpeakerContextConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "agent_backend": {
             "anyOf": [
@@ -7330,6 +7471,28 @@
             },
             "type": "array",
             "title": "Diagnostics"
+          },
+          "agent_backend_context_preview": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Backend Context Preview"
+          },
+          "speaker_context_preview": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker Context Preview"
           }
         },
         "additionalProperties": false,

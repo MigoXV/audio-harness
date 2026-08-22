@@ -13,6 +13,7 @@ from audio_harness.errors import (
     EngineDeadlineError,
     EngineUnavailableError,
 )
+from audio_harness.inferencers.tts.base import TtsInferencer
 from audio_harness.serving.host import AudioHarnessHost
 from tests.test_agent_backend_control_api import (
     FakeAgentBackendGateway,
@@ -32,6 +33,21 @@ class ReadyInferencer:
 
     async def list_models(self) -> tuple[str, ...]:
         return ("model-z", "model-a")
+
+    async def list_preset_voices(self) -> TtsInferencer.PresetVoiceCatalog:
+        return TtsInferencer.PresetVoiceCatalog(
+            voices=(
+                TtsInferencer.PresetVoice(
+                    voice_id="rita-id",
+                    name="Rita",
+                    language="Chinese",
+                    supports_synthesize=True,
+                    supports_duplex=True,
+                    available_on_instance=True,
+                ),
+            ),
+            serving_mode="duplex",
+        )
 
     async def close(self) -> None:
         self.closed = True
@@ -120,6 +136,38 @@ def engine_payload(
     if api == "responses":
         payload["api_key"] = "test-key"
     return payload
+
+
+@pytest.mark.asyncio
+async def test_qwen_tts_preset_voice_catalog_is_exposed(
+    control_plane: ControlPlane,
+) -> None:
+    created = await control_plane.client.post(
+        "/api/v1/engines",
+        json=engine_payload("qwen-tts", kind="tts", api="qwen_tts_duplex"),
+    )
+    assert created.status_code == 201
+
+    response = await control_plane.client.get(
+        f"/api/v1/engines/{created.json()['id']}/voices"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "engine_id": created.json()["id"],
+        "engine_revision": 1,
+        "serving_mode": "duplex",
+        "items": [
+            {
+                "voice_id": "rita-id",
+                "name": "Rita",
+                "language": "Chinese",
+                "supports_synthesize": True,
+                "supports_duplex": True,
+                "available_on_instance": True,
+            }
+        ],
+    }
 
 
 @pytest.mark.asyncio
@@ -504,6 +552,7 @@ async def test_voice_agent_is_a_profile_over_a_published_audio_workflow(
     )
     assert restored_legacy.definition.schema_version == 1
     assert restored_legacy.agent_backend is None
+    assert restored_legacy.agent_backend_context is None
 
     route = await control_plane.client.put(
         "/api/v1/realtime-routes/assistant",
@@ -588,6 +637,105 @@ async def test_voice_agent_is_a_profile_over_a_published_audio_workflow(
 
 
 @pytest.mark.asyncio
+async def test_voice_agent_allows_an_incomplete_draft(
+    control_plane: ControlPlane,
+) -> None:
+    created = await control_plane.client.post(
+        "/api/v1/voice-agents",
+        json={
+            "slug": "empty-agent",
+            "name": "Empty Agent",
+            "definition": {
+                "schema_version": 2,
+                "audio_workflow_id": "",
+            },
+        },
+    )
+    assert created.status_code == 201
+    agent_id = created.json()["id"]
+
+    draft = await control_plane.client.get(
+        f"/api/v1/voice-agents/{agent_id}/draft"
+    )
+    assert draft.status_code == 200
+    assert draft.json()["definition"]["audio_workflow_id"] == ""
+
+    validation = await control_plane.client.post(
+        f"/api/v1/voice-agents/{agent_id}/validate"
+    )
+    assert validation.status_code == 200
+    assert validation.json()["valid"] is False
+    assert {item["code"] for item in validation.json()["diagnostics"]} == {
+        "audio_workflow_missing",
+        "responses_engine_missing",
+        "tts_engine_missing",
+    }
+
+    published = await control_plane.client.post(
+        f"/api/v1/voice-agents/{agent_id}/publish",
+        json={"expected_revision": 1},
+    )
+    assert published.status_code == 412
+
+
+@pytest.mark.asyncio
+async def test_explicit_speaker_context_requires_a_speaker_filter_output(
+    control_plane: ControlPlane,
+) -> None:
+    await bind_and_publish_audio_workflow(control_plane.client)
+    responses = await control_plane.client.post(
+        "/api/v1/engines",
+        json=engine_payload(
+            "responses",
+            kind="llm",
+            api="responses",
+            protocol="https",
+        ),
+    )
+    tts = await control_plane.client.post(
+        "/api/v1/engines",
+        json=engine_payload("tts", kind="tts", api="qwen_tts_duplex"),
+    )
+    created = await control_plane.client.post(
+        "/api/v1/voice-agents",
+        json={
+            "slug": "speaker-context-agent",
+            "name": "Speaker Context Agent",
+            "definition": {
+                "schema_version": 2,
+                "audio_workflow_id": "default-audio",
+                "responses_engine_id": responses.json()["id"],
+                "responses": {"model": "test-model"},
+                "tts_engine_id": tts.json()["id"],
+                "tts": {
+                    "default_voice": "voice-a",
+                    "allowed_voices": ["voice-a"],
+                },
+                "speaker_context": {
+                    "enabled": True,
+                    "speaker_prompt": "speaker-001 使用简洁中文回复。",
+                },
+            },
+        },
+    )
+    assert created.status_code == 201
+    validation = await control_plane.client.post(
+        f"/api/v1/voice-agents/{created.json()['id']}/validate"
+    )
+    assert validation.status_code == 200
+    assert validation.json()["valid"] is False
+    assert {item["code"] for item in validation.json()["diagnostics"]} == {
+        "speaker_context_source_missing"
+    }
+    assert "speaker_context_preview" not in validation.json()
+    published = await control_plane.client.post(
+        f"/api/v1/voice-agents/{created.json()['id']}/publish",
+        json={"expected_revision": 1},
+    )
+    assert published.status_code == 412
+
+
+@pytest.mark.asyncio
 async def test_voice_agent_v2_freezes_agent_backend_snapshot_and_preset(
     control_plane: ControlPlane,
 ) -> None:
@@ -645,7 +793,11 @@ async def test_voice_agent_v2_freezes_agent_backend_snapshot_and_preset(
     validation = await control_plane.client.post(
         f"/api/v1/voice-agents/{agent_id}/validate"
     )
-    assert validation.json() == {"valid": True, "diagnostics": []}
+    assert validation.json()["valid"] is True
+    preview = validation.json()["agent_backend_context_preview"]
+    assert '"name":"本地 DSH"' in preview
+    assert "http://127.0.0.1:3080" not in preview
+    assert "/srv/project" not in preview
     published = await control_plane.client.post(
         f"/api/v1/voice-agents/{agent_id}/publish",
         json={"expected_revision": 1},
@@ -665,6 +817,8 @@ async def test_voice_agent_v2_freezes_agent_backend_snapshot_and_preset(
     assert stored.compiled_profile["agent_backend"]["headers_env"] == {
         "Authorization": "DSH_AUTHORIZATION"
     }
+    assert stored.compiled_profile["agent_backend_context"] == preview
+    assert active.agent_backend_context == preview
 
     changed = await control_plane.client.patch(
         f"/api/v1/agent-backends/{backend_id}",

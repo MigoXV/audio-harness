@@ -77,6 +77,18 @@ class EngineModelDiscoveryTimeoutError(EngineModelDiscoveryError):
     code = "engine_model_discovery_timeout"
 
 
+class EngineVoiceCapabilityError(CatalogError):
+    code = "engine_voice_capability_mismatch"
+
+
+class EngineVoiceDiscoveryError(CatalogError):
+    code = "engine_voice_discovery_failed"
+
+
+class EngineVoiceDiscoveryTimeoutError(EngineVoiceDiscoveryError):
+    code = "engine_voice_discovery_timeout"
+
+
 @dataclass(frozen=True)
 class EngineValidationResult:
     asset: EngineAssetData
@@ -212,6 +224,26 @@ class EngineCatalog:
         except (EngineConfigurationInvalidError, EngineUnavailableError) as exc:
             raise EngineModelDiscoveryError(str(exc)) from exc
         return asset, models
+
+    async def list_preset_voices(self, asset_id: str):
+        asset = await self.get_asset(asset_id)
+        if asset.api is not EngineApi.QWEN_TTS_DUPLEX:
+            raise EngineVoiceCapabilityError(
+                "只有 Qwen Duplex TTS 引擎可以读取音色目录"
+            )
+        if not asset.enabled:
+            raise EngineVoiceCapabilityError(
+                "已停用的 Qwen Duplex TTS 引擎不能读取音色目录"
+            )
+        try:
+            catalog = await self._router.list_preset_voices(asset.snapshot())
+        except asyncio.CancelledError:
+            raise
+        except EngineDeadlineError as exc:
+            raise EngineVoiceDiscoveryTimeoutError(str(exc)) from exc
+        except (EngineConfigurationInvalidError, EngineUnavailableError) as exc:
+            raise EngineVoiceDiscoveryError(str(exc)) from exc
+        return asset, catalog
 
     @staticmethod
     def _validation_message(exc: Exception) -> str:

@@ -34,6 +34,9 @@ from audio_harness.engines.catalog import (
     EngineModelCapabilityError,
     EngineModelDiscoveryError,
     EngineModelDiscoveryTimeoutError,
+    EngineVoiceCapabilityError,
+    EngineVoiceDiscoveryError,
+    EngineVoiceDiscoveryTimeoutError,
 )
 from audio_harness.realtime_routes.service import (
     RealtimeRouteConflictError,
@@ -141,23 +144,26 @@ def create_http_app(
         return _error(404, "not_found", str(exc))
 
     @app.exception_handler(EngineModelCapabilityError)
+    @app.exception_handler(EngineVoiceCapabilityError)
     async def model_capability_handler(
         _request: Request,
-        exc: EngineModelCapabilityError,
+        exc: EngineModelCapabilityError | EngineVoiceCapabilityError,
     ) -> JSONResponse:
         return _error(409, exc.code, str(exc))
 
     @app.exception_handler(EngineModelDiscoveryTimeoutError)
+    @app.exception_handler(EngineVoiceDiscoveryTimeoutError)
     async def model_discovery_timeout_handler(
         _request: Request,
-        exc: EngineModelDiscoveryTimeoutError,
+        exc: EngineModelDiscoveryTimeoutError | EngineVoiceDiscoveryTimeoutError,
     ) -> JSONResponse:
         return _error(504, exc.code, str(exc))
 
     @app.exception_handler(EngineModelDiscoveryError)
+    @app.exception_handler(EngineVoiceDiscoveryError)
     async def model_discovery_handler(
         _request: Request,
-        exc: EngineModelDiscoveryError,
+        exc: EngineModelDiscoveryError | EngineVoiceDiscoveryError,
     ) -> JSONResponse:
         return _error(502, exc.code, str(exc))
 

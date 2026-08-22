@@ -41,6 +41,7 @@ Engine Asset 描述一个可连接的推理服务。Workflow/Agent 发布时会�
 | `PATCH /api/v1/engines/{engine_id}` | `EnginePatch`，只更新出现字段 | `200 EngineRead` | `404/409/422` |
 | `DELETE /api/v1/engines/{engine_id}` | 无 | `204` | `404/409` 被引用 |
 | `GET /api/v1/engines/{engine_id}/models` | 无 | `200 EngineModelListRead` | `404/409/502/504` |
+| `GET /api/v1/engines/{engine_id}/voices` | 无 | `200 EnginePresetVoiceListRead` | `404/409/502/504` |
 | `POST /api/v1/engines/{engine_id}/validate` | 无 | `200 EngineValidationRead` | `404`；探测结果也可在 body 中表达失败 |
 | `POST /api/v1/engines/validate` | 无 | 所有 enabled Engine 的结果 | 服务级错误 |
 | `GET /api/v1/engines/{engine_id}/usage` | 无 | 引用字符串数组 | `404` |
@@ -51,6 +52,7 @@ Engine Asset 描述一个可连接的推理服务。Workflow/Agent 发布时会�
 <!-- API: PATCH /api/v1/engines/{engine_id} -->
 <!-- API: DELETE /api/v1/engines/{engine_id} -->
 <!-- API: GET /api/v1/engines/{engine_id}/models -->
+<!-- API: GET /api/v1/engines/{engine_id}/voices -->
 <!-- API: POST /api/v1/engines/{engine_id}/validate -->
 <!-- API: POST /api/v1/engines/validate -->
 <!-- API: GET /api/v1/engines/{engine_id}/usage -->
@@ -93,9 +95,9 @@ Responses 引擎示例：
 - gRPC 引擎的基础 `probe` 等待 channel ready；它证明目标可连接，不保证每个业务 RPC 的模型可用。
 - Responses 探测调用 `GET /models`；`/models` 超时映射为 `504 engine_model_discovery_timeout`，上游失败映射为 `502`。
 - `GET .../models` 只对支持模型发现的能力有意义；能力不支持时返回 `409` 和具体错误码。
+- `GET .../voices` 仅支持启用的 `qwen_tts_duplex` 引擎，返回 qwen-tts 的完整预置音色目录和 `serving_mode`。语音智能体只把当前实例可用且支持 Duplex 的音色作为自动候选，但仍允许手工填写。
 - `EngineValidationResultRead.outcome`、`message`、`latency_ms` 应用于界面诊断，不应替代 HTTP 层错误判断。
 
 ## 更新、引用与删除
 
 删除前调用 usage 接口。`references` 可能包含 Workflow/Agent 草稿或活动 revision 引用；存在引用时服务拒绝删除。更新 Engine 只产生新 revision，不会修改已经发布到 Workflow/Agent 中的快照。若要让新配置生效，必须重新校验并发布依赖资源。
-

@@ -2,6 +2,8 @@
 
 Voice Agent 在已发布 Audio Workflow 上绑定 OpenAI-compatible Responses、双工 TTS、音色和工具策略。它同样采用 draft → validate → immutable revision → Realtime Route 的显式生命周期。
 
+控制台使用固定拓扑画布展示 Realtime 输入、Audio Workflow、Responses、可选 Agent Backend、TTS 和 Realtime 输出。声纹身份上下文不是独立工作流节点，而是 Audio Workflow 节点内的语音智能体私有消费策略：工作流只提供 `speaker_filter` 命名出口，智能体决定是否消费。画布目前只提供节点配置，不支持增删节点、重连或持久化布局；真正的图编排协议不在当前范围内。
+
 ## Agent 接口
 
 | 方法和路径 | 请求/语义 | 成功响应 |
@@ -58,6 +60,10 @@ Voice Agent 在已发布 Audio Workflow 上绑定 OpenAI-compatible Responses、
     "language": "Auto",
     "decoder_chunk_size": 0
   },
+  "speaker_context": {
+    "enabled": true,
+    "speaker_prompt": "speaker-001 使用简洁中文回复；未配置身份不猜测资料。"
+  },
   "agent_backend": {
     "backend_id": "backend_dsh",
     "cwd": "/workspace/project",
@@ -74,7 +80,8 @@ Voice Agent 在已发布 Audio Workflow 上绑定 OpenAI-compatible Responses、
 验证 preset 存在且资源 revision 未发生并发变化，并把完整 backend snapshot 固化到
 compiled profile。后续编辑或停用资源不会热改已运行的旧 revision。
 
-其他约束：Responses Engine 已绑定时 `model` 不能为空；TTS Engine 已绑定时
+未完成的草稿允许 `audio_workflow_id` 为空，此时 validate 返回
+`audio_workflow_missing`，且不能发布。其他约束：Responses Engine 已绑定时 `model` 不能为空；TTS Engine 已绑定时
 `allowed_voices` 非空且包含 `default_voice`。发布要求所引用 Workflow 已激活，
 Responses/TTS Engine 存在、启用且 API 匹配，引用 Voice Asset 存在。
 
@@ -84,8 +91,9 @@ Responses/TTS Engine 存在、启用且 API 匹配，引用 Voice Asset 存在�
 - `max_output_tokens` 为 `1..32768`；`max_tool_rounds` 为 `1..32`；`max_parallel_tools` 为 `1..16`；工具超时为 `(0,300]` 秒。
 - `history_max_items` 为 `8..4096`，限制传给 Responses 的会话历史项。
 - `service_tools` 引用进程启动前注入 `ToolRegistry` 的名称。未注册工具会在运行时失败；本仓库默认不内置业务工具。
-- 主转写工作流包含 `speaker_filter` 时，默认自动响应会在用户指令之后追加当前匹配的 `speaker_id` 与 `score`。该可信上下文只用于当前发言，不写入历史，不包含 embedding 或 Qdrant payload，也不得被表述为账户级身份认证。
-- 控制台提供“仅向量解锁”“按 Speaker ID 个性化”“多人物白名单”模板；模板只写入现有 `instructions`，应用后仍可编辑。
+- `speaker_context` 是智能体私有配置，不属于 Audio Workflow 图。启用后，发布要求所绑定的已发布工作流存在 `speaker_filter` 命名出口；缺少来源会返回 `speaker_context_source_missing` 并阻止发布。
+- `responses.instructions` 是主系统提示词；`speaker_context.speaker_prompt` 是独立的声纹提示词，二者分别在控制台编辑。发布时服务端冻结声纹提示词预览。匹配成功时才在主系统提示词和会话指令之后追加该提示词及当前回合的 `speaker_id` 与 `score`；它不写入历史，不包含 embedding、候选列表或 Qdrant payload，也不得被表述为账户级身份认证。未匹配和失败结果不会向 Responses 注入任何声纹提示词或身份。
+- 旧定义缺少 `speaker_context` 时保留历史自动注入行为。新建智能体默认关闭；在控制台调整开关或声纹提示词后会迁移为显式配置。
 - MCP 工具公开名为 `mcp__<server_label>__<remote_name>`，连接先尝试 Streamable HTTP，失败后回退 SSE。
 - Agent Backend 不会加入 Responses 工具列表。绑定后，Responses 通过严格 JSON Schema
   选择直接回复、委派、steer、取消或回答待处理交互；协调结果解析失败只修复重试一次。

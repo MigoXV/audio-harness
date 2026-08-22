@@ -39,7 +39,9 @@ import type {
   NodePosition,
   VectorSpace,
 } from "../api/types";
-import { layoutAudioGraph, needsAutoLayout, orderOutputPorts, orthogonalPath, routeAudioGraph, routingPortKey, type PortOffsets, type RoutePoint } from "./audioGraphLayout";
+import { layoutAudioGraph, needsAutoLayout, orderOutputPorts, orthogonalPath, routeAudioGraph } from "./audioGraphLayout";
+import { audioPortMeta as portMeta } from "./audioPortMeta";
+import { collectGraphPortOffsets, type PortOffsets, type RoutePoint } from "./graphLayout";
 import { applyAudioGraphTemplate, type AudioGraphTemplateId } from "./audioGraphTemplates";
 import { WorkbenchSidebar } from "./WorkbenchSidebar";
 
@@ -81,21 +83,6 @@ const OUTPUTS = [
   { name: "speaker_transcript", kind: "speaker_transcription" },
   { name: "diarization_cluster", kind: "diarization_cluster_result" },
 ];
-
-const PORT_META: Record<string, { label: string; color: string }> = {
-  pcm_chunk: { label: "PCM", color: "#2563eb" },
-  audio_segment: { label: "音频片段", color: "#c2410c" },
-  diarization_segment: { label: "说话人片段", color: "#0e7490" },
-  transcription: { label: "转写", color: "#7c3aed" },
-  speech_started: { label: "开始事件", color: "#0f766e" },
-  speech_stopped: { label: "停止事件", color: "#be123c" },
-  embedding: { label: "Embedding", color: "#9a6700" },
-  vector_search_result: { label: "检索结果", color: "#b45309" },
-  speaker_filter_result: { label: "过滤判定", color: "#a21caf" },
-  diarization_local_result: { label: "局部分离", color: "#0369a1" },
-  speaker_transcription: { label: "说话人转写", color: "#6d28d9" },
-  diarization_cluster_result: { label: "全局聚类", color: "#047857" },
-};
 
 const ROLE_COLORS = {
   input: "#2563eb",
@@ -163,10 +150,6 @@ function horizontalAnchor(
     if (side === "left") return position.x < current.x ? position : current;
     return position.x > current.x ? position : current;
   });
-}
-
-function portMeta(kind: string): { label: string; color: string } {
-  return PORT_META[kind] ?? { label: kind, color: "#69716c" };
 }
 
 function hasConfiguredEngine(
@@ -487,19 +470,10 @@ function AudioGraphEditorInner({
   const fitAfterGraphChange = useRef(false);
 
   const readPortOffsets = useCallback((nodes: GraphNode[]): PortOffsets => {
-    const offsets = new Map<string, { x: number; y: number; width: number; height: number }>();
-    nodes.forEach((node) => {
-      const bounds = getInternalNode(node.id)?.internals.handleBounds;
-      bounds?.target?.forEach((handle) => offsets.set(
-        routingPortKey(node.id, "input", handle.id),
-        { x: handle.x + handle.width / 2, y: handle.y + handle.height / 2, width: handle.width, height: handle.height },
-      ));
-      bounds?.source?.forEach((handle) => offsets.set(
-        routingPortKey(node.id, "output", handle.id),
-        { x: handle.x + handle.width / 2, y: handle.y + handle.height / 2, width: handle.width, height: handle.height },
-      ));
-    });
-    return offsets;
+    return collectGraphPortOffsets(
+      nodes.map((node) => node.id),
+      (nodeId) => getInternalNode(nodeId)?.internals.handleBounds,
+    );
   }, [getInternalNode]);
 
   const applyRoutes = useCallback((nodes: GraphNode[], edges: GraphEdge[]) => {

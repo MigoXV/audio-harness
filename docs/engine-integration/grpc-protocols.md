@@ -75,6 +75,12 @@ Proto：[`tts/tts.proto`](../../src/audio_harness/protos/tts/tts.proto)。Agent 
 
 WebSocket 输出会重采样到 24 kHz 并编码到 `response.output_audio.delta`；WebRTC 输出重采样到 RTP track 所需的 48 kHz。引擎不需要感知传输类型。
 
+### 预置音色目录：`qwen_tts.service.v1.PresetVoiceService`
+
+Proto：[`tts/preset_voice.proto`](../../src/audio_harness/protos/tts/preset_voice.proto)。调用一元 `ListPresetVoices`，返回服务模式和完整预置音色目录。每项包含稳定 `voice_id`、实际请求使用的 `name`、语言，以及 `supports_synthesize`、`supports_duplex` 和 `available_on_instance` 能力标记。
+
+Audio Harness 的语音智能体只把同时满足 `available_on_instance=true` 与 `supports_duplex=true` 的项目作为自动候选；控制面仍会返回完整目录，且手工填写音色继续可用以兼容旧服务或临时音色。
+
 ## 通用失败要求
 
 - 参数错误：`INVALID_ARGUMENT`。

@@ -58,6 +58,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/engines/{engine_id}/voices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Engine Preset Voices */
+        get: operations["list_engine_preset_voices_api_v1_engines__engine_id__voices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/engines/{engine_id}/validate": {
         parameters: {
             query?: never;
@@ -1581,6 +1598,17 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /** EnginePresetVoiceListRead */
+        EnginePresetVoiceListRead: {
+            /** Engine Id */
+            engine_id: string;
+            /** Engine Revision */
+            engine_revision: number;
+            /** Serving Mode */
+            serving_mode: string;
+            /** Items */
+            items: components["schemas"]["PresetVoiceRead"][];
+        };
         /**
          * EngineProtocol
          * @enum {string}
@@ -1940,6 +1968,21 @@ export interface components {
             engine_id?: string | null;
             config?: components["schemas"]["PhysicalVadConfig"];
         };
+        /** PresetVoiceRead */
+        PresetVoiceRead: {
+            /** Voice Id */
+            voice_id: string;
+            /** Name */
+            name: string;
+            /** Language */
+            language: string;
+            /** Supports Synthesize */
+            supports_synthesize: boolean;
+            /** Supports Duplex */
+            supports_duplex: boolean;
+            /** Available On Instance */
+            available_on_instance: boolean;
+        };
         /** ProtocolCapacityConfig */
         ProtocolCapacityConfig: {
             /**
@@ -2202,6 +2245,22 @@ export interface components {
              */
             max_vectors: number;
         };
+        /**
+         * SpeakerContextConfig
+         * @description 语音智能体私有的可信说话人身份使用策略。
+         */
+        SpeakerContextConfig: {
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Speaker Prompt
+             * @default
+             */
+            speaker_prompt: string;
+        };
         /** SpeakerDiarizationNode */
         SpeakerDiarizationNode: {
             /** Id */
@@ -2400,6 +2459,7 @@ export interface components {
             /** Tts Engine Id */
             tts_engine_id?: string | null;
             tts?: components["schemas"]["DuplexTtsConfig"];
+            speaker_context?: components["schemas"]["SpeakerContextConfig"] | null;
             agent_backend?: components["schemas"]["AgentBackendBinding"] | null;
         };
         /** VoiceAgentDraftRead */
@@ -2485,6 +2545,10 @@ export interface components {
             valid: boolean;
             /** Diagnostics */
             diagnostics: components["schemas"]["ConfigurationDiagnosticRead"][];
+            /** Agent Backend Context Preview */
+            agent_backend_context_preview?: string | null;
+            /** Speaker Context Preview */
+            speaker_context_preview?: string | null;
         };
         /** VoiceAssetRead */
         VoiceAssetRead: {
@@ -2790,6 +2854,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EngineModelListRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_engine_preset_voices_api_v1_engines__engine_id__voices_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                engine_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnginePresetVoiceListRead"];
                 };
             };
             /** @description Validation Error */

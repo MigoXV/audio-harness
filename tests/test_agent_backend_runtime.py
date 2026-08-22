@@ -370,6 +370,11 @@ async def test_reply_keeps_responses_tools_and_does_not_open_backend() -> None:
         await wait_until(lambda: not runtime.active)
         assert gateway.opens == []
         assert "tools" not in pool.responses.calls[0]
+        direct_instructions = pool.responses.calls[1]["instructions"]
+        assert '"name":"DSH"' in direct_instructions
+        assert "后台会话尚未建立" in direct_instructions
+        assert "http://dsh.test" not in direct_instructions
+        assert "/workspace/project" not in direct_instructions
         names = {tool["name"] for tool in pool.responses.calls[1]["tools"]}
         assert names == {"local_status", "client_status"}
     finally:

@@ -66,3 +66,5 @@ class ConfigurationDiagnosticRead(StrictSchema):
 class VoiceAgentValidationRead(StrictSchema):
     valid: bool
     diagnostics: list[ConfigurationDiagnosticRead]
+    agent_backend_context_preview: str | None = None
+    speaker_context_preview: str | None = None
