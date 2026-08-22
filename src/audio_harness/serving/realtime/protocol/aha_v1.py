@@ -17,6 +17,10 @@ class AhaV1ServerEventBase(AhaProtocolModel):
     event_id: str
 
 
+class AhaV1ClientEventBase(AhaProtocolModel):
+    event_id: str | None = None
+
+
 class AhaError(AhaProtocolModel):
     code: str
     message: str
@@ -204,6 +208,111 @@ class AhaDiarizationClusterFailedEvent(AhaDiarizationClusterEventBase):
     error: AhaError
 
 
+class AhaAgentBackendSessionEvent(AhaV1ServerEventBase):
+    type: Literal["x_aha.agent_backend.session"]
+    backend_id: str
+    backend_session_id: str
+    status: Literal["created", "running", "idle", "closed"]
+
+
+class AhaAgentBackendTurnEvent(AhaV1ServerEventBase):
+    type: Literal[
+        "x_aha.agent_backend.turn.started",
+        "x_aha.agent_backend.turn.completed",
+    ]
+    backend_id: str
+    backend_session_id: str
+    seq: NonNegativeInt | None = None
+    turn: int | None = None
+    reason: Any | None = None
+
+
+class AhaAgentBackendTextDeltaEvent(AhaV1ServerEventBase):
+    type: Literal["x_aha.agent_backend.text.delta"]
+    backend_id: str
+    backend_session_id: str
+    seq: NonNegativeInt | None = None
+    delta: str
+
+
+class AhaAgentBackendToolEvent(AhaV1ServerEventBase):
+    type: Literal[
+        "x_aha.agent_backend.tool.started",
+        "x_aha.agent_backend.tool.completed",
+    ]
+    backend_id: str
+    backend_session_id: str
+    seq: NonNegativeInt | None = None
+    call_id: str | None = None
+    name: str | None = None
+    arguments: str | None = None
+    result: str | None = None
+    error: str | None = None
+
+
+class AhaAgentBackendApprovalEvent(AhaV1ServerEventBase):
+    type: Literal[
+        "x_aha.agent_backend.approval.requested",
+        "x_aha.agent_backend.approval.resolved",
+    ]
+    backend_id: str
+    backend_session_id: str
+    request_id: str
+    approval_id: str
+    tool_name: str | None = None
+    call_id: str | None = None
+    reason: str | None = None
+    outcome: str | None = None
+    resolution: Literal["handled", "timed_out", "already_processed"] | None = None
+
+
+class AhaAgentBackendQuestionEvent(AhaV1ServerEventBase):
+    type: Literal[
+        "x_aha.agent_backend.question.requested",
+        "x_aha.agent_backend.question.resolved",
+    ]
+    backend_id: str
+    backend_session_id: str
+    request_id: str
+    questions: list[dict[str, Any]] | None = None
+    outcome: str | None = None
+    resolution: Literal["handled", "timed_out", "already_processed"] | None = None
+
+
+class AhaAgentBackendTerminalEvent(AhaV1ServerEventBase):
+    type: Literal[
+        "x_aha.agent_backend.failed",
+        "x_aha.agent_backend.cancelled",
+    ]
+    backend_id: str
+    backend_session_id: str | None = None
+    code: str
+    message: str
+
+
+class AhaAgentBackendApprovalResponseEvent(AhaV1ClientEventBase):
+    type: Literal["x_aha.agent_backend.approval.respond"]
+    request_id: str
+    approval_id: str
+    approved: bool
+
+
+class AhaAgentBackendQuestionAnswer(AhaProtocolModel):
+    id: str
+    selected: list[str]
+    custom: str | None = None
+
+
+class AhaAgentBackendQuestionResponseEvent(AhaV1ClientEventBase):
+    type: Literal["x_aha.agent_backend.question.respond"]
+    request_id: str
+    answers: list[AhaAgentBackendQuestionAnswer]
+
+
+class AhaAgentBackendCancelEvent(AhaV1ClientEventBase):
+    type: Literal["x_aha.agent_backend.cancel"]
+
+
 AhaV1ServerEvent: TypeAlias = (
     AhaVadProgressEvent
     | AhaVadPhysicalSpeechStoppedEvent
@@ -222,4 +331,17 @@ AhaV1ServerEvent: TypeAlias = (
     | AhaSpeakerTranscriptionFailedEvent
     | AhaDiarizationClusterCompletedEvent
     | AhaDiarizationClusterFailedEvent
+    | AhaAgentBackendSessionEvent
+    | AhaAgentBackendTurnEvent
+    | AhaAgentBackendTextDeltaEvent
+    | AhaAgentBackendToolEvent
+    | AhaAgentBackendApprovalEvent
+    | AhaAgentBackendQuestionEvent
+    | AhaAgentBackendTerminalEvent
+)
+
+AhaV1ClientEvent: TypeAlias = (
+    AhaAgentBackendApprovalResponseEvent
+    | AhaAgentBackendQuestionResponseEvent
+    | AhaAgentBackendCancelEvent
 )

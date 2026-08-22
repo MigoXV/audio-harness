@@ -1,4 +1,5 @@
 from audio_harness.database.models import (
+    AgentBackendAsset,
     AudioWorkflow,
     AudioWorkflowActivation,
     AudioWorkflowRevision,
@@ -18,6 +19,7 @@ from audio_harness.database.session import (
 )
 
 __all__ = [
+    "AgentBackendAsset",
     "AudioWorkflow",
     "AudioWorkflowActivation",
     "AudioWorkflowRevision",

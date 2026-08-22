@@ -6,6 +6,7 @@ import io
 import wave
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -23,7 +24,6 @@ from audio_harness.engines.models import (
 from audio_harness.inferencers.tts.base import TtsInferencer
 from audio_harness.serving.realtime.agent import (
     RealtimeAgentRuntime,
-    SpeakerContext,
     _FunctionCall,
 )
 from audio_harness.serving.realtime.tools import McpToolPool, ToolRegistry
@@ -31,9 +31,14 @@ from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
 from audio_harness.voice_agents.models import (
     DuplexTtsConfig,
     ResponsesConfig,
+    SpeakerContextConfig,
     VoiceAgentDefinition,
 )
 from audio_harness.voice_agents.service import ActiveVoiceAgent
+from audio_harness.voice_agents.speaker_context import (
+    SpeakerContext,
+    speaker_context_policy_instructions,
+)
 from tests.graph_fakes import static_audio_workflow
 
 
@@ -354,6 +359,59 @@ async def test_agent_appends_trusted_speaker_context_after_user_instructions() -
     assert "speaker_id=speaker-001" in instructions
     assert "score=0.910000" in instructions
     assert "账户级身份认证" in instructions
+    assert "payload" not in instructions
+    assert "speaker-002" not in instructions
+
+
+@pytest.mark.asyncio
+async def test_agent_applies_published_speaker_policy_only_when_turn_matches() -> None:
+    router = FakePool()
+    base = _profile()
+    config = SpeakerContextConfig(
+        enabled=True,
+        speaker_prompt="speaker-001 使用简洁中文回复。",
+    )
+    runtime = RealtimeAgentRuntime(
+        profile=replace(
+            base,
+            definition=base.definition.model_copy(
+                update={
+                    "responses": base.definition.responses.model_copy(
+                        update={"instructions": "主系统提示词"}
+                    ),
+                    "speaker_context": config,
+                }
+            ),
+            speaker_context_policy=speaker_context_policy_instructions(config),
+        ),
+        inferencer_pool=router,
+        send_event=lambda _event: asyncio.sleep(0),
+        send_audio=None,
+        clear_audio=None,
+        responses_limiter=None,
+        tts_limiter=None,
+        tool_registry=ToolRegistry(),
+    )
+
+    await runtime.respond(
+        "你好",
+        input_item_id="matched",
+        speaker_context=SpeakerContext("speaker-001", 0.91),
+    )
+    while runtime.active:
+        await asyncio.sleep(0)
+    matched_instructions = router.responses.calls[0]["instructions"]
+    assert "speaker-001 使用简洁中文回复。" in matched_instructions
+    assert matched_instructions.index("主系统提示词") < matched_instructions.index(
+        "speaker-001 使用简洁中文回复。"
+    )
+
+    await runtime.respond("再见", input_item_id="unmatched")
+    while runtime.active:
+        await asyncio.sleep(0)
+    unmatched_instructions = router.responses.calls[1]["instructions"]
+    assert "主系统提示词" in unmatched_instructions
+    assert "speaker-001 使用简洁中文回复。" not in unmatched_instructions
 
 
 @pytest.mark.asyncio

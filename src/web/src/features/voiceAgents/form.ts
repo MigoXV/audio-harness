@@ -3,7 +3,7 @@ export { normalizeSlug } from "../forms/slug";
 
 export function defaultVoiceAgentDefinition(workflowId = ""): VoiceAgentDefinition {
   return {
-    schema_version: 1,
+    schema_version: 2,
     audio_workflow_id: workflowId,
     responses_engine_id: null,
     responses: {
@@ -25,5 +25,10 @@ export function defaultVoiceAgentDefinition(workflowId = ""): VoiceAgentDefiniti
       language: "Auto",
       decoder_chunk_size: 0,
     },
+    speaker_context: {
+      enabled: false,
+      speaker_prompt: "",
+    },
+    agent_backend: null,
   };
 }

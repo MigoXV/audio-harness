@@ -101,6 +101,22 @@ class EngineModelListRead(StrictSchema):
     items: list[str]
 
 
+class PresetVoiceRead(StrictSchema):
+    voice_id: str
+    name: str
+    language: str
+    supports_synthesize: bool
+    supports_duplex: bool
+    available_on_instance: bool
+
+
+class EnginePresetVoiceListRead(StrictSchema):
+    engine_id: str
+    engine_revision: int
+    serving_mode: str
+    items: list[PresetVoiceRead]
+
+
 class EngineValidationResultRead(StrictSchema):
     engine_id: str
     name: str

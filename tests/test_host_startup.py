@@ -67,6 +67,9 @@ async def test_host_start_does_not_prepare_inference_engines() -> None:
     host.engine_health = SimpleNamespace(
         start=Recorder(events, "engine_health.start"),
     )
+    host.agent_backend_health = SimpleNamespace(
+        start=Recorder(events, "agent_backend_health.start"),
+    )
     host._closed = False
 
     await host.start()
@@ -80,4 +83,5 @@ async def test_host_start_does_not_prepare_inference_engines() -> None:
         "voice_agents.initialize",
         "realtime_routes.initialize",
         "engine_health.start",
+        "agent_backend_health.start",
     ]

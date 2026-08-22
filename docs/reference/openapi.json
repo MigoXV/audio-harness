@@ -331,6 +331,48 @@
         }
       }
     },
+    "/api/v1/engines/{engine_id}/voices": {
+      "get": {
+        "tags": [
+          "engines"
+        ],
+        "summary": "List Engine Preset Voices",
+        "operationId": "list_engine_preset_voices_api_v1_engines__engine_id__voices_get",
+        "parameters": [
+          {
+            "name": "engine_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Engine Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnginePresetVoiceListRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/engines/{engine_id}/validate": {
       "post": {
         "tags": [
@@ -419,6 +461,416 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/EngineUsageRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent-backends": {
+      "get": {
+        "tags": [
+          "agent-backends"
+        ],
+        "summary": "List Agent Backends",
+        "operationId": "list_agent_backends_api_v1_agent_backends_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AgentBackendKind"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "protocol",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AgentBackendProtocol"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Protocol"
+            }
+          },
+          {
+            "name": "enabled",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Enabled"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBackendList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "agent-backends"
+        ],
+        "summary": "Create Agent Backend",
+        "operationId": "create_agent_backend_api_v1_agent_backends_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentBackendCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBackendRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent-backends/{backend_id}": {
+      "get": {
+        "tags": [
+          "agent-backends"
+        ],
+        "summary": "Get Agent Backend",
+        "operationId": "get_agent_backend_api_v1_agent_backends__backend_id__get",
+        "parameters": [
+          {
+            "name": "backend_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Backend Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBackendRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "agent-backends"
+        ],
+        "summary": "Patch Agent Backend",
+        "operationId": "patch_agent_backend_api_v1_agent_backends__backend_id__patch",
+        "parameters": [
+          {
+            "name": "backend_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Backend Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentBackendPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBackendRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "agent-backends"
+        ],
+        "summary": "Delete Agent Backend",
+        "operationId": "delete_agent_backend_api_v1_agent_backends__backend_id__delete",
+        "parameters": [
+          {
+            "name": "backend_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Backend Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent-backends/{backend_id}/validate": {
+      "post": {
+        "tags": [
+          "agent-backends"
+        ],
+        "summary": "Validate Agent Backend",
+        "operationId": "validate_agent_backend_api_v1_agent_backends__backend_id__validate_post",
+        "parameters": [
+          {
+            "name": "backend_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Backend Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBackendValidationRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent-backends/{backend_id}/capabilities": {
+      "get": {
+        "tags": [
+          "agent-backends"
+        ],
+        "summary": "Get Agent Backend Capabilities",
+        "operationId": "get_agent_backend_capabilities_api_v1_agent_backends__backend_id__capabilities_get",
+        "parameters": [
+          {
+            "name": "backend_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Backend Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBackendCapabilitiesRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent-backends/{backend_id}/usage": {
+      "get": {
+        "tags": [
+          "agent-backends"
+        ],
+        "summary": "Get Agent Backend Usage",
+        "operationId": "get_agent_backend_usage_api_v1_agent_backends__backend_id__usage_get",
+        "parameters": [
+          {
+            "name": "backend_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Backend Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBackendUsageRead"
                 }
               }
             }
@@ -2559,6 +3011,664 @@
   },
   "components": {
     "schemas": {
+      "AgentBackendBinding": {
+        "properties": {
+          "backend_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Backend Id"
+          },
+          "cwd": {
+            "type": "string",
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Cwd"
+          },
+          "agent_preset": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Agent Preset",
+            "default": "standard"
+          },
+          "coordinator_instructions": {
+            "type": "string",
+            "maxLength": 32768,
+            "title": "Coordinator Instructions",
+            "default": ""
+          },
+          "task_timeout_seconds": {
+            "type": "number",
+            "maximum": 86400.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Task Timeout Seconds",
+            "default": 900
+          },
+          "interaction_timeout_seconds": {
+            "type": "number",
+            "maximum": 3600.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Interaction Timeout Seconds",
+            "default": 120
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "backend_id",
+          "cwd"
+        ],
+        "title": "AgentBackendBinding"
+      },
+      "AgentBackendCapabilitiesRead": {
+        "properties": {
+          "backend_id": {
+            "type": "string",
+            "title": "Backend Id"
+          },
+          "backend_revision": {
+            "type": "integer",
+            "title": "Backend Revision"
+          },
+          "wire_version": {
+            "type": "string",
+            "title": "Wire Version"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "cwd": {
+            "type": "string",
+            "title": "Cwd"
+          },
+          "presets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Presets"
+          },
+          "plugins": {
+            "items": {
+              "$ref": "#/components/schemas/AgentBackendPluginRead"
+            },
+            "type": "array",
+            "title": "Plugins"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "backend_id",
+          "backend_revision",
+          "wire_version",
+          "provider",
+          "model",
+          "cwd",
+          "presets",
+          "plugins"
+        ],
+        "title": "AgentBackendCapabilitiesRead"
+      },
+      "AgentBackendCreate": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Slug"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AgentBackendKind",
+            "default": "dsh"
+          },
+          "protocol": {
+            "$ref": "#/components/schemas/AgentBackendProtocol",
+            "default": "dsh_web_v1"
+          },
+          "target": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Target"
+          },
+          "connect_timeout_seconds": {
+            "type": "number",
+            "maximum": 120.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Connect Timeout Seconds",
+            "default": 10.0
+          },
+          "request_timeout_seconds": {
+            "type": "number",
+            "maximum": 600.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Request Timeout Seconds",
+            "default": 30.0
+          },
+          "headers_env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Headers Env"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "slug",
+          "name",
+          "target"
+        ],
+        "title": "AgentBackendCreate"
+      },
+      "AgentBackendKind": {
+        "type": "string",
+        "enum": [
+          "dsh"
+        ],
+        "title": "AgentBackendKind"
+      },
+      "AgentBackendList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AgentBackendRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "AgentBackendList"
+      },
+      "AgentBackendPatch": {
+        "properties": {
+          "slug": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1,
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slug"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentBackendKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "protocol": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentBackendProtocol"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "connect_timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 120.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connect Timeout Seconds"
+          },
+          "request_timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 600.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Timeout Seconds"
+          },
+          "headers_env": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headers Env"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AgentBackendPatch"
+      },
+      "AgentBackendPluginRead": {
+        "properties": {
+          "entry_id": {
+            "type": "string",
+            "title": "Entry Id"
+          },
+          "module_name": {
+            "type": "string",
+            "title": "Module Name"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "entry_id",
+          "module_name",
+          "enabled",
+          "phase"
+        ],
+        "title": "AgentBackendPluginRead"
+      },
+      "AgentBackendProtocol": {
+        "type": "string",
+        "enum": [
+          "dsh_web_v1"
+        ],
+        "title": "AgentBackendProtocol"
+      },
+      "AgentBackendRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AgentBackendKind"
+          },
+          "protocol": {
+            "$ref": "#/components/schemas/AgentBackendProtocol"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "connect_timeout_seconds": {
+            "type": "number",
+            "title": "Connect Timeout Seconds"
+          },
+          "request_timeout_seconds": {
+            "type": "number",
+            "title": "Request Timeout Seconds"
+          },
+          "headers_env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Headers Env"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AgentBackendStatus"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "status_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Basis"
+          },
+          "status_observed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Observed At"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          },
+          "probe_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probe Latency Ms"
+          },
+          "consecutive_failures": {
+            "type": "integer",
+            "title": "Consecutive Failures"
+          },
+          "next_probe_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Probe At"
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "kind",
+          "protocol",
+          "target",
+          "connect_timeout_seconds",
+          "request_timeout_seconds",
+          "headers_env",
+          "enabled",
+          "status",
+          "description",
+          "status_basis",
+          "status_observed_at",
+          "last_success_at",
+          "probe_latency_ms",
+          "consecutive_failures",
+          "next_probe_at",
+          "details",
+          "revision",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AgentBackendRead"
+      },
+      "AgentBackendStatus": {
+        "type": "string",
+        "enum": [
+          "unknown",
+          "healthy",
+          "unhealthy",
+          "disabled"
+        ],
+        "title": "AgentBackendStatus"
+      },
+      "AgentBackendUsageRead": {
+        "properties": {
+          "backend_id": {
+            "type": "string",
+            "title": "Backend Id"
+          },
+          "references": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "References"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "backend_id"
+        ],
+        "title": "AgentBackendUsageRead"
+      },
+      "AgentBackendValidationRead": {
+        "properties": {
+          "backend_id": {
+            "type": "string",
+            "title": "Backend Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "outcome": {
+            "type": "string",
+            "title": "Outcome"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "backend_id",
+          "name",
+          "revision",
+          "outcome"
+        ],
+        "title": "AgentBackendValidationRead"
+      },
       "AsrNode": {
         "properties": {
           "id": {
@@ -4016,6 +5126,38 @@
         "type": "object",
         "title": "EnginePatch"
       },
+      "EnginePresetVoiceListRead": {
+        "properties": {
+          "engine_id": {
+            "type": "string",
+            "title": "Engine Id"
+          },
+          "engine_revision": {
+            "type": "integer",
+            "title": "Engine Revision"
+          },
+          "serving_mode": {
+            "type": "string",
+            "title": "Serving Mode"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PresetVoiceRead"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "engine_id",
+          "engine_revision",
+          "serving_mode",
+          "items"
+        ],
+        "title": "EnginePresetVoiceListRead"
+      },
       "EngineProtocol": {
         "type": "string",
         "enum": [
@@ -4928,6 +6070,45 @@
         ],
         "title": "PhysicalVadNode"
       },
+      "PresetVoiceRead": {
+        "properties": {
+          "voice_id": {
+            "type": "string",
+            "title": "Voice Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "language": {
+            "type": "string",
+            "title": "Language"
+          },
+          "supports_synthesize": {
+            "type": "boolean",
+            "title": "Supports Synthesize"
+          },
+          "supports_duplex": {
+            "type": "boolean",
+            "title": "Supports Duplex"
+          },
+          "available_on_instance": {
+            "type": "boolean",
+            "title": "Available On Instance"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "voice_id",
+          "name",
+          "language",
+          "supports_synthesize",
+          "supports_duplex",
+          "available_on_instance"
+        ],
+        "title": "PresetVoiceRead"
+      },
       "ProtocolCapacityConfig": {
         "properties": {
           "max_sessions": {
@@ -5493,6 +6674,25 @@
         "type": "object",
         "title": "SpeakerClusteringNodeConfig"
       },
+      "SpeakerContextConfig": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "speaker_prompt": {
+            "type": "string",
+            "maxLength": 32768,
+            "title": "Speaker Prompt",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SpeakerContextConfig",
+        "description": "语音智能体私有的可信说话人身份使用策略。"
+      },
       "SpeakerDiarizationNode": {
         "properties": {
           "id": {
@@ -5961,14 +7161,16 @@
         "properties": {
           "schema_version": {
             "type": "integer",
-            "const": 1,
+            "enum": [
+              1,
+              2
+            ],
             "title": "Schema Version",
             "default": 1
           },
           "audio_workflow_id": {
             "type": "string",
             "maxLength": 100,
-            "minLength": 1,
             "title": "Audio Workflow Id"
           },
           "responses_engine_id": {
@@ -5998,6 +7200,26 @@
           },
           "tts": {
             "$ref": "#/components/schemas/DuplexTtsConfig"
+          },
+          "speaker_context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpeakerContextConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "agent_backend": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentBackendBinding"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -6212,6 +7434,17 @@
             },
             "type": "object",
             "title": "Engine Revisions"
+          },
+          "agent_backend_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Backend Revision"
           }
         },
         "additionalProperties": false,
@@ -6238,6 +7471,28 @@
             },
             "type": "array",
             "title": "Diagnostics"
+          },
+          "agent_backend_context_preview": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Backend Context Preview"
+          },
+          "speaker_context_preview": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker Context Preview"
           }
         },
         "additionalProperties": false,

@@ -94,16 +94,17 @@ test("final cluster failure ends processing without discarding the last successf
   assert.deepEqual(state.processing, { complete: true, failed: true, error: { message: "聚类失败" } });
 });
 
-test("speaker lanes migrate clustered segments and retain noise by local speaker", () => {
+test("speaker lanes migrate all assigned segments by speaker ID", () => {
   const state = createState();
   const segments = [
     { segment_id: "early", audio_start_ms: 100, audio_end_ms: 400, local_speaker_id: "batch-a:1" },
     { segment_id: "merged", audio_start_ms: 500, audio_end_ms: 900, local_speaker_id: "batch-b:2" },
-    { segment_id: "noise", audio_start_ms: 1_000, audio_end_ms: 1_200, local_speaker_id: "batch-a:1" },
+    { segment_id: "temporary", audio_start_ms: 1_000, audio_end_ms: 1_200, local_speaker_id: "batch-a:1" },
+    { segment_id: "temporary-other", audio_start_ms: 1_300, audio_end_ms: 1_500, local_speaker_id: "batch-b:3" },
   ];
   applyEvent(state, { type: "x_aha.diarization.local.completed", batch_id: "batch", segments });
   let lanes = buildSpeakerLanes(state);
-  assert.deepEqual(lanes.map((lane) => lane.key), ["local:batch-a:1", "local:batch-b:2"]);
+  assert.deepEqual(lanes.map((lane) => lane.key), ["local:batch-a:1", "local:batch-b:2", "local:batch-b:3"]);
 
   applyEvent(state, {
     type: "x_aha.diarization.cluster.completed",
@@ -111,14 +112,15 @@ test("speaker lanes migrate clustered segments and retain noise by local speaker
     assignments: [
       { segment_id: "early", speaker_id: 0 },
       { segment_id: "merged", speaker_id: 0 },
-      { segment_id: "noise", speaker_id: -1 },
+      { segment_id: "temporary", speaker_id: -1 },
+      { segment_id: "temporary-other", speaker_id: -2 },
     ],
   });
   lanes = buildSpeakerLanes(state);
-  assert.deepEqual(lanes.map((lane) => lane.key), ["cluster:0", "local:batch-a:1"]);
+  assert.deepEqual(lanes.map((lane) => lane.key), ["cluster:0", "cluster:-1", "cluster:-2"]);
   assert.deepEqual(lanes[0].segments.map((item) => item.segmentId), ["early", "merged"]);
-  assert.equal(lanes[1].noise, true);
-  assert.equal(lanes[1].segments[0].segmentId, "noise");
+  assert.deepEqual(lanes[1].segments.map((item) => item.segmentId), ["temporary"]);
+  assert.deepEqual(lanes[2].segments.map((item) => item.segmentId), ["temporary-other"]);
 });
 
 test("speaker lanes hide fallback segments without local identity", () => {
@@ -151,7 +153,6 @@ test("final clustering marks genuine local speakers without assignments as unass
   applyEvent(state, { type: "x_aha.diarization.cluster.completed", revision: 1, final: true, assignments: [] });
   const [lane] = buildSpeakerLanes(state);
   assert.equal(lane.unassigned, true);
-  assert.equal(lane.noise, false);
 });
 
 test("all speaker transcript is time ordered and merges only adjacent entries from the same speaker", () => {

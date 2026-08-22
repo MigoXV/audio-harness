@@ -11,6 +11,7 @@ export type EngineListResponse = Schemas["EngineList"];
 export type EngineValidation = Schemas["EngineValidationRead"];
 export type EngineValidationResult = Schemas["EngineValidationResultRead"];
 export type EngineModelList = Schemas["EngineModelListRead"];
+export type EnginePresetVoiceList = Schemas["EnginePresetVoiceListRead"];
 export type EngineWritePayload = Schemas["EngineCreate"];
 export type EngineFilters = {
   limit?: number;
@@ -43,6 +44,13 @@ export type VoiceAgentValidation = Schemas["VoiceAgentValidationRead"];
 export type RealtimeRoute = Schemas["RealtimeRouteRead"];
 export type RealtimeRouteUpsert = Schemas["RealtimeRouteUpsert"];
 export type RealtimeSessionKind = "transcription" | "voice_agent";
+
+export type AgentBackend = Schemas["AgentBackendRead"];
+export type AgentBackendCreate = Schemas["AgentBackendCreate"];
+export type AgentBackendPatch = Schemas["AgentBackendPatch"];
+export type AgentBackendCapabilities = Schemas["AgentBackendCapabilitiesRead"];
+export type AgentBackendValidation = Schemas["AgentBackendValidationRead"];
+export type AgentBackendUsage = Schemas["AgentBackendUsageRead"];
 
 type GeneratedWorkflowSettings = Schemas["WorkflowSettingsRead"];
 export type WorkflowSettings = GeneratedWorkflowSettings;
@@ -85,6 +93,7 @@ export interface AudioHarnessApi {
   probeEngine(engineId: string): Promise<EngineValidationResult>;
   getEngineUsage(engineId: string, signal?: AbortSignal): Promise<Schemas["EngineUsageRead"]>;
   listEngineModels(engineId: string, signal?: AbortSignal): Promise<EngineModelList>;
+  listEnginePresetVoices(engineId: string, signal?: AbortSignal): Promise<EnginePresetVoiceList>;
 
   listAudioNodeTypes(signal?: AbortSignal): Promise<AudioNodeType[]>;
   listAudioWorkflows(signal?: AbortSignal): Promise<AudioWorkflow[]>;
@@ -111,6 +120,15 @@ export interface AudioHarnessApi {
   getRealtimeRoute(model: string, signal?: AbortSignal): Promise<RealtimeRoute>;
   putRealtimeRoute(route: RealtimeRouteUpsert): Promise<RealtimeRoute>;
   deleteRealtimeRoute(model: string): Promise<void>;
+
+  listAgentBackends?(signal?: AbortSignal): Promise<AgentBackend[]>;
+  getAgentBackend?(backendId: string, signal?: AbortSignal): Promise<AgentBackend>;
+  createAgentBackend?(payload: AgentBackendCreate): Promise<AgentBackend>;
+  updateAgentBackend?(backendId: string, payload: AgentBackendPatch): Promise<AgentBackend>;
+  deleteAgentBackend?(backendId: string): Promise<void>;
+  validateAgentBackend?(backendId: string): Promise<AgentBackendValidation>;
+  getAgentBackendCapabilities?(backendId: string, signal?: AbortSignal): Promise<AgentBackendCapabilities>;
+  getAgentBackendUsage?(backendId: string, signal?: AbortSignal): Promise<AgentBackendUsage>;
 
   getRuntimeOverview(signal?: AbortSignal): Promise<RuntimeOverview>;
   getWorkflowSettings(signal?: AbortSignal): Promise<WorkflowSettings>;

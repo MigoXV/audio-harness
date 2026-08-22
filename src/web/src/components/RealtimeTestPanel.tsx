@@ -20,6 +20,15 @@ interface EventLine {
   count: number;
 }
 
+export interface StreamEventSummary {
+  key: string;
+  type: "x_aha.vad.progress" | "response.output_audio.delta";
+  status: "streaming" | "completed";
+  time: string;
+  detail: string;
+  count: number;
+}
+
 interface Latencies {
   interim?: number;
   transcription?: number;
@@ -42,6 +51,52 @@ interface VectorSearchMatchView {
   speakerId: string;
   score: number;
 }
+
+interface BackendToolView {
+  callId: string;
+  name: string;
+  status: "running" | "completed" | "failed";
+  detail: string;
+}
+
+interface BackendActivityView {
+  sessionId: string | null;
+  status: "idle" | "running" | "summarizing" | "failed" | "cancelled";
+  text: string;
+  tools: BackendToolView[];
+  message: string | null;
+}
+
+interface BackendApprovalView {
+  requestId: string;
+  approvalId: string;
+  toolName: string;
+  reason: string;
+  submitting: boolean;
+}
+
+interface BackendQuestionItem {
+  id: string;
+  question: string;
+  options: Array<{ label: string; description?: string }>;
+  multiSelect: boolean;
+}
+
+interface BackendQuestionView {
+  requestId: string;
+  questions: BackendQuestionItem[];
+  selections: Record<string, string[]>;
+  custom: Record<string, string>;
+  submitting: boolean;
+}
+
+const EMPTY_BACKEND_ACTIVITY: BackendActivityView = {
+  sessionId: null,
+  status: "idle",
+  text: "",
+  tools: [],
+  message: null,
+};
 
 export interface VectorSearchEventView {
   status: "completed" | "failed";
@@ -161,6 +216,19 @@ export function eventDetail(event: Record<string, unknown>): string {
   if (event.type === "x_aha.input_audio_transcription.interim_cleared") {
     return `中间结果已清除：${String(event.reason ?? "unknown")}`;
   }
+  if (event.type === "x_aha.agent_backend.session") {
+    return `DSH session ${String(event.backend_session_id ?? "—")} · ${String(event.status ?? "unknown")}`;
+  }
+  if (event.type === "x_aha.agent_backend.turn.started") return "DSH 开始执行任务";
+  if (event.type === "x_aha.agent_backend.turn.completed") return "DSH 执行结束，等待 Responses 总结";
+  if (event.type === "x_aha.agent_backend.text.delta") return String(event.delta ?? "");
+  if (event.type === "x_aha.agent_backend.tool.started") return `${String(event.name ?? "工具")} · ${String(event.arguments ?? "")}`;
+  if (event.type === "x_aha.agent_backend.tool.completed") return String(event.error ?? event.result ?? "工具执行完成");
+  if (event.type === "x_aha.agent_backend.approval.requested") return `${String(event.tool_name ?? "工具")} 请求审批：${String(event.reason ?? "未提供原因")}`;
+  if (event.type === "x_aha.agent_backend.approval.resolved") return `审批 ${String(event.resolution ?? "handled")} · ${String(event.outcome ?? "—")}`;
+  if (event.type === "x_aha.agent_backend.question.requested") return `DSH 提出 ${Array.isArray(event.questions) ? event.questions.length : 0} 个问题`;
+  if (event.type === "x_aha.agent_backend.question.resolved") return `问题 ${String(event.resolution ?? "handled")} · ${String(event.outcome ?? "—")}`;
+  if (event.type === "x_aha.agent_backend.failed" || event.type === "x_aha.agent_backend.cancelled") return String(event.message ?? "Agent Backend 已结束");
   if (event.type === "x_aha.vector.search.completed") {
     const groups = Array.isArray(event.groups) ? event.groups.length : 0;
     return `${groups} 个候选人 · ${String(event.latency_ms ?? "—")} ms`;
@@ -337,6 +405,62 @@ export function isTtsFirstAudio(type: string): boolean {
   return type === "response.output_audio.delta";
 }
 
+function audioSummaryKey(event: Record<string, unknown>): string {
+  return `audio:${String(event.response_id ?? "unattributed") || "unattributed"}`;
+}
+
+export function isStreamSummaryEvent(type: string): boolean {
+  return type === "x_aha.vad.progress" || type === "response.output_audio.delta";
+}
+
+export function updateStreamSummaries(
+  current: StreamEventSummary[],
+  event: Record<string, unknown>,
+  time: string,
+): StreamEventSummary[] {
+  const type = String(event.type ?? "");
+  if (type === "response.output_audio.done") {
+    const key = audioSummaryKey(event);
+    return current.map((summary) => summary.key === key
+      ? { ...summary, status: "completed", time }
+      : summary);
+  }
+  if (!isStreamSummaryEvent(type)) return current;
+  const summaryType: StreamEventSummary["type"] = type === "x_aha.vad.progress"
+    ? "x_aha.vad.progress"
+    : "response.output_audio.delta";
+  const key = summaryType === "x_aha.vad.progress" ? "vad" : audioSummaryKey(event);
+  const summary: StreamEventSummary = {
+    key,
+    type: summaryType,
+    status: summaryType === "x_aha.vad.progress" && event.final === true ? "completed" : "streaming",
+    time,
+    detail: summaryType === "response.output_audio.delta" ? "TTS 音频块" : eventDetail(event),
+    count: 1,
+  };
+  const existing = current.find((item) => item.key === key);
+  if (existing) {
+    return current.map((item) => item.key === key
+      ? { ...summary, count: item.count + 1 }
+      : item);
+  }
+  const next = [summary, ...current];
+  const audio = next.filter((item) => item.type === "response.output_audio.delta").slice(0, 10);
+  return [...next.filter((item) => item.type === "x_aha.vad.progress"), ...audio];
+}
+
+export function backendApprovalResponse(requestId: string, approvalId: string, approved: boolean) {
+  return { type: "x_aha.agent_backend.approval.respond", request_id: requestId, approval_id: approvalId, approved };
+}
+
+export function backendQuestionResponse(requestId: string, answers: Array<{ id: string; selected: string[]; custom: string | null }>) {
+  return { type: "x_aha.agent_backend.question.respond", request_id: requestId, answers };
+}
+
+export function backendCancelEvent() {
+  return { type: "x_aha.agent_backend.cancel" };
+}
+
 export function appendGroupedEvent(
   current: EventLine[],
   event: EventLine,
@@ -357,13 +481,18 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
   const [assistant, setAssistant] = useState("");
   const [events, setEvents] = useState<EventLine[]>([]);
   const [eventTotal, setEventTotal] = useState(0);
+  const [streamSummaries, setStreamSummaries] = useState<StreamEventSummary[]>([]);
   const [vectorSearch, setVectorSearch] = useState<VectorSearchEventView | null>(null);
   const [vectorResultsOpen, setVectorResultsOpen] = useState(true);
   const [speakerFilter, setSpeakerFilter] = useState<SpeakerFilterEventView | null>(null);
   const [vadProgress, setVadProgress] = useState<VadProgressView | null>(null);
   const [finalCluster, setFinalCluster] = useState<FinalClusterView | null>(null);
+  const [backendActivity, setBackendActivity] = useState<BackendActivityView>(EMPTY_BACKEND_ACTIVITY);
+  const [backendApproval, setBackendApproval] = useState<BackendApprovalView | null>(null);
+  const [backendQuestion, setBackendQuestion] = useState<BackendQuestionView | null>(null);
   const [latencies, setLatencies] = useState<Latencies>({});
   const socketRef = useRef<WebSocket | null>(null);
+  const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const microphoneRef = useRef<MicrophoneCapture | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -377,21 +506,75 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
   const transcriptAt = useRef<number | null>(null);
   const modelAt = useRef<number | null>(null);
 
-  const appendEvent = (event: Record<string, unknown>) => {
-    const detail = eventDetail(event);
+  const recordEvent = (event: Record<string, unknown>) => {
+    const time = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+    const type = String(event.type ?? "unknown");
     setEventTotal((current) => current + 1);
+    setStreamSummaries((current) => updateStreamSummaries(current, event, time));
+    if (isStreamSummaryEvent(type)) return;
     setEvents((current) => appendGroupedEvent(current, {
       id: String(event.event_id ?? `${event.type}-${performance.now()}`),
-      type: String(event.type ?? "unknown"),
-      time: new Date().toLocaleTimeString("zh-CN", { hour12: false }),
-      detail,
+      type,
+      time,
+      detail: eventDetail(event),
       count: 1,
     }));
   };
 
+  const sendClientEvent = (event: Record<string, unknown>): boolean => {
+    const payload = JSON.stringify(event);
+    if (protocol === "wss" && socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(payload);
+      return true;
+    }
+    if (protocol === "webrtc" && dataChannelRef.current?.readyState === "open") {
+      dataChannelRef.current.send(payload);
+      return true;
+    }
+    setNotice("控制事件发送失败：实时连接尚未就绪");
+    return false;
+  };
+
   const handleServerEvent = (event: Record<string, unknown>) => {
-    appendEvent(event);
+    recordEvent(event);
     const type = String(event.type ?? "");
+    if (type === "x_aha.agent_backend.session") {
+      setBackendActivity((current) => ({ ...current, sessionId: String(event.backend_session_id ?? "") || null, status: event.status === "running" ? "running" : current.status }));
+    } else if (type === "x_aha.agent_backend.turn.started") {
+      setBackendActivity((current) => ({ ...current, status: "running", text: "", tools: [], message: null }));
+      setNotice("DSH 正在执行委派任务");
+    } else if (type === "x_aha.agent_backend.text.delta") {
+      setBackendActivity((current) => ({ ...current, status: "running", text: (current.text + String(event.delta ?? "")).slice(-16_384) }));
+    } else if (type === "x_aha.agent_backend.tool.started") {
+      const callId = String(event.call_id ?? event.event_id ?? performance.now());
+      const tool: BackendToolView = { callId, name: String(event.name ?? "工具"), status: "running", detail: String(event.arguments ?? "") };
+      setBackendActivity((current) => ({ ...current, status: "running", tools: [...current.tools.filter((item) => item.callId !== callId), tool].slice(-20) }));
+    } else if (type === "x_aha.agent_backend.tool.completed") {
+      const callId = String(event.call_id ?? "");
+      setBackendActivity((current) => ({ ...current, tools: current.tools.map((tool) => tool.callId === callId ? { ...tool, status: event.error ? "failed" : "completed", detail: String(event.error ?? event.result ?? "") } : tool) }));
+    } else if (type === "x_aha.agent_backend.turn.completed") {
+      setBackendActivity((current) => ({ ...current, status: "summarizing" }));
+      setNotice("DSH 已完成，Responses 正在生成语音总结");
+    } else if (type === "x_aha.agent_backend.approval.requested") {
+      setBackendApproval({ requestId: String(event.request_id ?? ""), approvalId: String(event.approval_id ?? ""), toolName: String(event.tool_name ?? "后台工具"), reason: String(event.reason ?? ""), submitting: false });
+    } else if (type === "x_aha.agent_backend.approval.resolved") {
+      setBackendApproval((current) => current?.requestId === String(event.request_id ?? "") ? null : current);
+      setNotice(event.resolution === "already_processed" ? "该审批已由另一输入处理" : event.resolution === "timed_out" ? "审批已超时并默认拒绝" : "审批回答已提交");
+    } else if (type === "x_aha.agent_backend.question.requested") {
+      const questions = Array.isArray(event.questions) ? event.questions.flatMap((raw) => {
+        if (!raw || typeof raw !== "object") return [];
+        const question = raw as Record<string, unknown>;
+        return [{ id: String(question.id ?? ""), question: String(question.question ?? ""), multiSelect: question.multiSelect === true, options: Array.isArray(question.options) ? question.options.flatMap((rawOption) => rawOption && typeof rawOption === "object" ? [{ label: String((rawOption as Record<string, unknown>).label ?? ""), description: String((rawOption as Record<string, unknown>).description ?? "") || undefined }] : []) : [] }];
+      }) : [];
+      setBackendQuestion({ requestId: String(event.request_id ?? ""), questions, selections: {}, custom: {}, submitting: false });
+    } else if (type === "x_aha.agent_backend.question.resolved") {
+      setBackendQuestion((current) => current?.requestId === String(event.request_id ?? "") ? null : current);
+      setNotice(event.resolution === "already_processed" ? "这些问题已由另一输入回答" : event.resolution === "timed_out" ? "问题已超时取消" : "结构化答案已提交");
+    } else if (type === "x_aha.agent_backend.failed" || type === "x_aha.agent_backend.cancelled") {
+      setBackendActivity((current) => ({ ...current, status: type.endsWith("failed") ? "failed" : "cancelled", message: String(event.message ?? "Agent Backend 已结束") }));
+      setBackendApproval(null);
+      setBackendQuestion(null);
+    }
     if (type === "x_aha.vad.progress") {
       const processedAudioMs = Number(event.processed_audio_ms);
       if (Number.isFinite(processedAudioMs)) {
@@ -494,16 +677,49 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
       if (modelAt.current !== null) setLatencies((current) => current.audio === undefined ? ({ ...current, audio: now - modelAt.current! }) : current);
       if (protocol === "wss" && typeof event.delta === "string") void playerRef.current.push(event.delta);
     } else if (type === "response.output_audio.done" || type === "response.done") {
+      setBackendActivity((current) => current.status === "summarizing" ? { ...current, status: "idle" } : current);
       setNotice("回复完成，可以继续说话");
     } else if (type === "error") {
       setNotice(`运行错误：${String((event.error as { message?: string } | undefined)?.message ?? "未知错误")}`);
     }
   };
 
+  const answerApproval = (approved: boolean) => {
+    if (!backendApproval) return;
+    const sent = sendClientEvent(backendApprovalResponse(backendApproval.requestId, backendApproval.approvalId, approved));
+    if (sent) setBackendApproval({ ...backendApproval, submitting: true });
+  };
+
+  const toggleQuestionOption = (question: BackendQuestionItem, label: string) => {
+    if (!backendQuestion || backendQuestion.submitting) return;
+    const current = backendQuestion.selections[question.id] ?? [];
+    const selected = question.multiSelect
+      ? current.includes(label) ? current.filter((item) => item !== label) : [...current, label]
+      : [label];
+    setBackendQuestion({ ...backendQuestion, selections: { ...backendQuestion.selections, [question.id]: selected } });
+  };
+
+  const answerQuestions = () => {
+    if (!backendQuestion) return;
+    const answers = backendQuestion.questions.map((question) => ({
+      id: question.id,
+      selected: backendQuestion.selections[question.id] ?? [],
+      custom: backendQuestion.custom[question.id]?.trim() || null,
+    }));
+    if (sendClientEvent(backendQuestionResponse(backendQuestion.requestId, answers))) {
+      setBackendQuestion({ ...backendQuestion, submitting: true });
+    }
+  };
+
+  const cancelBackend = () => {
+    if (sendClientEvent(backendCancelEvent())) setNotice("正在取消 DSH 任务");
+  };
+
   const stop = async () => {
     stoppingRef.current = true;
     socketRef.current?.close();
     socketRef.current = null;
+    dataChannelRef.current = null;
     await microphoneRef.current?.stop().catch(() => undefined);
     microphoneRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -518,6 +734,9 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
     setSpeakerFilter(null);
     setVadProgress(null);
     setFinalCluster(null);
+    setBackendActivity(EMPTY_BACKEND_ACTIVITY);
+    setBackendApproval(null);
+    setBackendQuestion(null);
     interimRevisionRef.current = 0;
     interimItemRef.current = null;
     setNotice("测试已停止；本次文本和音频不会写入数据库");
@@ -564,6 +783,8 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
     const peer = new RTCPeerConnection();
     peerRef.current = peer;
     const channel = peer.createDataChannel("oai-events");
+    dataChannelRef.current = channel;
+    channel.onopen = () => channel.send(JSON.stringify(realtimeSessionUpdate(workflowKind, model)));
     channel.onmessage = (message) => {
       try { handleServerEvent(JSON.parse(String(message.data)) as Record<string, unknown>); } catch { setNotice("收到无法解析的 DataChannel 事件"); }
     };
@@ -602,11 +823,15 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
     setNotice("正在检查资源、路由和麦克风");
     setEvents([]);
     setEventTotal(0);
+    setStreamSummaries([]);
     setVectorSearch(null);
     setVectorResultsOpen(true);
     setSpeakerFilter(null);
     setVadProgress(null);
     setFinalCluster(null);
+    setBackendActivity(EMPTY_BACKEND_ACTIVITY);
+    setBackendApproval(null);
+    setBackendQuestion(null);
     setTranscriptView(EMPTY_TRANSCRIPT_VIEW);
     setAssistant("");
     setLatencies({});
@@ -638,6 +863,8 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
       ? "中间结果"
       : transcriptView.phase === "processing" ? "处理中" : null;
   const transcriptIsPending = ["listening", "interim", "processing"].includes(transcriptView.phase);
+  const backendVisible = backendActivity.sessionId !== null || backendActivity.status !== "idle" || backendApproval !== null || backendQuestion !== null;
+  const backendStatusLabel = ({ idle: "空闲", running: "执行中", summarizing: "正在总结", failed: "失败", cancelled: "已取消" } as const)[backendActivity.status];
 
   return (
     <div className="test-console">
@@ -654,6 +881,21 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
         <article className="panel conversation-card"><div className="conversation-label">用户转写{transcriptBadge && <span className="interim-badge">{transcriptBadge}</span>}</div><p className={transcriptIsPending ? "interim-transcript" : undefined}>{transcriptView.text || "开始说话后，实时转写会显示在这里。"}</p></article>
         {workflowKind === "voice_agent" && <article className="panel conversation-card assistant-card"><div className="conversation-label">模型回复</div><p>{assistant || "Responses 文本增量会显示在这里，并同步送入 TTS。"}</p></article>}
       </section>
+
+      {ahaEnabled && workflowKind === "voice_agent" && backendVisible && <section className="panel backend-runtime-panel" aria-label="Agent Backend 执行状态">
+        <details className="backend-runtime-details"><summary><div><p className="eyebrow">AGENT BACKEND</p><strong>DSH 执行进度</strong><small>{backendActivity.sessionId ? `Session ${backendActivity.sessionId}` : "正在建立 DSH session"}</small></div><span className={`status-chip backend-status-${backendActivity.status}`}>{backendStatusLabel}</span><i aria-hidden="true">⌄</i></summary>
+          <div className="backend-runtime-content">
+            {backendActivity.status === "running" && <div className="panel-actions"><button className="danger-button" onClick={cancelBackend}>取消 DSH 任务</button></div>}
+            {backendActivity.text && <div className="backend-progress-text">{backendActivity.text}</div>}
+            {backendActivity.tools.length > 0 && <div className="backend-tool-list">{backendActivity.tools.map((tool) => <article key={tool.callId}><span className={`backend-tool-state backend-tool-${tool.status}`}>{tool.status === "running" ? "运行中" : tool.status === "completed" ? "完成" : "失败"}</span><strong>{tool.name}</strong><code>{tool.detail || "等待结果"}</code></article>)}</div>}
+            {backendActivity.message && <div className={backendActivity.status === "failed" ? "alert alert-error" : "alert alert-warning"}>{backendActivity.message}</div>}
+          </div>
+        </details>
+      </section>}
+
+      {ahaEnabled && backendApproval && <section className="panel backend-interaction-card backend-approval-card" aria-label="DSH 审批请求"><div><p className="eyebrow">APPROVAL REQUIRED</p><h2>{backendApproval.toolName} 请求执行</h2><p>{backendApproval.reason || "DSH 未提供额外审批原因。"}</p></div><div className="panel-actions"><button className="danger-button" disabled={backendApproval.submitting} onClick={() => answerApproval(false)}>拒绝</button><button className="primary-button" disabled={backendApproval.submitting} onClick={() => answerApproval(true)}>{backendApproval.submitting ? "正在提交…" : "仅允许这次"}</button></div></section>}
+
+      {ahaEnabled && backendQuestion && <section className="panel backend-interaction-card backend-question-card" aria-label="DSH 结构化问题"><div className="panel-heading"><div><p className="eyebrow">INPUT REQUIRED</p><h2>DSH 需要补充信息</h2><p>界面回答与下一句语音回答先到者生效。</p></div></div><div className="backend-question-list">{backendQuestion.questions.map((question) => <fieldset key={question.id} disabled={backendQuestion.submitting}><legend>{question.question || question.id}</legend>{question.options.map((option) => { const selected = (backendQuestion.selections[question.id] ?? []).includes(option.label); return <label className="backend-question-option" key={option.label}><input type={question.multiSelect ? "checkbox" : "radio"} name={`backend-question-${question.id}`} checked={selected} onChange={() => toggleQuestionOption(question, option.label)} /><span><strong>{option.label}</strong>{option.description && <small>{option.description}</small>}</span></label>; })}<label><span>自定义回答（可选）</span><input value={backendQuestion.custom[question.id] ?? ""} onChange={(event) => setBackendQuestion({ ...backendQuestion, custom: { ...backendQuestion.custom, [question.id]: event.target.value } })} /></label></fieldset>)}</div><div className="panel-actions"><button className="primary-button" disabled={backendQuestion.submitting} onClick={answerQuestions}>{backendQuestion.submitting ? "正在提交…" : "提交结构化答案"}</button></div></section>}
 
       <section className={`latency-grid ${workflowKind === "transcription" ? "transcription-only" : ""}`}>
         <div className="metric-card"><span>检测到语音 → 首个中间结果</span><strong>{displayMs(latencies.interim, "等待中间结果")}</strong></div>
@@ -679,6 +921,16 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
           </div>
         </section>}
       </div>}
+
+      {streamSummaries.length > 0 && <section className="panel stream-event-summaries" aria-label="流式事件摘要">
+        <details><summary><span>流式事件摘要</span><small>高频事件已汇总 · {streamSummaries.length} 项</small><i aria-hidden="true">⌄</i></summary>
+        <div>{streamSummaries.map((summary) => <article key={summary.key}>
+          <code>{summary.type}</code>
+          <b className={`stream-event-status stream-event-status-${summary.status}`}>{summary.status === "completed" ? "完成" : "流式中"}</b>
+          <small>{summary.time} · ×{summary.count}</small>
+          <span>{summary.detail}</span>
+        </article>)}</div></details>
+      </section>}
 
       <details className="panel event-log"><summary>协议事件 <span>{eventTotal}</span></summary><div>{events.map((event) => <div className="event-row" key={event.id}><time>{event.time}</time><code>{event.type}</code>{event.count > 1 && <b>×{event.count}</b>}<span>{event.detail}</span></div>)}</div></details>
     </div>

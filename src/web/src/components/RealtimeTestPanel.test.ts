@@ -6,8 +6,12 @@ import type { AudioHarnessApi } from "../api/types";
 import {
   RealtimeTestPanel,
   isResponseTextDelta,
+  isStreamSummaryEvent,
   isTtsFirstAudio,
   appendGroupedEvent,
+  backendApprovalResponse,
+  backendCancelEvent,
+  backendQuestionResponse,
   completedTranscriptIsSuperseded,
   eventDetail,
   nextTranscriptView,
@@ -15,6 +19,7 @@ import {
   realtimeSessionUpdate,
   speakerFilterEventView,
   speakerFilterReasonLabel,
+  updateStreamSummaries,
   vectorSearchEventView,
   type TranscriptView,
 } from "./RealtimeTestPanel";
@@ -50,6 +55,12 @@ describe("realtimeSessionUpdate", () => {
   it("uses only the official output-audio event for first-audio latency", () => {
     expect(isTtsFirstAudio("response.output_audio.delta")).toBe(true);
     expect(isTtsFirstAudio("response.output_text.delta")).toBe(false);
+  });
+
+  it("recognizes only high-frequency events that belong in stream summaries", () => {
+    expect(isStreamSummaryEvent("x_aha.vad.progress")).toBe(true);
+    expect(isStreamSummaryEvent("response.output_audio.delta")).toBe(true);
+    expect(isStreamSummaryEvent("response.output_audio.done")).toBe(false);
   });
 });
 
@@ -183,6 +194,20 @@ describe("eventDetail", () => {
       audio_start_ms: 100,
       audio_end_ms: 2300,
     })).toBe("过滤失败 · 人物检索不可用 · 100–2300 ms");
+  });
+
+  it("describes DSH progress without exposing reasoning", () => {
+    expect(eventDetail({ type: "x_aha.agent_backend.tool.started", name: "bash", arguments: "df -h" })).toBe("bash · df -h");
+    expect(eventDetail({ type: "x_aha.agent_backend.turn.completed" })).toBe("DSH 执行结束，等待 Responses 总结");
+    expect(eventDetail({ type: "x_aha.agent_backend.failed", message: "连接中断" })).toBe("连接中断");
+  });
+});
+
+describe("Agent Backend AHA controls", () => {
+  it("builds approval, question and explicit cancel events", () => {
+    expect(backendApprovalResponse("request-1", "approval-1", true)).toEqual({ type: "x_aha.agent_backend.approval.respond", request_id: "request-1", approval_id: "approval-1", approved: true });
+    expect(backendQuestionResponse("request-2", [{ id: "scope", selected: ["当前目录"], custom: null }])).toEqual({ type: "x_aha.agent_backend.question.respond", request_id: "request-2", answers: [{ id: "scope", selected: ["当前目录"], custom: null }] });
+    expect(backendCancelEvent()).toEqual({ type: "x_aha.agent_backend.cancel" });
   });
 });
 
@@ -447,5 +472,60 @@ describe("appendGroupedEvent", () => {
     const first = appendGroupedEvent([], line("one", "a"));
     const second = appendGroupedEvent(first, line("two", "b"));
     expect(appendGroupedEvent(second, line("three", "a"))).toHaveLength(3);
+  });
+});
+
+describe("updateStreamSummaries", () => {
+  it("keeps interleaved VAD and audio deltas in their own summary rows", () => {
+    let summaries = updateStreamSummaries([], {
+      type: "x_aha.vad.progress",
+      processed_audio_ms: 320,
+    }, "12:00:01");
+    summaries = updateStreamSummaries(summaries, {
+      type: "response.output_audio.delta",
+      response_id: "response-1",
+    }, "12:00:02");
+    summaries = updateStreamSummaries(summaries, {
+      type: "x_aha.vad.progress",
+      processed_audio_ms: 640,
+      final: true,
+    }, "12:00:03");
+    summaries = updateStreamSummaries(summaries, {
+      type: "response.output_audio.delta",
+      response_id: "response-1",
+    }, "12:00:04");
+
+    expect(summaries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        key: "vad",
+        status: "completed",
+        count: 2,
+        detail: "VAD 处理完成 · 640 ms",
+      }),
+      expect.objectContaining({
+        key: "audio:response-1",
+        status: "streaming",
+        count: 2,
+        detail: "TTS 音频块",
+      }),
+    ]));
+  });
+
+  it("marks only the matching response audio stream as completed", () => {
+    let summaries = updateStreamSummaries([], {
+      type: "response.output_audio.delta",
+      response_id: "response-1",
+    }, "12:00:01");
+    summaries = updateStreamSummaries(summaries, {
+      type: "response.output_audio.delta",
+      response_id: "response-2",
+    }, "12:00:02");
+    summaries = updateStreamSummaries(summaries, {
+      type: "response.output_audio.done",
+      response_id: "response-1",
+    }, "12:00:03");
+
+    expect(summaries.find((item) => item.key === "audio:response-1")).toMatchObject({ status: "completed", time: "12:00:03" });
+    expect(summaries.find((item) => item.key === "audio:response-2")).toMatchObject({ status: "streaming" });
   });
 });

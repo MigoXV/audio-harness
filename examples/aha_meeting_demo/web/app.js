@@ -137,12 +137,7 @@ function renderTimeline(lanes, selectedLane) {
     const name = document.createElement("strong");
     name.textContent = lane.label;
     label.append(dot, name);
-    if (lane.noise) {
-      const badge = document.createElement("small");
-      badge.className = "noise-badge";
-      badge.textContent = "噪声";
-      label.append(badge);
-    } else if (lane.unassigned) {
+    if (lane.unassigned) {
       const badge = document.createElement("small");
       badge.className = "unassigned-badge";
       badge.textContent = "未归类";
@@ -159,7 +154,7 @@ function renderTimeline(lanes, selectedLane) {
     for (const item of lane.segments) {
       const block = document.createElement("button");
       block.type = "button";
-      block.className = `segment${lane.noise ? " noise" : ""}`;
+      block.className = "segment";
       const start = Math.max(0, item.audio_start_ms || 0);
       const end = Math.max(start, item.audio_end_ms || start);
       block.style.left = `${totalAudioMs > 0 ? Math.min(100, start / totalAudioMs * 100) : 0}%`;
@@ -199,9 +194,7 @@ function renderTranscripts(selectedLane) {
     const title = document.createElement("strong");
     title.textContent = selectedLane.label;
     const count = document.createElement("span");
-    const result = selectedLane.noise
-      ? " · 聚类判定为噪声"
-      : selectedLane.unassigned ? " · 最终聚类未分配" : "";
+    const result = selectedLane.unassigned ? " · 最终聚类未分配" : "";
     count.textContent = `${selectedLane.segments.length} 个片段${result}`;
     heading.append(title, count);
     elements["speaker-transcript"].append(heading, ...selectedLane.segments.map(transcriptRow));

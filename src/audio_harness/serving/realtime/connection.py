@@ -22,6 +22,7 @@ from openai.types.realtime import (
 from pydantic import ValidationError
 
 from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
+from audio_harness.agent_backends.base import AgentBackendGateway
 from audio_harness.errors import CapacityExceededError
 from audio_harness.engines.pool import InferencerPool
 from audio_harness.realtime_routes.service import (
@@ -143,6 +144,7 @@ class _RealtimeConnection:
         tool_registry: ToolRegistry,
         voice_resolver: VoiceResolver | None,
         received_audio_cache_dir: Path,
+        agent_backend_gateway: AgentBackendGateway | None,
         model: str | None = None,
         target: RealtimeTarget | None = None,
     ) -> None:
@@ -163,6 +165,7 @@ class _RealtimeConnection:
         self._tool_registry = tool_registry
         self._voice_resolver = voice_resolver
         self._received_audio_cache_dir = received_audio_cache_dir
+        self._agent_backend_gateway = agent_backend_gateway
         self._dynamic_transcription = model is None and target is None
         self._session: RealtimeTranscriptionSession | None = None
         self._initial_model = model
@@ -195,6 +198,7 @@ class _RealtimeConnection:
                 else None
             ),
             received_audio_cache_dir=self._received_audio_cache_dir,
+            agent_backend_gateway=self._agent_backend_gateway,
         )
 
     async def _send(self, event) -> None:
@@ -592,6 +596,7 @@ class RealtimeTranscriptionService:
         tool_registry: ToolRegistry | None = None,
         voice_resolver: VoiceResolver | None = None,
         received_audio_cache_dir: Path = Path("./data-bin/cache"),
+        agent_backend_gateway: AgentBackendGateway | None = None,
     ) -> None:
         self.session_service = session_service
         self.workflow_settings = workflow_settings
@@ -603,6 +608,7 @@ class RealtimeTranscriptionService:
         self.tool_registry = tool_registry or ToolRegistry()
         self.voice_resolver = voice_resolver
         self.received_audio_cache_dir = received_audio_cache_dir
+        self.agent_backend_gateway = agent_backend_gateway
 
     async def handle(
         self,
@@ -653,6 +659,7 @@ class RealtimeTranscriptionService:
                 tool_registry=self.tool_registry,
                 voice_resolver=self.voice_resolver,
                 received_audio_cache_dir=self.received_audio_cache_dir,
+                agent_backend_gateway=self.agent_backend_gateway,
                 model=selected_model,
                 target=target,
             )

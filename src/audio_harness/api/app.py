@@ -4,10 +4,19 @@ import logging
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from audio_harness.agent_backends.catalog import (
+    AgentBackendCatalog,
+    AgentBackendCatalogError,
+    AgentBackendConflictError,
+    AgentBackendNotFoundError,
+    AgentBackendUnavailableError,
+)
+from audio_harness.api.routers.agent_backends import create_agent_backend_router
 from audio_harness.api.routers.data_plane import create_data_plane_router
 from audio_harness.api.routers.engines import create_engine_router
 from audio_harness.api.routers.realtime_routes import create_realtime_route_router
@@ -25,6 +34,9 @@ from audio_harness.engines.catalog import (
     EngineModelCapabilityError,
     EngineModelDiscoveryError,
     EngineModelDiscoveryTimeoutError,
+    EngineVoiceCapabilityError,
+    EngineVoiceDiscoveryError,
+    EngineVoiceDiscoveryTimeoutError,
 )
 from audio_harness.realtime_routes.service import (
     RealtimeRouteConflictError,
@@ -81,13 +93,13 @@ DEFAULT_WEB_DIST = Path(__file__).resolve().parents[2] / "web" / "dist"
 def _error(status_code: int, code: str, message: str, details=None) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
-        content={
+        content=jsonable_encoder({
             "error": {
                 "code": code,
                 "message": message,
                 "details": details,
             }
-        },
+        }),
     )
 
 
@@ -105,6 +117,7 @@ def create_http_app(
     webrtc_service: WebRtcCallService,
     max_message_bytes: int,
     voice_store: VoiceAssetStore,
+    agent_backends: AgentBackendCatalog | None = None,
     vectors: VectorService | None = None,
     qdrant_config: QdrantConfig | None = None,
     web_dist: Path | None = None,
@@ -119,6 +132,7 @@ def create_http_app(
         return _error(422, "request_validation_failed", "请求参数不合法", exc.errors())
 
     @app.exception_handler(AssetNotFoundError)
+    @app.exception_handler(AgentBackendNotFoundError)
     @app.exception_handler(AudioWorkflowNotFoundError)
     @app.exception_handler(AudioWorkflowRevisionNotFoundError)
     @app.exception_handler(VoiceAgentNotFoundError)
@@ -130,27 +144,31 @@ def create_http_app(
         return _error(404, "not_found", str(exc))
 
     @app.exception_handler(EngineModelCapabilityError)
+    @app.exception_handler(EngineVoiceCapabilityError)
     async def model_capability_handler(
         _request: Request,
-        exc: EngineModelCapabilityError,
+        exc: EngineModelCapabilityError | EngineVoiceCapabilityError,
     ) -> JSONResponse:
         return _error(409, exc.code, str(exc))
 
     @app.exception_handler(EngineModelDiscoveryTimeoutError)
+    @app.exception_handler(EngineVoiceDiscoveryTimeoutError)
     async def model_discovery_timeout_handler(
         _request: Request,
-        exc: EngineModelDiscoveryTimeoutError,
+        exc: EngineModelDiscoveryTimeoutError | EngineVoiceDiscoveryTimeoutError,
     ) -> JSONResponse:
         return _error(504, exc.code, str(exc))
 
     @app.exception_handler(EngineModelDiscoveryError)
+    @app.exception_handler(EngineVoiceDiscoveryError)
     async def model_discovery_handler(
         _request: Request,
-        exc: EngineModelDiscoveryError,
+        exc: EngineModelDiscoveryError | EngineVoiceDiscoveryError,
     ) -> JSONResponse:
         return _error(502, exc.code, str(exc))
 
     @app.exception_handler(CatalogConflictError)
+    @app.exception_handler(AgentBackendConflictError)
     @app.exception_handler(AudioWorkflowConflictError)
     @app.exception_handler(VoiceAgentConflictError)
     @app.exception_handler(WorkflowRevisionConflictError)
@@ -204,17 +222,27 @@ def create_http_app(
     async def qdrant_unavailable_handler(_request: Request, exc: Exception) -> JSONResponse:
         return _error(503, "qdrant_unavailable", str(exc))
 
+    @app.exception_handler(AgentBackendUnavailableError)
+    async def agent_backend_unavailable_handler(
+        _request: Request,
+        exc: AgentBackendUnavailableError,
+    ) -> JSONResponse:
+        return _error(502, exc.code, str(exc))
+
     @app.exception_handler(ValueError)
     async def value_error_handler(_request: Request, exc: ValueError) -> JSONResponse:
         return _error(400, "invalid_request", str(exc))
 
     @app.exception_handler(CatalogError)
+    @app.exception_handler(AgentBackendCatalogError)
     @app.exception_handler(AudioWorkflowRepositoryError)
     @app.exception_handler(VoiceAgentRepositoryError)
     async def service_error_handler(_request: Request, exc: Exception) -> JSONResponse:
         return _error(500, "service_error", str(exc))
 
     app.include_router(create_engine_router(catalog))
+    if agent_backends is not None:
+        app.include_router(create_agent_backend_router(agent_backends))
     if vectors is not None and qdrant_config is not None:
         app.include_router(create_vector_router(vectors, qdrant_config))
     app.include_router(create_workflow_router(workflows, voice_agents))

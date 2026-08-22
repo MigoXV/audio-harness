@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from audio_harness.agent_backends.models import AgentBackendAssetData
 from audio_harness.engines.models import EngineAssetData
-from audio_harness.database.models import EngineAsset
+from audio_harness.database.models import AgentBackendAsset, EngineAsset
 
 
 def asset_data(model: EngineAsset) -> EngineAssetData:
@@ -28,6 +29,33 @@ def asset_data(model: EngineAsset) -> EngineAssetData:
         consecutive_failures=model.consecutive_failures or 0,
         next_probe_at=model.next_probe_at,
         source=model.source,
+        details=dict(model.details or {}),
+        revision=model.revision,
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+    )
+
+
+def agent_backend_data(model: AgentBackendAsset) -> AgentBackendAssetData:
+    return AgentBackendAssetData(
+        id=model.id,
+        slug=model.slug,
+        name=model.name,
+        kind=model.kind,
+        protocol=model.protocol,
+        target=model.target,
+        connect_timeout_seconds=model.connect_timeout_seconds,
+        request_timeout_seconds=model.request_timeout_seconds,
+        headers_env=dict(model.headers_env or {}),
+        enabled=model.enabled,
+        status=model.status,
+        description=model.description,
+        status_basis=model.status_basis,
+        status_observed_at=model.status_observed_at,
+        last_success_at=model.last_success_at,
+        probe_latency_ms=model.probe_latency_ms,
+        consecutive_failures=model.consecutive_failures or 0,
+        next_probe_at=model.next_probe_at,
         details=dict(model.details or {}),
         revision=model.revision,
         created_at=model.created_at,

@@ -1,21 +1,20 @@
-import type { ELK as ElkApi, ElkNode } from "elkjs/lib/elk-api";
-import type { Edge, Node } from "@xyflow/react";
+import {
+  graphNodeDimensions,
+  graphNodePorts,
+  layoutGraph,
+  routingPortKey,
+  type LayoutEdge,
+  type LayoutNode,
+  type PortOffsets,
+  type RoutePoint,
+} from "./graphLayout";
 
-const DEFAULT_NODE_WIDTH = 244;
-const DEFAULT_NODE_HEIGHT = 160;
 const NODE_CLEARANCE = 32;
 const PORT_STUB = 36;
 const BEND_PENALTY = 42;
 const LANE_STEP = 12;
 const OUTPUT_LANE_STEP = 18;
 
-type PortDescription = { name: string };
-type LayoutNode = Pick<Node, "id" | "position" | "width" | "height" | "measured" | "data">;
-type LayoutEdge = Pick<Edge, "id" | "source" | "target" | "sourceHandle" | "targetHandle">;
-
-export interface RoutePoint { x: number; y: number }
-export interface PortOffset extends RoutePoint { width?: number; height?: number }
-export type PortOffsets = ReadonlyMap<string, PortOffset>;
 export interface AudioGraphLayout<NodeType> { nodes: NodeType[]; outputOrder: string[] }
 
 export function orthogonalPath(points: RoutePoint[], radius = 14): string {
@@ -44,147 +43,43 @@ export function orthogonalPath(points: RoutePoint[], radius = 14): string {
 interface Rect { left: number; right: number; top: number; bottom: number }
 interface Segment { a: RoutePoint; b: RoutePoint }
 
-let elkInstance: Promise<ElkApi> | null = null;
-
-async function getElk(): Promise<ElkApi> {
-  elkInstance ??= import("elkjs/lib/elk.bundled.js").then(({ default: ELK }) => new ELK());
-  return elkInstance;
-}
-
-function dimensions(node: LayoutNode): { width: number; height: number } {
-  return {
-    width: node.measured?.width ?? node.width ?? DEFAULT_NODE_WIDTH,
-    height: node.measured?.height ?? node.height ?? DEFAULT_NODE_HEIGHT,
-  };
-}
-
-function nodePorts(node: LayoutNode, direction: "input" | "output", edges: LayoutEdge[]): string[] {
-  const data = node.data as { inputs?: PortDescription[]; outputs?: PortDescription[] } | undefined;
-  const described = direction === "input" ? data?.inputs : data?.outputs;
-  if (described?.length) return described.map((port) => port.name);
-  const values = edges.flatMap((edge) => {
-    const matches = direction === "input" ? edge.target === node.id : edge.source === node.id;
-    const handle = direction === "input" ? edge.targetHandle : edge.sourceHandle;
-    return matches && handle ? [handle] : [];
-  });
-  return [...new Set(values)];
-}
-
-function portId(nodeId: string, direction: "input" | "output", handle: string | null | undefined): string {
-  return `${nodeId}::${direction}::${handle ?? "default"}`;
-}
-
-export function routingPortKey(nodeId: string, direction: "input" | "output", handle: string | null | undefined): string {
-  return portId(nodeId, direction, handle);
-}
-
-function elkPort(node: LayoutNode, direction: "input" | "output", handle: string, offsets: PortOffsets) {
-  const offset = offsets.get(portId(node.id, direction, handle));
-  if (!offset) throw new Error(`端口 ${node.id}.${handle} 尚未完成测量`);
-  const width = offset.width ?? 1;
-  const height = offset.height ?? 1;
-  return {
-    id: portId(node.id, direction, handle),
-    x: offset.x - width / 2,
-    y: offset.y - height / 2,
-    width,
-    height,
-    layoutOptions: { "elk.port.side": direction === "input" ? "WEST" : "EAST" },
-  };
-}
-
-async function layoutOnce<NodeType extends LayoutNode>(
-  nodes: NodeType[],
-  edges: LayoutEdge[],
-  offsets: PortOffsets,
-): Promise<NodeType[]> {
-  const graph: ElkNode = {
-    id: "audio-workflow",
-    layoutOptions: {
-      "elk.algorithm": "layered",
-      "elk.direction": "RIGHT",
-      "elk.edgeRouting": "ORTHOGONAL",
-      "elk.spacing.nodeNode": "96",
-      "elk.spacing.edgeEdge": "18",
-      "elk.spacing.edgeNode": "40",
-      "elk.layered.spacing.nodeNodeBetweenLayers": "180",
-      "elk.layered.spacing.edgeNodeBetweenLayers": "48",
-      "elk.layered.layering.strategy": "LONGEST_PATH_SOURCE",
-      "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
-      "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
-      "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
-      "elk.padding": "[top=48,left=48,bottom=48,right=48]",
-    },
-    children: nodes.map((node) => {
-      const size = dimensions(node);
-      const inputs = nodePorts(node, "input", edges);
-      const outputs = nodePorts(node, "output", edges);
-      return {
-        id: node.id,
-        width: size.width,
-        height: size.height,
-        layoutOptions: {
-          "elk.portConstraints": "FIXED_POS",
-          ...(node.id === "$input" ? { "elk.layered.layering.layerConstraint": "FIRST" } : {}),
-          ...(node.id === "$outputs" ? { "elk.layered.layering.layerConstraint": "LAST" } : {}),
-        },
-        ports: [
-          ...inputs.map((handle) => elkPort(node, "input", handle, offsets)),
-          ...outputs.map((handle) => elkPort(node, "output", handle, offsets)),
-        ],
-      };
-    }),
-    edges: edges.map((edge) => ({
-      id: edge.id,
-      sources: [portId(edge.source, "output", edge.sourceHandle)],
-      targets: [portId(edge.target, "input", edge.targetHandle)],
-    })),
-  };
-  const result = await (await getElk()).layout(graph);
-  const positions = new Map((result.children ?? []).map((node) => [node.id, node]));
-  return nodes.map((node) => {
-    const position = positions.get(node.id);
-    if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) throw new Error(`ELK 没有返回节点 ${node.id} 的有效位置`);
-    return { ...node, position: { x: position.x!, y: position.y! } };
-  });
-}
-
 export async function layoutAudioGraph<NodeType extends LayoutNode>(
   nodes: NodeType[],
   edges: LayoutEdge[],
   offsets: PortOffsets,
 ): Promise<AudioGraphLayout<NodeType>> {
-  const first = await layoutOnce(nodes, edges, offsets);
+  const layoutOptions = { graphId: "audio-workflow", firstNodeIds: ["$input"], lastNodeIds: ["$outputs"] };
+  const first = await layoutGraph(nodes, edges, offsets, layoutOptions);
   const sourceYByOutput = new Map<string, number>();
   edges.filter((edge) => edge.target === "$outputs" && edge.targetHandle).forEach((edge) => {
     const source = first.find((node) => node.id === edge.source);
-    const sourceOffset = offsets.get(portId(edge.source, "output", edge.sourceHandle));
+    const sourceOffset = offsets.get(routingPortKey(edge.source, "output", edge.sourceHandle));
     if (source && sourceOffset) sourceYByOutput.set(edge.targetHandle!, source.position.y + sourceOffset.y);
   });
   const outputNode = nodes.find((node) => node.id === "$outputs");
-  const outputOrder = outputNode ? orderOutputPorts(nodePorts(outputNode, "input", edges).map((name) => ({ name })), sourceYByOutput).map(({ name }) => name) : [];
+  const outputOrder = outputNode ? orderOutputPorts(graphNodePorts(outputNode, "input", edges).map((name) => ({ name })), sourceYByOutput).map(({ name }) => name) : [];
   const outputSlots = outputNode
-    ? nodePorts(outputNode, "input", edges).flatMap((handle) => {
-      const offset = offsets.get(portId(outputNode.id, "input", handle));
+    ? graphNodePorts(outputNode, "input", edges).flatMap((handle) => {
+      const offset = offsets.get(routingPortKey(outputNode.id, "input", handle));
       return offset ? [offset] : [];
     }).sort((left, right) => left.y - right.y)
     : [];
   const orderedOffsets = new Map(offsets);
   outputOrder.forEach((handle, index) => {
     const slot = outputSlots[index];
-    if (slot) orderedOffsets.set(portId("$outputs", "input", handle), slot);
+    if (slot) orderedOffsets.set(routingPortKey("$outputs", "input", handle), slot);
   });
-  const layouted = await layoutOnce(nodes, edges, orderedOffsets);
+  const layouted = await layoutGraph(nodes, edges, orderedOffsets, layoutOptions);
   return { nodes: layouted, outputOrder };
 }
 
 function rectFor(node: LayoutNode): Rect {
-  const size = dimensions(node);
+  const size = graphNodeDimensions(node);
   return { left: node.position.x - NODE_CLEARANCE, right: node.position.x + size.width + NODE_CLEARANCE, top: node.position.y - NODE_CLEARANCE, bottom: node.position.y + size.height + NODE_CLEARANCE };
 }
 
 function handleAnchor(node: LayoutNode, handle: string | null | undefined, direction: "input" | "output", offsets: PortOffsets): RoutePoint | undefined {
-  const offset = offsets.get(portId(node.id, direction, handle));
+  const offset = offsets.get(routingPortKey(node.id, direction, handle));
   if (!offset) return undefined;
   return { x: node.position.x + offset.x, y: node.position.y + offset.y };
 }
@@ -351,9 +246,9 @@ export function orderOutputPorts<Port extends { name: string }>(ports: readonly 
 
 export function hasNodeCollisions(nodes: LayoutNode[], margin = 40): boolean {
   return nodes.some((node, index) => {
-    const size = dimensions(node);
+    const size = graphNodeDimensions(node);
     return nodes.slice(index + 1).some((other) => {
-      const otherSize = dimensions(other);
+      const otherSize = graphNodeDimensions(other);
       return node.position.x < other.position.x + otherSize.width + margin && node.position.x + size.width + margin > other.position.x
         && node.position.y < other.position.y + otherSize.height + margin && node.position.y + size.height + margin > other.position.y;
     });
@@ -365,7 +260,7 @@ export function needsAutoLayout(_nodes: LayoutNode[], requiredNodeIds: string[],
 }
 
 export function routeIntersectsNode(route: RoutePoint[], node: LayoutNode, clearance = 0): boolean {
-  const size = dimensions(node);
+  const size = graphNodeDimensions(node);
   const rect = { left: node.position.x - clearance, right: node.position.x + size.width + clearance, top: node.position.y - clearance, bottom: node.position.y + size.height + clearance };
   return route.slice(1).some((point, index) => segmentBlocked(route[index], point, [rect]));
 }

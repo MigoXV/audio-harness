@@ -55,7 +55,11 @@ from audio_harness.workflows.models import (
     SpeakerDiarizationNodeConfig,
     SpeakerDiarizationPostprocessingOptions,
 )
-from audio_harness.workflows.runtime import DiarizationBatcher, _SegmentCandidate
+from audio_harness.workflows.runtime import (
+    DiarizationBatcher,
+    _SegmentCandidate,
+    _TimelineSpan,
+)
 
 
 def _event_payload(event) -> dict:
@@ -197,6 +201,30 @@ def test_diarization_result_is_split_and_mapped_across_vad_gaps() -> None:
     ]
 
 
+def test_diarization_maps_semantic_audio_across_preserved_gaps() -> None:
+    state = batcher(0, 5)
+    batch = state.accept(
+        _SegmentCandidate(
+            audio=bytes((1, 0)) * 4,
+            start_sample=10,
+            end_sample=22,
+            timeline_spans=(
+                _TimelineSpan(0, 2, 10),
+                _TimelineSpan(2, 4, 20),
+            ),
+        )
+    )[0]
+
+    mapped = batch.map_segments(
+        (DiarizationInferencer.Segment(1, 3, 7),)
+    )
+
+    assert [(item.start_sample, item.end_sample, item.speaker) for item in mapped] == [
+        (11, 12, 7),
+        (20, 21, 7),
+    ]
+
+
 def test_diarization_mapping_clamps_invalid_service_ranges() -> None:
     state = batcher(0, 5)
     batch = state.accept(candidate(10, 2))[0]
@@ -304,6 +332,34 @@ class _OneSpeakerDiarization(_Diarization):
         yield (DiarizationInferencer.Segment(0, len(audio) // 2, 7),)
 
 
+class _FourSpeakerDiarization(_Diarization):
+    async def stream_diarize(
+        self,
+        audio: bytes,
+        sample_rate: int,
+    ) -> AsyncIterator[tuple[DiarizationInferencer.Segment, ...]]:
+        del sample_rate
+        self.calls.append(audio)
+        yield tuple(
+            DiarizationInferencer.Segment(index, index + 1, index + 1)
+            for index in range(len(audio) // 2)
+        )
+
+
+class _RepeatedSpeakerDiarization(_Diarization):
+    async def stream_diarize(
+        self,
+        audio: bytes,
+        sample_rate: int,
+    ) -> AsyncIterator[tuple[DiarizationInferencer.Segment, ...]]:
+        del sample_rate
+        self.calls.append(audio)
+        yield tuple(
+            DiarizationInferencer.Segment(index, index + 1, index % 2 + 1)
+            for index in range(len(audio) // 2)
+        )
+
+
 class _EmptyDiarization(_Diarization):
     async def stream_diarize(
         self,
@@ -400,10 +456,36 @@ class _ClusteringSession:
         pass
 
 
+class _NoiseClusteringSession(_ClusteringSession):
+    async def start(self, vectors, *, algorithm, parameters):
+        await super().start(
+            vectors,
+            algorithm=algorithm,
+            parameters=parameters,
+        )
+        return tuple(-1 for _ in vectors)
+
+    async def add(self, vectors):
+        await super().add(vectors)
+        total = len(self.started[0]) + sum(len(item) for item in self.added)
+        return tuple(-1 for _ in range(total))
+
+
+class _MixedClusteringSession(_ClusteringSession):
+    async def start(self, vectors, *, algorithm, parameters):
+        await super().start(
+            vectors,
+            algorithm=algorithm,
+            parameters=parameters,
+        )
+        assert len(vectors) == 4
+        return (0, -1, 0, -1)
+
+
 class _Embedding(AudioEmbeddingInferencer):
-    def __init__(self) -> None:
+    def __init__(self, session: _ClusteringSession | None = None) -> None:
         self.audios: list[bytes] = []
-        self.session = _ClusteringSession()
+        self.session = session or _ClusteringSession()
 
     async def ready(self) -> None: pass
     async def probe(self) -> None: pass
@@ -423,6 +505,19 @@ class _Embedding(AudioEmbeddingInferencer):
 
     def streaming_clustering(self):
         return self.session
+
+
+class _FailingEmbedding(_Embedding):
+    async def embed_bytes(
+        self,
+        pcm_s16le: bytes,
+        *,
+        algorithm: str,
+        expected_dimension: int,
+        normalize: bool = True,
+    ) -> bytes:
+        del pcm_s16le, algorithm, expected_dimension, normalize
+        raise RuntimeError("embedding unavailable")
 
 
 def _asset(
@@ -724,6 +819,7 @@ async def _run_cluster_chain(
     diarization: _Diarization,
     *,
     max_batch_seconds: float = 120,
+    embedding: _Embedding | None = None,
 ):
     clustering_asset = _asset(
         "clustering-engine",
@@ -740,7 +836,7 @@ async def _run_cluster_chain(
         ),
         "clustering-engine": clustering_asset,
     }
-    embedding = _Embedding()
+    embedding = embedding or _Embedding()
     runtime = AudioWorkflowRuntime(
         plan=compile_audio_graph(
             _cluster_workflow(max_batch_seconds=max_batch_seconds),
@@ -1039,6 +1135,74 @@ async def test_clustering_second_batch_replaces_the_full_noise_snapshot() -> Non
     assert [item.speaker_id for item in results[0].assignments] == [-1]
     assert [item.speaker_id for item in results[1].assignments] == [0, 1]
     assert len(embedding.session.started[0]) == 2
+
+
+@pytest.mark.asyncio
+async def test_clustering_assigns_stable_distinct_ids_to_noise() -> None:
+    outputs, _ = await _run_cluster_chain(
+        _OneSpeakerDiarization(),
+        max_batch_seconds=2,
+        embedding=_Embedding(_NoiseClusteringSession()),
+    )
+    results = [
+        output.payload
+        for output in outputs
+        if output.name == "diarization_cluster"
+    ]
+
+    assert [item.speaker_id for item in results[0].assignments] == [-1]
+    assert [item.speaker_id for item in results[1].assignments] == [-1, -2]
+
+
+@pytest.mark.asyncio
+async def test_clustering_reuses_noise_id_for_local_speaker_segments() -> None:
+    outputs, _ = await _run_cluster_chain(
+        _RepeatedSpeakerDiarization(),
+        embedding=_Embedding(_NoiseClusteringSession()),
+    )
+    result = next(
+        output.payload
+        for output in outputs
+        if output.name == "diarization_cluster"
+    )
+    assignments_by_local: dict[str, set[int]] = {}
+    for assignment in result.assignments:
+        assignments_by_local.setdefault(
+            assignment.local_speaker_id,
+            set(),
+        ).add(assignment.speaker_id)
+
+    assert list(assignments_by_local.values()) == [{-1}, {-2}]
+
+
+@pytest.mark.asyncio
+async def test_clustering_preserves_clusters_and_splits_noise() -> None:
+    outputs, _ = await _run_cluster_chain(
+        _FourSpeakerDiarization(),
+        embedding=_Embedding(_MixedClusteringSession()),
+    )
+    result = next(
+        output.payload
+        for output in outputs
+        if output.name == "diarization_cluster"
+    )
+
+    assert [item.speaker_id for item in result.assignments] == [0, -1, 0, -2]
+
+
+@pytest.mark.asyncio
+async def test_clustering_assigns_distinct_fallback_ids_on_embedding_failure() -> None:
+    outputs, _ = await _run_cluster_chain(
+        _Diarization(),
+        embedding=_FailingEmbedding(),
+    )
+    result = next(
+        output.payload
+        for output in outputs
+        if output.name == "diarization_cluster"
+    )
+
+    assert [item.speaker_id for item in result.assignments] == [-1, -2]
 
 
 @pytest.mark.asyncio

@@ -5,12 +5,13 @@ import { apiClient } from "./api/client";
 import type { AudioHarnessApi, RuntimeOverview } from "./api/types";
 import { useRuntimeOverview } from "./features/health/useRuntimeOverview";
 import { EngineConsolePage } from "./pages/EngineConsolePage";
+import { AgentBackendPage } from "./pages/AgentBackendPage";
 import { RuntimePage } from "./pages/RuntimePage";
 import { WorkflowDetailPage } from "./pages/WorkflowDetailPage";
 import { WorkflowListPage } from "./pages/WorkflowListPage";
 import { VoiceAgentPage } from "./pages/VoiceAgentPage";
 import { VoiceAgentDetailPage } from "./pages/VoiceAgentDetailPage";
-import { VoiceAgentWizardPage } from "./pages/VoiceAgentWizardPage";
+import { VoiceAgentCreatePage } from "./pages/VoiceAgentCreatePage";
 import { VectorWorkspacePage } from "./pages/VectorWorkspacePage";
 
 interface AppProps { api?: AudioHarnessApi; }
@@ -31,7 +32,7 @@ function ShellNavigation({ overview, failed, onRefresh }: { overview: RuntimeOve
         <img className="brand-mark" src="/audio-harness-logo.svg" alt="" />
         <strong aria-hidden="true">Audio Harness</strong>
       </NavLink>
-      <nav className="primary-navigation" aria-label="主导航"><NavLink to="/audio-workflows">语音工作流</NavLink><NavLink to="/voice-agents">语音智能体</NavLink><NavLink to="/vectors">向量检索</NavLink><NavLink to="/engines">推理引擎</NavLink><NavLink to="/runtime">接入与运行</NavLink></nav>
+      <nav className="primary-navigation" aria-label="主导航"><NavLink to="/audio-workflows">语音工作流</NavLink><NavLink to="/voice-agents">语音智能体</NavLink><NavLink to="/agent-backends">后端智能体</NavLink><NavLink to="/vectors">向量检索</NavLink><NavLink to="/engines">推理引擎</NavLink><NavLink to="/runtime">接入与运行</NavLink></nav>
       <div className="topbar-meta"><span className={`health-dot ${state}`} /><NavLink className="status-link" to="/runtime#access">{statusText(overview, failed)}</NavLink><button className="text-button" onClick={onRefresh}>刷新</button></div>
     </header>
   </>;
@@ -50,10 +51,11 @@ export function App({ api = apiClient }: AppProps) {
       <Route path="/audio-workflows/:workflowId" element={<Navigate replace to="build" />} />
       <Route path="/audio-workflows/:workflowId/:tab" element={<WorkflowDetailPage api={api} refreshVersion={refreshVersion} />} />
       <Route path="/voice-agents" element={<VoiceAgentPage api={api} refreshVersion={refreshVersion} />} />
-      <Route path="/voice-agents/new" element={<VoiceAgentWizardPage api={api} />} />
-      <Route path="/voice-agents/:profileId" element={<Navigate replace to="configure" />} />
+      <Route path="/voice-agents/new" element={<VoiceAgentCreatePage api={api} />} />
+      <Route path="/voice-agents/:profileId" element={<Navigate replace to="build" />} />
       <Route path="/voice-agents/:profileId/:tab" element={<VoiceAgentDetailPage api={api} refreshVersion={refreshVersion} />} />
       <Route path="/engines" element={<EngineConsolePage api={api} refreshVersion={refreshVersion} />} />
+      <Route path="/agent-backends" element={<AgentBackendPage api={api} refreshVersion={refreshVersion} />} />
       <Route path="/vectors" element={<VectorWorkspacePage api={api} refreshVersion={refreshVersion} />} />
       <Route path="/runtime" element={<RuntimePage api={api} refreshVersion={refreshVersion} />} />
       <Route path="/workflows" element={<Navigate replace to="/audio-workflows" />} />

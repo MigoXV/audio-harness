@@ -3,6 +3,9 @@ from __future__ import annotations
 from functools import partial
 import logging
 
+from audio_harness.agent_backends.catalog import AgentBackendCatalog
+from audio_harness.agent_backends.dsh import DshWebGateway
+from audio_harness.agent_backends.health import AgentBackendHealthMonitor
 from audio_harness.api import create_http_app
 from audio_harness.configs import AppConfig, CapacityConfig
 from audio_harness.database import Database
@@ -50,6 +53,14 @@ class AudioHarnessHost:
             self.inferencer_pool,
         )
         self.engine_health = EngineHealthMonitor(self.catalog)
+        self.agent_backend_gateway = DshWebGateway()
+        self.agent_backends = AgentBackendCatalog(
+            self.database.session_factory,
+            self.agent_backend_gateway,
+        )
+        self.agent_backend_health = AgentBackendHealthMonitor(
+            self.agent_backends
+        )
 
         self.audio_workflows = AudioWorkflowService(
             AudioWorkflowRepository(self.database.session_factory),
@@ -59,6 +70,7 @@ class AudioHarnessHost:
             VoiceAgentRepository(self.database.session_factory),
             audio_workflows=self.audio_workflows,
             inferencer_pool=self.inferencer_pool,
+            agent_backends=self.agent_backends,
         )
         self.realtime_routes = RealtimeRouteService(
             self.database.session_factory,
@@ -112,6 +124,7 @@ class AudioHarnessHost:
             received_audio_cache_dir=(
                 config.received_audio_cache.storage_dir
             ),
+            agent_backend_gateway=self.agent_backend_gateway,
         )
         self.webrtc_service = WebRtcCallService(
             config=config.webrtc,
@@ -127,9 +140,11 @@ class AudioHarnessHost:
             received_audio_cache_dir=(
                 config.received_audio_cache.storage_dir
             ),
+            agent_backend_gateway=self.agent_backend_gateway,
         )
         self.http_app = create_http_app(
             catalog=self.catalog,
+            agent_backends=self.agent_backends,
             workflows=self.audio_workflows,
             voice_agents=self.voice_agents,
             routes=self.realtime_routes,
@@ -166,6 +181,7 @@ class AudioHarnessHost:
             await self.voice_agents.initialize()
             await self.realtime_routes.initialize()
             self.engine_health.start()
+            self.agent_backend_health.start()
         except Exception:
             await self.inferencer_pool.close()
             await self.database.close()
@@ -177,8 +193,10 @@ class AudioHarnessHost:
             return
         self._closed = True
         await self.engine_health.close()
+        await self.agent_backend_health.close()
         await self.webrtc_service.close()
         await self.inferencer_pool.close()
+        await self.agent_backend_gateway.close()
         await self.qdrant.close()
         await self.database.close()
         logger.info("Audio Harness 已停止")

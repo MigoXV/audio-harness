@@ -20,6 +20,7 @@ from aiortc import (
 from pydantic import ValidationError
 
 from audio_harness.configs import WebRtcConfig
+from audio_harness.agent_backends.base import AgentBackendGateway
 from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
 from audio_harness.errors import CapacityExceededError
 from audio_harness.engines.pool import InferencerPool
@@ -88,6 +89,7 @@ class WebRtcCall:
         aha_version: str | None,
         on_closed: Callable[[str], Awaitable[None]],
         received_audio_cache_dir: Path,
+        agent_backend_gateway: AgentBackendGateway | None,
     ) -> None:
         self.call_id = call_id
         self._config = webrtc_config
@@ -126,6 +128,7 @@ class WebRtcCall:
             finish_audio=self._output_track.finish,
             transport="webrtc",
             received_audio_cache_dir=received_audio_cache_dir,
+            agent_backend_gateway=agent_backend_gateway,
         )
         self._chunk_bytes = workflow_settings.current().config.min_chunk_bytes
         self._install_handlers()
@@ -435,6 +438,7 @@ class WebRtcCallService:
         tool_registry: ToolRegistry | None = None,
         voice_resolver: VoiceResolver | None = None,
         received_audio_cache_dir: Path = Path("./data-bin/cache"),
+        agent_backend_gateway: AgentBackendGateway | None = None,
     ) -> None:
         self._config = config
         self._session_service = session_service
@@ -447,6 +451,7 @@ class WebRtcCallService:
         self._tool_registry = tool_registry or ToolRegistry()
         self._voice_resolver = voice_resolver
         self._received_audio_cache_dir = received_audio_cache_dir
+        self._agent_backend_gateway = agent_backend_gateway
         self._calls: dict[str, WebRtcCall] = {}
         self._lock = asyncio.Lock()
         self._closed = False
@@ -536,6 +541,7 @@ class WebRtcCallService:
             aha_version=aha_version,
             on_closed=self._discard,
             received_audio_cache_dir=self._received_audio_cache_dir,
+            agent_backend_gateway=self._agent_backend_gateway,
         )
         try:
             answer_sdp = await call.negotiate(offer_sdp)

@@ -23,6 +23,11 @@ from audio_harness.engines.models import (
     EngineProtocol,
     EngineStatus,
 )
+from audio_harness.agent_backends.models import (
+    AgentBackendKind,
+    AgentBackendProtocol,
+    AgentBackendStatus,
+)
 from audio_harness.realtime_routes.models import (
     ModelRouteVisibility,
     RealtimeRouteTargetType,
@@ -89,6 +94,47 @@ class EngineAsset(Base):
         DateTime(timezone=True),
         default=utc_now,
         onupdate=utc_now,
+    )
+
+
+class AgentBackendAsset(Base):
+    __tablename__ = "agent_backend_assets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    slug: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[AgentBackendKind] = mapped_column(enum_type(AgentBackendKind))
+    protocol: Mapped[AgentBackendProtocol] = mapped_column(
+        enum_type(AgentBackendProtocol)
+    )
+    target: Mapped[str] = mapped_column(String(2048))
+    connect_timeout_seconds: Mapped[float] = mapped_column(Float, default=10.0)
+    request_timeout_seconds: Mapped[float] = mapped_column(Float, default=30.0)
+    headers_env: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    status: Mapped[AgentBackendStatus] = mapped_column(
+        enum_type(AgentBackendStatus)
+    )
+    description: Mapped[str | None] = mapped_column(Text)
+    status_basis: Mapped[str | None] = mapped_column(Text)
+    status_observed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    last_success_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    probe_latency_ms: Mapped[float | None] = mapped_column(Float)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
+    next_probe_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    details: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
 
 

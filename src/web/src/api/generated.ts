@@ -58,6 +58,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/engines/{engine_id}/voices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Engine Preset Voices */
+        get: operations["list_engine_preset_voices_api_v1_engines__engine_id__voices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/engines/{engine_id}/validate": {
         parameters: {
             query?: never;
@@ -101,6 +118,94 @@ export interface paths {
         };
         /** Engine Usage */
         get: operations["engine_usage_api_v1_engines__engine_id__usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent-backends": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Agent Backends */
+        get: operations["list_agent_backends_api_v1_agent_backends_get"];
+        put?: never;
+        /** Create Agent Backend */
+        post: operations["create_agent_backend_api_v1_agent_backends_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent-backends/{backend_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Agent Backend */
+        get: operations["get_agent_backend_api_v1_agent_backends__backend_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Agent Backend */
+        delete: operations["delete_agent_backend_api_v1_agent_backends__backend_id__delete"];
+        options?: never;
+        head?: never;
+        /** Patch Agent Backend */
+        patch: operations["patch_agent_backend_api_v1_agent_backends__backend_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/agent-backends/{backend_id}/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Validate Agent Backend */
+        post: operations["validate_agent_backend_api_v1_agent_backends__backend_id__validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent-backends/{backend_id}/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Agent Backend Capabilities */
+        get: operations["get_agent_backend_capabilities_api_v1_agent_backends__backend_id__capabilities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent-backends/{backend_id}/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Agent Backend Usage */
+        get: operations["get_agent_backend_usage_api_v1_agent_backends__backend_id__usage_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -790,6 +895,230 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AgentBackendBinding */
+        AgentBackendBinding: {
+            /** Backend Id */
+            backend_id: string;
+            /** Cwd */
+            cwd: string;
+            /**
+             * Agent Preset
+             * @default standard
+             */
+            agent_preset: string;
+            /**
+             * Coordinator Instructions
+             * @default
+             */
+            coordinator_instructions: string;
+            /**
+             * Task Timeout Seconds
+             * @default 900
+             */
+            task_timeout_seconds: number;
+            /**
+             * Interaction Timeout Seconds
+             * @default 120
+             */
+            interaction_timeout_seconds: number;
+        };
+        /** AgentBackendCapabilitiesRead */
+        AgentBackendCapabilitiesRead: {
+            /** Backend Id */
+            backend_id: string;
+            /** Backend Revision */
+            backend_revision: number;
+            /** Wire Version */
+            wire_version: string;
+            /** Provider */
+            provider: string;
+            /** Model */
+            model: string;
+            /** Cwd */
+            cwd: string;
+            /** Presets */
+            presets: string[];
+            /** Plugins */
+            plugins: components["schemas"]["AgentBackendPluginRead"][];
+        };
+        /** AgentBackendCreate */
+        AgentBackendCreate: {
+            /** Slug */
+            slug: string;
+            /** Name */
+            name: string;
+            /** @default dsh */
+            kind: components["schemas"]["AgentBackendKind"];
+            /** @default dsh_web_v1 */
+            protocol: components["schemas"]["AgentBackendProtocol"];
+            /** Target */
+            target: string;
+            /**
+             * Connect Timeout Seconds
+             * @default 10
+             */
+            connect_timeout_seconds: number;
+            /**
+             * Request Timeout Seconds
+             * @default 30
+             */
+            request_timeout_seconds: number;
+            /** Headers Env */
+            headers_env?: {
+                [key: string]: string;
+            };
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Description */
+            description?: string | null;
+            /** Details */
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * AgentBackendKind
+         * @enum {string}
+         */
+        AgentBackendKind: "dsh";
+        /** AgentBackendList */
+        AgentBackendList: {
+            /** Items */
+            items: components["schemas"]["AgentBackendRead"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** AgentBackendPatch */
+        AgentBackendPatch: {
+            /** Slug */
+            slug?: string | null;
+            /** Name */
+            name?: string | null;
+            kind?: components["schemas"]["AgentBackendKind"] | null;
+            protocol?: components["schemas"]["AgentBackendProtocol"] | null;
+            /** Target */
+            target?: string | null;
+            /** Connect Timeout Seconds */
+            connect_timeout_seconds?: number | null;
+            /** Request Timeout Seconds */
+            request_timeout_seconds?: number | null;
+            /** Headers Env */
+            headers_env?: {
+                [key: string]: string;
+            } | null;
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Description */
+            description?: string | null;
+            /** Details */
+            details?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** AgentBackendPluginRead */
+        AgentBackendPluginRead: {
+            /** Entry Id */
+            entry_id: string;
+            /** Module Name */
+            module_name: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Phase */
+            phase: string | null;
+        };
+        /**
+         * AgentBackendProtocol
+         * @enum {string}
+         */
+        AgentBackendProtocol: "dsh_web_v1";
+        /** AgentBackendRead */
+        AgentBackendRead: {
+            /** Id */
+            id: string;
+            /** Slug */
+            slug: string;
+            /** Name */
+            name: string;
+            kind: components["schemas"]["AgentBackendKind"];
+            protocol: components["schemas"]["AgentBackendProtocol"];
+            /** Target */
+            target: string;
+            /** Connect Timeout Seconds */
+            connect_timeout_seconds: number;
+            /** Request Timeout Seconds */
+            request_timeout_seconds: number;
+            /** Headers Env */
+            headers_env: {
+                [key: string]: string;
+            };
+            /** Enabled */
+            enabled: boolean;
+            status: components["schemas"]["AgentBackendStatus"];
+            /** Description */
+            description: string | null;
+            /** Status Basis */
+            status_basis: string | null;
+            /** Status Observed At */
+            status_observed_at: string | null;
+            /** Last Success At */
+            last_success_at: string | null;
+            /** Probe Latency Ms */
+            probe_latency_ms: number | null;
+            /** Consecutive Failures */
+            consecutive_failures: number;
+            /** Next Probe At */
+            next_probe_at: string | null;
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            };
+            /** Revision */
+            revision: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * AgentBackendStatus
+         * @enum {string}
+         */
+        AgentBackendStatus: "unknown" | "healthy" | "unhealthy" | "disabled";
+        /** AgentBackendUsageRead */
+        AgentBackendUsageRead: {
+            /** Backend Id */
+            backend_id: string;
+            /** References */
+            references?: string[];
+        };
+        /** AgentBackendValidationRead */
+        AgentBackendValidationRead: {
+            /** Backend Id */
+            backend_id: string;
+            /** Name */
+            name: string;
+            /** Revision */
+            revision: number;
+            /** Outcome */
+            outcome: string;
+            /** Message */
+            message?: string | null;
+            /** Latency Ms */
+            latency_ms?: number | null;
+        };
         /** AsrNode */
         AsrNode: {
             /** Id */
@@ -1269,6 +1598,17 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /** EnginePresetVoiceListRead */
+        EnginePresetVoiceListRead: {
+            /** Engine Id */
+            engine_id: string;
+            /** Engine Revision */
+            engine_revision: number;
+            /** Serving Mode */
+            serving_mode: string;
+            /** Items */
+            items: components["schemas"]["PresetVoiceRead"][];
+        };
         /**
          * EngineProtocol
          * @enum {string}
@@ -1628,6 +1968,21 @@ export interface components {
             engine_id?: string | null;
             config?: components["schemas"]["PhysicalVadConfig"];
         };
+        /** PresetVoiceRead */
+        PresetVoiceRead: {
+            /** Voice Id */
+            voice_id: string;
+            /** Name */
+            name: string;
+            /** Language */
+            language: string;
+            /** Supports Synthesize */
+            supports_synthesize: boolean;
+            /** Supports Duplex */
+            supports_duplex: boolean;
+            /** Available On Instance */
+            available_on_instance: boolean;
+        };
         /** ProtocolCapacityConfig */
         ProtocolCapacityConfig: {
             /**
@@ -1890,6 +2245,22 @@ export interface components {
              */
             max_vectors: number;
         };
+        /**
+         * SpeakerContextConfig
+         * @description 语音智能体私有的可信说话人身份使用策略。
+         */
+        SpeakerContextConfig: {
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Speaker Prompt
+             * @default
+             */
+            speaker_prompt: string;
+        };
         /** SpeakerDiarizationNode */
         SpeakerDiarizationNode: {
             /** Id */
@@ -2077,9 +2448,9 @@ export interface components {
             /**
              * Schema Version
              * @default 1
-             * @constant
+             * @enum {integer}
              */
-            schema_version: 1;
+            schema_version: 1 | 2;
             /** Audio Workflow Id */
             audio_workflow_id: string;
             /** Responses Engine Id */
@@ -2088,6 +2459,8 @@ export interface components {
             /** Tts Engine Id */
             tts_engine_id?: string | null;
             tts?: components["schemas"]["DuplexTtsConfig"];
+            speaker_context?: components["schemas"]["SpeakerContextConfig"] | null;
+            agent_backend?: components["schemas"]["AgentBackendBinding"] | null;
         };
         /** VoiceAgentDraftRead */
         VoiceAgentDraftRead: {
@@ -2163,6 +2536,8 @@ export interface components {
             engine_revisions: {
                 [key: string]: number;
             };
+            /** Agent Backend Revision */
+            agent_backend_revision?: number | null;
         };
         /** VoiceAgentValidationRead */
         VoiceAgentValidationRead: {
@@ -2170,6 +2545,10 @@ export interface components {
             valid: boolean;
             /** Diagnostics */
             diagnostics: components["schemas"]["ConfigurationDiagnosticRead"][];
+            /** Agent Backend Context Preview */
+            agent_backend_context_preview?: string | null;
+            /** Speaker Context Preview */
+            speaker_context_preview?: string | null;
         };
         /** VoiceAssetRead */
         VoiceAssetRead: {
@@ -2488,6 +2867,37 @@ export interface operations {
             };
         };
     };
+    list_engine_preset_voices_api_v1_engines__engine_id__voices_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                engine_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnginePresetVoiceListRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     validate_engine_api_v1_engines__engine_id__validate_post: {
         parameters: {
             query?: never;
@@ -2557,6 +2967,263 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EngineUsageRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_agent_backends_api_v1_agent_backends_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                kind?: components["schemas"]["AgentBackendKind"] | null;
+                protocol?: components["schemas"]["AgentBackendProtocol"] | null;
+                enabled?: boolean | null;
+                q?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentBackendList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_agent_backend_api_v1_agent_backends_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentBackendCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentBackendRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_agent_backend_api_v1_agent_backends__backend_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                backend_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentBackendRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_agent_backend_api_v1_agent_backends__backend_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                backend_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_agent_backend_api_v1_agent_backends__backend_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                backend_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentBackendPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentBackendRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    validate_agent_backend_api_v1_agent_backends__backend_id__validate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                backend_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentBackendValidationRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_agent_backend_capabilities_api_v1_agent_backends__backend_id__capabilities_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                backend_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentBackendCapabilitiesRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_agent_backend_usage_api_v1_agent_backends__backend_id__usage_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                backend_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentBackendUsageRead"];
                 };
             };
             /** @description Validation Error */
