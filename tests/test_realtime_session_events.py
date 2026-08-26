@@ -1151,6 +1151,48 @@ async def test_webrtc_output_audio_clear_executes_and_emits_official_event() -> 
 
 
 @pytest.mark.asyncio
+async def test_workflow_cleanup_gracefully_finishes_when_results_are_discarded() -> None:
+    finish_requested = asyncio.Event()
+    task_cancelled = False
+
+    async def run_workflow() -> None:
+        nonlocal task_cancelled
+        try:
+            await finish_requested.wait()
+        except asyncio.CancelledError:
+            task_cancelled = True
+            raise
+
+    class GracefulTranscription:
+        async def finish(self) -> None:
+            finish_requested.set()
+
+    class SessionContext:
+        def __init__(self) -> None:
+            self.exited = False
+
+        async def __aexit__(self, *_args) -> None:
+            self.exited = True
+
+    context = SessionContext()
+    session = object.__new__(RealtimeTranscriptionSession)
+    session._workflow_task = asyncio.create_task(run_workflow())
+    session._transcription = GracefulTranscription()
+    session._session_context = context
+    session._reservation = None
+    session._discard_workflow_outputs = False
+
+    await session._finish_workflow(send_results=False)
+
+    assert finish_requested.is_set()
+    assert task_cancelled is False
+    assert context.exited is True
+    assert session._workflow_task is None
+    assert session._transcription is None
+    assert session._session_context is None
+
+
+@pytest.mark.asyncio
 async def test_workflow_cleanup_survives_transcription_finish_failure() -> None:
     task_cancelled = asyncio.Event()
 
