@@ -30,6 +30,8 @@ from audio_harness.workflows.models import (
     SpeakerClusteringNodeConfig,
     SpeakerFilterNode,
     SpeakerFilterNodeConfig,
+    StreamingDenoiseConfig,
+    StreamingDenoiseNode,
     default_audio_workflow,
 )
 from audio_harness.workflows.runtime import (
@@ -75,6 +77,8 @@ __all__ = [
     "SpeakerClusteringNodeConfig",
     "SpeakerFilterNode",
     "SpeakerFilterNodeConfig",
+    "StreamingDenoiseConfig",
+    "StreamingDenoiseNode",
     "audio_node_catalog",
     "compile_audio_graph",
     "compiled_audio_graph_document",

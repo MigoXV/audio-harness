@@ -1223,7 +1223,7 @@ export interface components {
              */
             schema_version: 1;
             /** Nodes */
-            nodes: (components["schemas"]["PhysicalVadNode"] | components["schemas"]["SemanticVadNode"] | components["schemas"]["AsrNode"] | components["schemas"]["AudioEmbeddingNode"] | components["schemas"]["SpeakerDiarizationNode"] | components["schemas"]["SpeakerClusteringNode"] | components["schemas"]["VectorSearchNode"] | components["schemas"]["SpeakerFilterNode"])[];
+            nodes: (components["schemas"]["PhysicalVadNode"] | components["schemas"]["StreamingDenoiseNode"] | components["schemas"]["SemanticVadNode"] | components["schemas"]["AsrNode"] | components["schemas"]["AudioEmbeddingNode"] | components["schemas"]["SpeakerDiarizationNode"] | components["schemas"]["SpeakerClusteringNode"] | components["schemas"]["VectorSearchNode"] | components["schemas"]["SpeakerFilterNode"])[];
             /** Edges */
             edges: components["schemas"]["AudioEdge"][];
             /** Outputs */
@@ -1490,7 +1490,7 @@ export interface components {
          * EngineApi
          * @enum {string}
          */
-        EngineApi: "ux_speech" | "ux_vad" | "responses" | "qwen_tts_duplex" | "engine_feature" | "ux_speaker_diarization";
+        EngineApi: "ux_denoise" | "ux_speech" | "ux_vad" | "responses" | "qwen_tts_duplex" | "engine_feature" | "ux_speaker_diarization";
         /** EngineCreate */
         EngineCreate: {
             /** Slug */
@@ -1540,7 +1540,7 @@ export interface components {
          * EngineKind
          * @enum {string}
          */
-        EngineKind: "asr" | "vad" | "llm" | "tts" | "embedding" | "diarization";
+        EngineKind: "denoise" | "asr" | "vad" | "llm" | "tts" | "embedding" | "diarization";
         /** EngineList */
         EngineList: {
             /** Items */
@@ -2338,6 +2338,26 @@ export interface components {
             /** Score */
             score: number;
             observation: components["schemas"]["VectorObservationRead"];
+        };
+        /** StreamingDenoiseConfig */
+        StreamingDenoiseConfig: {
+            /** Denoised Weight */
+            denoised_weight?: number | null;
+        };
+        /** StreamingDenoiseNode */
+        StreamingDenoiseNode: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "streaming_denoise";
+            /** Engine Id */
+            engine_id?: string | null;
+            config?: components["schemas"]["StreamingDenoiseConfig"];
+            /** @default fail_open */
+            failure_policy: components["schemas"]["FailurePolicy"];
         };
         /** VadAudioPreviewRead */
         VadAudioPreviewRead: {

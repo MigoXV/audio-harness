@@ -243,6 +243,15 @@ function RoundedConnectionLine({ fromX, fromY, toX, toY, connectionLineStyle }: 
 
 function nodeConfig(kind: string): AudioNode {
   const id = `${kind.replaceAll("_", "-")}-${crypto.randomUUID().slice(0, 8)}`;
+  if (kind === "streaming_denoise") {
+    return {
+      id,
+      kind,
+      engine_id: null,
+      config: { denoised_weight: null },
+      failure_policy: "fail_open",
+    } as AudioNode;
+  }
   if (kind === "physical_vad") {
     return {
       id,
@@ -546,6 +555,9 @@ function AudioGraphEditorInner({
     progress_interval_seconds: selected.config?.progress_interval_seconds ?? 0.2,
     postprocessing: selected.config?.postprocessing ?? null,
   } : null;
+  const selectedDenoiseConfig = selected?.kind === "streaming_denoise" ? {
+    denoised_weight: selected.config?.denoised_weight ?? null,
+  } : null;
   const selectedPostprocessing = selectedPhysicalConfig?.postprocessing ? {
     ...selectedPhysicalConfig.postprocessing,
     parameters: {
@@ -743,7 +755,7 @@ function AudioGraphEditorInner({
     });
   }, [flowEdges, selectedEdgeId, selectedId]);
 
-  const legendKinds = ["pcm_chunk", "audio_segment", "diarization_segment", "embedding", "vector_search_result", "speaker_filter_result", "diarization_local_result", "diarization_cluster_result", "speaker_transcription", "transcription", "speech_started", "speech_stopped"];
+  const legendKinds = ["pcm_chunk", "vad_audio_chunk", "audio_segment", "diarization_segment", "embedding", "vector_search_result", "speaker_filter_result", "diarization_local_result", "diarization_cluster_result", "speaker_transcription", "transcription", "speech_started", "speech_stopped"];
   return (
     <div className={`audio-builder ${sidebarOpen ? "palette-open" : "palette-closed"} ${selected ? "inspector-open" : ""}`}>
       <WorkbenchSidebar
@@ -831,11 +843,15 @@ function AudioGraphEditorInner({
           <div className={`inspector-state ${selectedEngineConfigured ? "configured" : "unconfigured"}`}><strong>{selectedSpec.display_name}</strong><span>{selectedSpec.required_api == null ? "基础设施节点" : selectedEngineConfigured ? "已绑定执行引擎" : selected.engine_id ? "所选引擎不可用" : "待绑定执行引擎"}</span></div>
           <label><span>节点 ID</span><input value={selected.id} disabled /></label>
           {selectedSpec.required_api != null && <label><span>执行引擎</span><select value={selected.engine_id ?? ""} onChange={(event) => updateNode({ ...selected, engine_id: event.target.value || null } as AudioNode)}><option value="">未绑定</option>{engines.filter((engine) => engine.enabled && engine.api === selectedSpec.required_api && (!selectedSpec.required_capability || (Array.isArray(engine.details?.capabilities) && engine.details.capabilities.includes(selectedSpec.required_capability)))).map((engine) => <option key={engine.id} value={engine.id}>{engine.name} · {engine.status}</option>)}</select><small>需要 {selectedSpec.required_api}{selectedSpec.required_capability ? ` / ${selectedSpec.required_capability}` : ""} 能力</small></label>}
-          {Object.entries(selected.config ?? {}).filter(([key]) => !["postprocessing", "parameters", "clustering_algorithm", "remove_punctuation", "normalize", "include_embedding", "filter", "collection_name", "vector_name", "progress_interval_seconds", "allowed_speaker_ids", "min_score"].includes(key)).map(([key, value]) => <label key={key}><span>{key}</span><input type={typeof value === "number" || value === null ? "number" : "text"} step="0.1" value={value == null ? "" : String(value)} onChange={(event) => updateNode({ ...selected, config: { ...(selected.config ?? {}), [key]: typeof value === "number" || value === null ? (event.target.value ? Number(event.target.value) : null) : event.target.value } } as AudioNode)} /></label>)}
+          {Object.entries(selected.config ?? {}).filter(([key]) => !["postprocessing", "parameters", "clustering_algorithm", "remove_punctuation", "normalize", "include_embedding", "filter", "collection_name", "vector_name", "progress_interval_seconds", "allowed_speaker_ids", "min_score", "denoised_weight"].includes(key)).map(([key, value]) => <label key={key}><span>{key}</span><input type={typeof value === "number" || value === null ? "number" : "text"} step="0.1" value={value == null ? "" : String(value)} onChange={(event) => updateNode({ ...selected, config: { ...(selected.config ?? {}), [key]: typeof value === "number" || value === null ? (event.target.value ? Number(event.target.value) : null) : event.target.value } } as AudioNode)} /></label>)}
           {selected.kind === "audio_embedding" && <label className="switch-control"><input type="checkbox" checked={selected.config?.normalize ?? true} onChange={(event) => updateNode({ ...selected, config: { algorithm: selected.config?.algorithm ?? "eres2netv2", expected_dimension: selected.config?.expected_dimension ?? 192, normalize: event.target.checked } })} /><span>L2 归一化</span></label>}
           {selected.kind === "vector_search" && <><label><span>Voiceprint Collection</span><select value={selected.config.collection_name} onChange={(event) => { const space = vectorSpaces.find((item) => item.collection_name === event.target.value); if (space) updateNode({ ...selected, config: { ...selected.config, collection_name: space.collection_name, vector_name: space.vectors[0]?.name ?? "" } }); }}><option value="">请选择 voiceprint Collection</option>{vectorSpaces.filter((space) => space.template === "voiceprint").map((space) => <option value={space.collection_name} key={space.collection_name}>{space.collection_name}</option>)}</select></label><label><span>Named Vector</span><select value={selected.config.vector_name} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, vector_name: event.target.value } })}>{vectorSpaces.find((item) => item.collection_name === selected.config.collection_name)?.vectors.map((vector) => <option key={vector.name}>{vector.name}</option>)}</select></label><label><span>Filter JSON</span><textarea value={JSON.stringify(selected.config.filter ?? {}, null, 2)} onChange={(event) => { try { updateNode({ ...selected, config: { ...selected.config, filter: JSON.parse(event.target.value) } }); } catch { /* 保存前由校验提示 */ } }} /></label><label className="switch-control"><input type="checkbox" checked={selected.config.include_embedding} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, include_embedding: event.target.checked } })} /><span>在 AHA 事件中返回查询向量</span></label></>}
           {selected.kind === "speaker_filter" && <><label><span>允许的 Speaker ID</span><textarea value={selected.config.allowed_speaker_ids.join("\n")} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, allowed_speaker_ids: event.target.value.split("\n").map((value) => value.trim()).filter(Boolean) } })} /><small>每行一个，精确且区分大小写。</small></label><label><span>最低匹配分数</span><input type="number" step="0.01" value={selected.config.min_score} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, min_score: Number(event.target.value) } })} /><small>低于该分数、未命中或检索失败时均静默拒绝。</small></label></>}
           {selected.kind === "asr" && <label className="switch-control"><input type="checkbox" checked={selected.config?.remove_punctuation ?? false} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, remove_punctuation: event.target.checked } })} /><span>移除转写标点</span></label>}
+          {selected.kind === "streaming_denoise" && selectedDenoiseConfig && <section className="vad-postprocessing-settings">
+            <label className="switch-control"><input type="checkbox" checked={selectedDenoiseConfig.denoised_weight != null} onChange={(event) => updateNode({ ...selected, config: { denoised_weight: event.target.checked ? 0.5 : null } })} /><span>混合原音与降噪音频</span><small>关闭时物理 VAD 使用纯降噪音频；下游始终使用原音。</small></label>
+            {selectedDenoiseConfig.denoised_weight != null && <label><span>降噪音频权重</span><input type="number" min="0" max="1" step="0.05" value={selectedDenoiseConfig.denoised_weight} onChange={(event) => updateNode({ ...selected, config: { denoised_weight: Number(event.target.value) } })} /><small>输出 = (1-w) × 原音 + w × 降噪音频</small></label>}
+          </section>}
           {selected.kind === "physical_vad" && selectedPhysicalConfig && <section className="vad-postprocessing-settings">
             <label><span>进度发送间隔（秒）</span><input type="number" min="0" step="0.1" value={selectedPhysicalConfig.progress_interval_seconds} onChange={(event) => updateNode({ ...selected, config: { ...selectedPhysicalConfig, progress_interval_seconds: Number(event.target.value) } })} /><small>默认 0.2 秒；设置为 0 时关闭进度事件。</small></label>
             <label className="switch-control"><input type="checkbox" checked={selectedPostprocessing != null} onChange={(event) => updateNode({ ...selected, config: { ...selectedPhysicalConfig, postprocessing: event.target.checked ? structuredClone(FIRERED_POSTPROCESSING_DEFAULTS) : null } })} /><span>自定义 FireRed 后处理</span></label>
@@ -855,6 +871,7 @@ function AudioGraphEditorInner({
             <label className="switch-control"><input type="checkbox" checked={selectedClusteringConfig.parameters.allow_single_cluster} onChange={(event) => updateNode({ ...selected, config: { ...selectedClusteringConfig, parameters: { ...selectedClusteringConfig.parameters, allow_single_cluster: event.target.checked } } })} /><span>允许所有向量形成单一簇</span><small>开启后更容易把不同说话人融合到同一个簇。</small></label>
           </section>}
           {selected.kind === "semantic_vad" && <label><span>失败策略</span><select value={selected.failure_policy} onChange={(event) => updateNode({ ...selected, failure_policy: event.target.value as "fail_open" | "fail_pipeline" })}><option value="fail_open">fail_open</option><option value="fail_pipeline">fail_pipeline</option></select></label>}
+          {selected.kind === "streaming_denoise" && <label><span>失败策略</span><select value={selected.failure_policy} onChange={(event) => updateNode({ ...selected, failure_policy: event.target.value as "fail_open" | "fail_pipeline" })}><option value="fail_open">fail_open（旁路原音）</option><option value="fail_pipeline">fail_pipeline（终止会话）</option></select></label>}
           {selected.kind === "speaker_clustering" && <label><span>失败策略</span><select value={selected.failure_policy} onChange={(event) => updateNode({ ...selected, failure_policy: event.target.value as "fail_open" | "fail_pipeline" })}><option value="fail_open">fail_open</option><option value="fail_pipeline">fail_pipeline</option></select></label>}
           {diagnostics.filter((item) => item.node_id === selected.id).map((item, index) => <div className="inline-error" key={`${item.message}-${index}`}>{item.message}</div>)}
           <button className="danger-text inspector-delete" onClick={deleteSelected}>删除节点</button>

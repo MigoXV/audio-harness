@@ -83,6 +83,7 @@ def test_inferencers_are_grouped_by_capability() -> None:
         ("responses", "http.py"),
         ("tts", "grpc.py"),
         ("diarization", "grpc.py"),
+        ("denoise", "grpc.py"),
     ):
         assert (inferencer_root / capability / protocol).is_file()
 
@@ -93,7 +94,7 @@ def test_inferencers_are_grouped_by_capability() -> None:
 def test_inferencer_contracts_are_capability_base_classes() -> None:
     inferencer_root = SOURCE_ROOT / "inferencers"
 
-    for capability in ("asr", "vad", "tts", "diarization"):
+    for capability in ("asr", "vad", "tts", "diarization", "denoise"):
         assert (inferencer_root / capability / "base.py").is_file()
 
     assert not (inferencer_root / "base.py").exists()

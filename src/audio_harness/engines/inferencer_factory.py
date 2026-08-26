@@ -10,6 +10,7 @@ from audio_harness.inferencers.tts.grpc import QwenDuplexTtsInferencer
 from audio_harness.inferencers.vad.grpc import UxVadInferencer
 from audio_harness.inferencers.embedding import AudioEmbeddingInferencer
 from audio_harness.inferencers.diarization import UxSpeakerDiarizationInferencer
+from audio_harness.inferencers.denoise import UxDenoiseInferencer
 
 
 def create_inferencer(
@@ -27,6 +28,14 @@ def create_inferencer(
         connect_timeout_seconds=snapshot.connect_timeout_seconds,
         request_timeout_seconds=snapshot.request_timeout_seconds,
     )
+    if (
+        snapshot.protocol is EngineProtocol.GRPC
+        and snapshot.api is EngineApi.UX_DENOISE
+    ):
+        return UxDenoiseInferencer(
+            endpoint,
+            max_message_bytes=max_message_bytes,
+        )
     if (
         snapshot.protocol is EngineProtocol.GRPC
         and snapshot.api is EngineApi.UX_SPEAKER_DIARIZATION

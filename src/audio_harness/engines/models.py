@@ -7,6 +7,7 @@ from typing import Any
 
 
 class EngineKind(str, Enum):
+    DENOISE = "denoise"
     ASR = "asr"
     VAD = "vad"
     LLM = "llm"
@@ -16,6 +17,7 @@ class EngineKind(str, Enum):
 
 
 class EngineApi(str, Enum):
+    UX_DENOISE = "ux_denoise"
     UX_SPEECH = "ux_speech"
     UX_VAD = "ux_vad"
     RESPONSES = "responses"

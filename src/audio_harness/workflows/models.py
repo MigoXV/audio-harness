@@ -82,6 +82,24 @@ class PhysicalVadNode(StrictModel):
     config: PhysicalVadConfig = Field(default_factory=PhysicalVadConfig)
 
 
+class StreamingDenoiseConfig(StrictModel):
+    denoised_weight: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+        allow_inf_nan=False,
+        strict=True,
+    )
+
+
+class StreamingDenoiseNode(StrictModel):
+    id: str = Field(min_length=1, max_length=100, pattern=_IDENTIFIER)
+    kind: Literal["streaming_denoise"] = "streaming_denoise"
+    engine_id: str | None = None
+    config: StreamingDenoiseConfig = Field(default_factory=StreamingDenoiseConfig)
+    failure_policy: FailurePolicy = FailurePolicy.FAIL_OPEN
+
+
 class SemanticVadNode(StrictModel):
     id: str = Field(min_length=1, max_length=100, pattern=_IDENTIFIER)
     kind: Literal["semantic_vad"] = "semantic_vad"
@@ -223,6 +241,7 @@ class SpeakerFilterNode(StrictModel):
 
 AudioNode = Annotated[
     PhysicalVadNode
+    | StreamingDenoiseNode
     | SemanticVadNode
     | AsrNode
     | AudioEmbeddingNode

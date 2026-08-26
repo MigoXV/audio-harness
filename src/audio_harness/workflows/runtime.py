@@ -22,7 +22,8 @@ from audio_harness.inferencers.diarization import (
     DiarizationInferencer,
     DiarizationPostprocessor,
 )
-from audio_harness.media.pcm import PcmChunk
+from audio_harness.inferencers.denoise import DenoiseInferencer
+from audio_harness.media.pcm import PcmChunk, VadAudioChunk, mix_pcm_s16le
 from audio_harness.workflows.compiler import (
     CompiledAudioGraph,
     CompiledAudioNode,
@@ -56,6 +57,7 @@ from audio_harness.workflows.models import (
     SemanticVadNode,
     AudioEmbeddingNode,
     SpeakerFilterNode,
+    StreamingDenoiseNode,
     VectorSearchNode,
 )
 from audio_harness.vectors.service import VectorService
@@ -1027,6 +1029,7 @@ class _EdgeRouter:
                 if kind
                 in {
                     PortKind.PCM_CHUNK,
+                    PortKind.VAD_AUDIO_CHUNK,
                     PortKind.AUDIO_SEGMENT,
                     PortKind.DIARIZATION_SEGMENT,
                 }
@@ -1184,11 +1187,19 @@ class AudioWorkflowRuntime:
         self._asr_inferencers: dict[str, AsrInferencer] = {}
         self._embedding_inferencers: dict[str, AudioEmbeddingInferencer] = {}
         self._diarization_inferencers: dict[str, DiarizationInferencer] = {}
+        self._denoise_inferencers: dict[str, DenoiseInferencer] = {}
         for node_id, node in plan.nodes.items():
             if node.engine_snapshot is None:
                 continue
             inferencer = self._inferencers[node_id]
-            if node.spec.kind in {"physical_vad", "semantic_vad"}:
+            if node.spec.kind == "streaming_denoise":
+                if not isinstance(inferencer, DenoiseInferencer):
+                    raise TypeError(
+                        f"节点 {node_id} 需要 DenoiseInferencer，实际为 "
+                        f"{type(inferencer).__name__}"
+                    )
+                self._denoise_inferencers[node_id] = inferencer
+            elif node.spec.kind in {"physical_vad", "semantic_vad"}:
                 if not isinstance(inferencer, VadInferencer):
                     raise TypeError(
                         f"节点 {node_id} 需要 VadInferencer，实际为 "
@@ -1387,7 +1398,9 @@ class AudioWorkflowRuntime:
     ) -> None:
         failed = False
         try:
-            if node.spec.kind == "physical_vad":
+            if node.spec.kind == "streaming_denoise":
+                await self._streaming_denoise(node_id, node, request, router)
+            elif node.spec.kind == "physical_vad":
                 await self._physical_vad(node_id, node, request, router)
             elif node.spec.kind == "semantic_vad":
                 await self._semantic_vad(node_id, node, request, router)
@@ -1439,6 +1452,81 @@ class AudioWorkflowRuntime:
         finally:
             await router.close(node_id, discard=failed)
 
+    async def _streaming_denoise(
+        self,
+        node_id: str,
+        node: CompiledAudioNode,
+        request: AudioInferenceRequest,
+        router: _EdgeRouter,
+    ) -> None:
+        definition = cast(StreamingDenoiseNode, node.definition)
+        inferencer = self._denoise_inferencers[node_id]
+        queue = router.input(node_id, "audio")
+        pending_original = bytearray()
+        input_drained = False
+        emitted_samples = 0
+        sample_rate = request.recognition.sample_rate
+
+        async def recorded() -> AsyncIterator[bytes]:
+            nonlocal input_drained
+            async for item in _items(queue):
+                chunk = cast(PcmChunk, item)
+                pending_original.extend(chunk.pcm_s16le)
+                yield chunk.pcm_s16le
+            input_drained = True
+
+        async def emit_pair(original: bytes, denoised: bytes) -> None:
+            nonlocal emitted_samples
+            weight = definition.config.denoised_weight
+            vad_audio = (
+                denoised
+                if weight is None
+                else mix_pcm_s16le(original, denoised, weight)
+            )
+            await router.emit(
+                node_id,
+                "audio",
+                VadAudioChunk(
+                    original_pcm_s16le=original,
+                    vad_pcm_s16le=vad_audio,
+                    sample_rate=sample_rate,
+                    start_sample=emitted_samples,
+                ),
+            )
+            emitted_samples += len(original) // 2
+
+        async def emit_bypass(original: bytes) -> None:
+            if original:
+                await emit_pair(original, original)
+
+        try:
+            async for synchronized in inferencer.stream_synchronized(
+                recorded(),
+                sample_rate,
+            ):
+                original = synchronized.original_pcm_s16le
+                size = len(original)
+                if size > len(pending_original):
+                    raise ValueError("同步降噪回传的原音超过本地待确认音频")
+                if bytes(pending_original[:size]) != original:
+                    raise ValueError("同步降噪回传的原音与输入不一致")
+                del pending_original[:size]
+                await emit_pair(original, synchronized.denoised_pcm_s16le)
+            if not input_drained or pending_original:
+                raise ValueError("同步降噪在输入完全确认前结束")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            if definition.failure_policy is FailurePolicy.FAIL_PIPELINE:
+                raise
+            logger.warning("在线降噪失败，按 fail_open 旁路原音", exc_info=True)
+            await emit_bypass(bytes(pending_original))
+            pending_original.clear()
+            if not input_drained:
+                async for item in _items(queue):
+                    chunk = cast(PcmChunk, item)
+                    await emit_bypass(chunk.pcm_s16le)
+
     async def _physical_vad(
         self,
         node_id: str,
@@ -1463,9 +1551,19 @@ class AudioWorkflowRuntime:
         async def recorded() -> AsyncIterator[bytes]:
             nonlocal input_drained
             async for item in _items(queue):
-                chunk = cast(PcmChunk, item)
-                state.append(chunk)
-                yield chunk.pcm_s16le
+                if isinstance(item, VadAudioChunk):
+                    state.append(
+                        PcmChunk(
+                            item.original_pcm_s16le,
+                            item.sample_rate,
+                            item.start_sample,
+                        )
+                    )
+                    yield item.vad_pcm_s16le
+                else:
+                    chunk = cast(PcmChunk, item)
+                    state.append(chunk)
+                    yield chunk.pcm_s16le
             input_drained = True
 
         async def publish(values: list[PhysicalEmission]) -> None:

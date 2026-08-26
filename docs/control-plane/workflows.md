@@ -71,7 +71,8 @@ curl -sS -X POST "http://localhost:8000/api/v1/audio-workflows/$WORKFLOW_ID/publ
 
 | kind | 输入 | 输出 | Engine API | 关键配置 |
 | --- | --- | --- | --- | --- |
-| `physical_vad` | `audio: pcm_chunk` | `segments: audio_segment`、`speech_started`、`speech_stopped` | `ux_vad` | 分段时长、缓冲、pre-roll、进度间隔、FireRed 后处理 |
+| `streaming_denoise` | `audio: pcm_chunk` | `audio: vad_audio_chunk` | `ux_denoise` | `denoised_weight` 可空，默认关闭混合；默认 `fail_open` |
+| `physical_vad` | `audio: pcm_chunk`，也接受 `vad_audio_chunk` | `segments: audio_segment`、`speech_started`、`speech_stopped` | `ux_vad` | 分段时长、缓冲、pre-roll、进度间隔、FireRed 后处理 |
 | `semantic_vad` | `segments: audio_segment` | `segments`、`speech_stopped`、`turn_progress` | `ux_vad` | `max_buffer_seconds`，默认 `fail_open` |
 | `asr` | `segments: audio_segment`，也接受 `diarization_segment` | `transcripts`、`speaker_transcripts` | `ux_speech` | `remove_punctuation` |
 | `audio_embedding` | `segments` | `embeddings` | `engine_feature` | 算法、维度、归一化 |
@@ -81,6 +82,11 @@ curl -sS -X POST "http://localhost:8000/api/v1/audio-workflows/$WORKFLOW_ID/publ
 | `speaker_clustering` | diarization `segments` | `results` | `engine_feature` | embedding/聚类算法、参数、最大向量数 |
 
 客户端不应把本表硬编码为动态插件目录；编辑器应调用 `/audio-node-types` 读取当前端口和 `config_schema`。
+
+`vad_audio_chunk` 是私有流类型，只允许连接物理 VAD。同步降噪响应中的处理音频用于
+VAD 判定，响应中的原音用于 VAD 切片，因此其他引擎不会看到纯降噪或加权波形。
+`denoised_weight=w` 时检测音频为 `(1-w) × 原音 + w × 降噪音频`；字段为 `null`
+时直接使用纯降噪音频。
 
 ## 稳定命名出口
 

@@ -17,6 +17,7 @@ from audio_harness.inferencers.diarization.base import DiarizationInferencer
 from audio_harness.inferencers.diarization.grpc import (
     UxSpeakerDiarizationInferencer,
 )
+from audio_harness.inferencers.denoise import DenoiseInferencer, UxDenoiseInferencer
 
 
 def snapshot(api: EngineApi, protocol: EngineProtocol) -> EngineSnapshot:
@@ -36,6 +37,7 @@ def snapshot(api: EngineApi, protocol: EngineProtocol) -> EngineSnapshot:
 @pytest.mark.parametrize(
     ("api", "protocol", "expected_type"),
     [
+        (EngineApi.UX_DENOISE, EngineProtocol.GRPC, UxDenoiseInferencer),
         (EngineApi.UX_SPEECH, EngineProtocol.GRPC, UxSpeechAsrInferencer),
         (EngineApi.UX_VAD, EngineProtocol.GRPC, UxVadInferencer),
         (
@@ -73,6 +75,7 @@ async def test_create_inferencer_routes_supported_api_protocol_pairs(
 @pytest.mark.parametrize(
     ("concrete", "base"),
     [
+        (UxDenoiseInferencer, DenoiseInferencer),
         (UxSpeechAsrInferencer, AsrInferencer),
         (UxVadInferencer, VadInferencer),
         (QwenDuplexTtsInferencer, TtsInferencer),

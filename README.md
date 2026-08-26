@@ -34,7 +34,8 @@ Realtime / WebRTC 数据面 ───────────┘
 
 | 节点 | 输入 | 输出 | 引擎 API |
 | --- | --- | --- | --- |
-| Physical VAD | `pcm_chunk` | `audio_segment`、`speech_started`、`speech_stopped` | `ux_vad` |
+| Streaming Denoise | `pcm_chunk` | `vad_audio_chunk`（仅物理 VAD） | `ux_denoise` |
+| Physical VAD | `pcm_chunk` 或 `vad_audio_chunk` | `audio_segment`、`speech_started`、`speech_stopped` | `ux_vad` |
 | Semantic VAD | `audio_segment` | `audio_segment`、`speech_stopped`、`transcription` | `ux_vad` |
 | ASR | `audio_segment` | `transcription` | `ux_speech` |
 | Speaker Diarization | `audio_segment` | `audio_segment`、`diarization_local_result` | `ux_speaker_diarization` |
@@ -51,6 +52,12 @@ Realtime / WebRTC 数据面 ───────────┘
 - 引擎是否存在、启用且 API 能力匹配；
 - `primary_transcript`、`speech_started`、`speech_stopped` 三个稳定出口是否完整且类型正确；
 - 可选的 `interim_transcript`、`vector_search` 和 `diarization_local` 是否连接到匹配端口。
+
+在线降噪节点调用 `SynchronizedStreamingDenoise`，服务会逐采样点返回等长的原音和
+降噪音频。节点默认把纯降噪音频交给物理 VAD；可选的 `denoised_weight` 使用
+`(1-w) × 原音 + w × 降噪音频` 混合，未设置时关闭混合。物理 VAD 只用处理后的音频
+判断边界，切片缓存和所有 ASR、分离、向量化下游始终使用原音。降噪专用端口不能
+绑定命名出口或连接其他节点；失败策略默认 `fail_open`，从未确认采样点旁路原音。
 
 物理 VAD 节点可以按工作流配置 FireRed `firered.stream_vad` v1 后处理参数，
 包括概率平滑、判定阈值、起点前补以及语音/静音帧数限制。未启用自定义配置时，

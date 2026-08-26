@@ -2,6 +2,18 @@
 
 Proto 文件是结构定义唯一来源。本页规定 Audio Harness 实际调用的方法、包顺序和额外语义。
 
+## Denoise：`ux_denoise_proto.UxDenoise`
+
+Proto：[`denoise/ux_denoise.proto`](../../src/audio_harness/protos/denoise/ux_denoise.proto)。调用双向流
+`SynchronizedStreamingDenoise`：
+
+1. 首包为 `DenoiseConfig`，输入输出均为 LINEAR16 且采样率相同。
+2. 后续包发送非空、偶数字节的原始 PCM；响应可以跨请求边界重新分块。
+3. 每个响应的 `audio_in` 与 `audio_out` 必须逐采样点对齐、字节数相同；所有响应拼接后的 `audio_in` 必须与完整请求原音一致。
+4. Harness 可按节点权重混合两路音频供物理 VAD 检测，但 VAD 输出的下游片段只取 `audio_in` 原音。
+
+服务提前结束、两路长度不一致或原音回显不一致均视为失败；节点默认从尚未确认的原音位置旁路。
+
 ## ASR：`ux_speech.UxSpeech`
 
 Proto：[`asr/ux_speech.proto`](../../src/audio_harness/protos/asr/ux_speech.proto)。调用 `StreamingRecognize(stream) returns (stream)`：

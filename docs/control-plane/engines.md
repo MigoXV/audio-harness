@@ -6,6 +6,7 @@ Engine Asset 描述一个可连接的推理服务。Workflow/Agent 发布时会�
 
 | `kind` | `api` | `protocol` | 用途 |
 | --- | --- | --- | --- |
+| `denoise` | `ux_denoise` | `grpc` | 在线同步降噪 |
 | `asr` | `ux_speech` | `grpc` | ASR |
 | `vad` | `ux_vad` | `grpc` | 物理或语义 VAD |
 | `llm` | `responses` | `https` | OpenAI-compatible Responses |

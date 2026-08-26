@@ -1,0 +1,65 @@
+syntax = "proto3";
+option java_multiple_files = true;
+option java_package = "com.ux.denoise";
+option java_outer_classname = "UxDenoiseProto";
+
+option go_package = "ulang.com/denoise;denoise";
+
+package ux_denoise_proto;
+
+service UxDenoise {
+  rpc Denoise(DenoiseRequest) returns (DenoiseResponse) {}
+  rpc StreamingDenoise(stream StreamingDenoiseRequest)
+      returns (stream StreamingDenoiseResponse) {}
+  // 同步返回逐采样点对齐的原始音频和降噪音频。
+  // 为保证audio_in是未经重采样的原始PCM，输入、输出采样率必须相同。
+  rpc SynchronizedStreamingDenoise(stream StreamingDenoiseRequest)
+      returns (stream SynchronizedStreamingDenoiseResponse) {}
+}
+
+message DenoiseRequest {
+  AudioInConfig audio_in_config = 1;
+  AudioOutConfig audio_out_config = 2;
+  bytes audio_in = 3;
+}
+
+message DenoiseResponse { bytes audio_out = 1; }
+
+enum Encoding { 
+  // 默认配置，不会使用
+  AUDIO_ENCODING_UNSPECIFIED = 0;
+  //16bit pcm 
+  LINEAR16 = 1; 
+}
+
+message AudioInConfig {
+  Encoding encoding = 1;
+  uint32 sample_rate_hertz = 2;
+}
+
+message AudioOutConfig {
+  Encoding encoding = 1;
+  uint32 sample_rate_hertz = 2;
+}
+
+message DenoiseConfig {
+  AudioInConfig audio_in_config = 1;
+  AudioOutConfig audio_out_config = 2;
+}
+
+message StreamingDenoiseRequest {
+  oneof type {
+    // 第一个StreamingDenoiseRequest消息必须是config
+    DenoiseConfig config = 1;
+    bytes audio_in = 2;
+  }
+}
+
+message StreamingDenoiseResponse { bytes audio_out = 1; }
+
+message SynchronizedStreamingDenoiseResponse {
+  // 与audio_out逐采样点对齐的原始LINEAR16 PCM。
+  bytes audio_in = 1;
+  // 降噪后的LINEAR16 PCM，字节数始终与audio_in相同。
+  bytes audio_out = 2;
+}

@@ -3969,6 +3969,9 @@
                   "$ref": "#/components/schemas/PhysicalVadNode"
                 },
                 {
+                  "$ref": "#/components/schemas/StreamingDenoiseNode"
+                },
+                {
                   "$ref": "#/components/schemas/SemanticVadNode"
                 },
                 {
@@ -4000,6 +4003,7 @@
                   "speaker_clustering": "#/components/schemas/SpeakerClusteringNode",
                   "speaker_diarization": "#/components/schemas/SpeakerDiarizationNode",
                   "speaker_filter": "#/components/schemas/SpeakerFilterNode",
+                  "streaming_denoise": "#/components/schemas/StreamingDenoiseNode",
                   "vector_search": "#/components/schemas/VectorSearchNode"
                 }
               }
@@ -4670,6 +4674,7 @@
       "EngineApi": {
         "type": "string",
         "enum": [
+          "ux_denoise",
           "ux_speech",
           "ux_vad",
           "responses",
@@ -4842,6 +4847,7 @@
       "EngineKind": {
         "type": "string",
         "enum": [
+          "denoise",
           "asr",
           "vad",
           "llm",
@@ -6861,6 +6867,67 @@
           "observation"
         ],
         "title": "SpeakerMatchRead"
+      },
+      "StreamingDenoiseConfig": {
+        "properties": {
+          "denoised_weight": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denoised Weight"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "StreamingDenoiseConfig"
+      },
+      "StreamingDenoiseNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "streaming_denoise",
+            "title": "Kind",
+            "default": "streaming_denoise"
+          },
+          "engine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Id"
+          },
+          "config": {
+            "$ref": "#/components/schemas/StreamingDenoiseConfig"
+          },
+          "failure_policy": {
+            "$ref": "#/components/schemas/FailurePolicy",
+            "default": "fail_open"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "StreamingDenoiseNode"
       },
       "VadAudioPreviewRead": {
         "properties": {

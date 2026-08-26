@@ -4,6 +4,7 @@ const FALLBACK_PORT_META: AudioPortMeta = { label: "未知类型", color: "#6971
 
 export const AUDIO_PORT_META: Readonly<Record<string, AudioPortMeta>> = {
   pcm_chunk: { label: "PCM", color: "#2563eb" },
+  vad_audio_chunk: { label: "VAD 专用音频", color: "#0891b2" },
   audio_segment: { label: "音频片段", color: "#c2410c" },
   diarization_segment: { label: "说话人片段", color: "#0e7490" },
   transcription: { label: "转写", color: "#7c3aed" },

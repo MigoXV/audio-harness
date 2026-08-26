@@ -25,11 +25,13 @@ from audio_harness.workflows.models import (
     SpeakerFilterNodeConfig,
     SemanticVadNode,
     SemanticVadConfig,
+    StreamingDenoiseConfig,
 )
 
 
 class PortKind(str, Enum):
     PCM_CHUNK = "pcm_chunk"
+    VAD_AUDIO_CHUNK = "vad_audio_chunk"
     AUDIO_SEGMENT = "audio_segment"
     SPEECH_STARTED = "speech_started"
     SPEECH_STOPPED = "speech_stopped"
@@ -65,10 +67,23 @@ class AudioNodeSpec:
 
 
 _NODE_SPECS: dict[str, AudioNodeSpec] = {
+    "streaming_denoise": AudioNodeSpec(
+        kind="streaming_denoise",
+        display_name="在线降噪",
+        inputs={"audio": PortSpec(PortKind.PCM_CHUNK)},
+        outputs={"audio": PortSpec(PortKind.VAD_AUDIO_CHUNK)},
+        required_api=EngineApi.UX_DENOISE,
+        config_model=StreamingDenoiseConfig,
+    ),
     "physical_vad": AudioNodeSpec(
         kind="physical_vad",
         display_name="物理 VAD",
-        inputs={"audio": PortSpec(PortKind.PCM_CHUNK)},
+        inputs={
+            "audio": PortSpec(
+                PortKind.PCM_CHUNK,
+                accepted_kinds=(PortKind.VAD_AUDIO_CHUNK,),
+            )
+        },
         outputs={
             "segments": PortSpec(PortKind.AUDIO_SEGMENT),
             "speech_started": PortSpec(PortKind.SPEECH_STARTED),
@@ -558,6 +573,15 @@ def compile_audio_graph(
             )
             continue
         expected = _KNOWN_OUTPUTS.get(output.name)
+        if source_port.kind is PortKind.VAD_AUDIO_CHUNK:
+            diagnostics.append(
+                AudioGraphDiagnostic(
+                    "private_audio_output",
+                    "同步降噪音频只能连接物理 VAD，不能绑定工作流出口",
+                    node_id=source_node.id,
+                    port=output.source.port,
+                )
+            )
         if expected is not None and source_port.kind is not expected:
             diagnostics.append(
                 AudioGraphDiagnostic(
