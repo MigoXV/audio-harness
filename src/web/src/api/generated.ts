@@ -1192,6 +1192,8 @@ export interface components {
             inputs: components["schemas"]["NodePortRead"][];
             /** Outputs */
             outputs: components["schemas"]["NodePortRead"][];
+            /** Input Groups */
+            input_groups?: components["schemas"]["NodeInputGroupRead"][];
             /** Config Schema */
             config_schema: {
                 [key: string]: unknown;
@@ -1223,7 +1225,7 @@ export interface components {
              */
             schema_version: 1;
             /** Nodes */
-            nodes: (components["schemas"]["PhysicalVadNode"] | components["schemas"]["StreamingDenoiseNode"] | components["schemas"]["SemanticVadNode"] | components["schemas"]["AsrNode"] | components["schemas"]["AudioEmbeddingNode"] | components["schemas"]["SpeakerDiarizationNode"] | components["schemas"]["SpeakerClusteringNode"] | components["schemas"]["VectorSearchNode"] | components["schemas"]["SpeakerFilterNode"])[];
+            nodes: (components["schemas"]["PhysicalVadNode"] | components["schemas"]["StreamingDenoiseNode"] | components["schemas"]["AutomaticGainControlNode"] | components["schemas"]["SemanticVadNode"] | components["schemas"]["AsrNode"] | components["schemas"]["AudioEmbeddingNode"] | components["schemas"]["SpeakerDiarizationNode"] | components["schemas"]["SpeakerClusteringNode"] | components["schemas"]["VectorSearchNode"] | components["schemas"]["SpeakerFilterNode"])[];
             /** Edges */
             edges: components["schemas"]["AudioEdge"][];
             /** Outputs */
@@ -1314,6 +1316,47 @@ export interface components {
             diagnostics: components["schemas"]["GraphDiagnosticRead"][];
             /** Topological Order */
             topological_order?: string[];
+        };
+        /** AutomaticGainControlConfig */
+        AutomaticGainControlConfig: {
+            /**
+             * Attack Seconds
+             * @default 0
+             */
+            attack_seconds: number;
+            /**
+             * Decay Seconds
+             * @default 2.5
+             */
+            decay_seconds: number;
+            /**
+             * Soft Knee Db
+             * @default 6
+             */
+            soft_knee_db: number;
+            /**
+             * Initial Level Db
+             * @default -12
+             */
+            initial_level_db: number;
+            /**
+             * Output Gain Db
+             * @default 4.5
+             */
+            output_gain_db: number;
+        };
+        /** AutomaticGainControlNode */
+        AutomaticGainControlNode: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "automatic_gain_control";
+            /** Engine Id */
+            engine_id?: null;
+            config?: components["schemas"]["AutomaticGainControlConfig"];
         };
         /** Body_create_voice_api_v1_voices_post */
         Body_create_voice_api_v1_voices_post: {
@@ -1878,6 +1921,23 @@ export interface components {
              */
             distance: "cosine" | "euclid" | "dot" | "manhattan";
         };
+        /** NodeInputGroupRead */
+        NodeInputGroupRead: {
+            /** Name */
+            name: string;
+            /** Ports */
+            ports: string[];
+            /**
+             * Minimum
+             * @default 1
+             */
+            minimum: number;
+            /**
+             * Maximum
+             * @default 1
+             */
+            maximum: number;
+        };
         /** NodeInputRef */
         NodeInputRef: {
             /** Node Id */
@@ -2239,11 +2299,37 @@ export interface components {
              */
             clustering_algorithm: "hdbscan";
             parameters?: components["schemas"]["HdbscanClusteringParameters"];
+            postprocessing?: components["schemas"]["SpeakerClusteringPostprocessingOptions"] | null;
             /**
              * Max Vectors
              * @default 10000
              */
             max_vectors: number;
+        };
+        /** SpeakerClusteringPostprocessingOptions */
+        SpeakerClusteringPostprocessingOptions: {
+            /**
+             * Processor
+             * @default audio_harness.speaker_clustering.complete_link_merge
+             * @constant
+             */
+            processor: "audio_harness.speaker_clustering.complete_link_merge";
+            /**
+             * Version
+             * @default 1
+             * @constant
+             */
+            version: 1;
+            /**
+             * High Similarity Threshold
+             * @default 0.7
+             */
+            high_similarity_threshold: number;
+            /**
+             * Low Similarity Threshold
+             * @default 0.5
+             */
+            low_similarity_threshold: number;
         };
         /**
          * SpeakerContextConfig

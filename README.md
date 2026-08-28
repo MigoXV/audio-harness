@@ -34,8 +34,9 @@ Realtime / WebRTC 数据面 ───────────┘
 
 | 节点 | 输入 | 输出 | 引擎 API |
 | --- | --- | --- | --- |
+| 自动增益控制 | `pcm_chunk` | `pcm_chunk` | 无（本地实时处理） |
 | Streaming Denoise | `pcm_chunk` | `vad_audio_chunk`（仅物理 VAD） | `ux_denoise` |
-| Physical VAD | `pcm_chunk` 或 `vad_audio_chunk` | `audio_segment`、`speech_started`、`speech_stopped` | `ux_vad` |
+| Physical VAD | `audio: pcm_chunk` 或 `detection_audio: vad_audio_chunk`（互斥） | `audio_segment`、`speech_started`、`speech_stopped` | `ux_vad` |
 | Semantic VAD | `audio_segment` | `audio_segment`、`speech_stopped`、`transcription` | `ux_vad` |
 | ASR | `audio_segment` | `transcription` | `ux_speech` |
 | Speaker Diarization | `audio_segment` | `audio_segment`、`diarization_local_result` | `ux_speaker_diarization` |
@@ -58,6 +59,18 @@ Realtime / WebRTC 数据面 ───────────┘
 `(1-w) × 原音 + w × 降噪音频` 混合，未设置时关闭混合。物理 VAD 只用处理后的音频
 判断边界，切片缓存和所有 ASR、分离、向量化下游始终使用原音。降噪专用端口不能
 绑定命名出口或连接其他节点；失败策略默认 `fail_open`，从未确认采样点旁路原音。
+
+自动增益控制节点是无前瞻的本地透明 PCM 节点。默认采用固定七段 compand 曲线、
+`attack=0`、`decay=2.5` 秒、`soft-knee=6`、初始检测电平 `-12 dBFS` 和末级
+`+4.5 dB` 补偿。节点状态跨音频块保存且不改变采样位置；处理后的音频会供 VAD、
+ASR、说话人分离等全部下游使用。节点通过 PyAV 在进程内持有连续的 FFmpeg
+`libavfilter` filter graph，直接运行 `compand,volume`；不会为每个音频块启动子进程。
+`delay=0` 时输入块立即产生等长 PCM，并保持 FFmpeg 的线性振幅包络和软拐点行为。
+
+物理 VAD 显式区分两个互斥输入：`audio` 是全链路主音频，检测、缓存和后续切片均
+使用它；`detection_audio` 接收同步双路音频，仅把处理音用于 VAD 检测，后续切片仍
+使用其中的主音频。降噪节点应连接 `detection_audio`，AGC 等透明 PCM 节点应连接
+`audio`。旧版“降噪输出连接 VAD.audio”的工作流在读取时自动归一化到新端口。
 
 物理 VAD 节点可以按工作流配置 FireRed `firered.stream_vad` v1 后处理参数，
 包括概率平滑、判定阈值、起点前补以及语音/静音帧数限制。未启用自定义配置时，
@@ -87,11 +100,21 @@ Vector 初始化算法和维度；没有可用空间时使用 `voiceprints`、`e
 `min_batch_seconds=0` 时每个 VAD 块立即处理；旧缓存加新块超过最大长度时先提交旧缓存，
 新块不会丢弃；单个超长块按最大长度硬切。会话结束时不足最小时长的尾块也会提交。
 不同 VAD 块之间不补静音，服务返回的相对时间会根据拼接映射还原为会话绝对时间。
-节点默认启用 `audio_harness.diarization.vad_coverage` v1 后处理：以每个 VAD 块为有效
-语音硬边界，填充头尾和片段间空洞、合并相邻同说话人片段，并在后续不同说话人使
-边界稳定后立即把上一片段送入说话人 ASR。引擎时间戳允许小范围重叠；不同说话人
+节点默认启用 `audio_harness.diarization.vad_coverage` v1 后处理：填充有效语音头尾和
+片段间空洞，并在同一语义轮次内跨 VAD 静音块合并相邻同说话人片段。VAD 块边界
+本身不会触发提交；首个有效的异说话人片段会使上一片段稳定并立即送入说话人 ASR，
+语义轮次边界和 RPC 结束也会刷新待定片段。引擎时间戳允许小范围重叠；不同说话人
 重叠时以后一个片段的起点切分。把节点 `postprocessing` 显式设为 `null` 可恢复原始
 时间戳增量和 RPC 结束后统一送入 ASR 的兼容行为。
+
+说话人聚类节点默认启用
+`audio_harness.speaker_clustering.complete_link_merge` v1 后处理，用于减少同一个人被
+拆成多个全局 speaker ID。每次上游成功返回全量聚类快照后，节点按原始 speaker ID
+汇总并按时间拼接片段，每人最多取前 20 秒 16 kHz 单声道 PCM，重新提取归一化声纹，
+并维护会话级余弦相似度矩阵缓存。相似度达到高阈值（默认 `0.70`）时尝试合并，同时
+要求合并组内任意两人都不低于低阈值（默认 `0.50`），避免链式相似导致误合并。
+后处理只重映射输出快照，不修改流式 HDBSCAN 的内部标签；设为 `null` 可关闭。默认
+`fail_open` 下后处理失败会保留当前原始聚类快照，`fail_pipeline` 则沿用节点失败策略。
 
 ASR 节点可以独立开启“移除转写标点”，在节点输出进入工作流出口前删除中英文及
 其他语言的 Unicode 标点，同时保留原有空白、符号和 emoji。该选项默认关闭；两个
@@ -114,7 +137,12 @@ src/audio_harness/
 ├── engines/            # 引擎资产目录与 InferencerPool
 ├── inferencers/        # 按能力分组的推理客户端适配器
 ├── media/              # PCM 等媒体数据类型
-├── sessions/           # 协议无关会话生命周期与容量租约
+├── sessions/           # 协议无关的内部执行会话
+│   ├── audio_workflow/ # 工作流会话、容量预留与 Inferencer 租约
+│   ├── physical_vad/   # 物理 VAD 流式边界会话
+│   ├── semantic_vad/   # 语义 VAD 轮次聚合会话
+│   ├── diarization/    # 说话人分离批处理与结果映射会话
+│   └── speaker_clustering/ # 跨批次说话人聚类会话
 ├── serving/            # 进程容量、状态与协议服务
 │   ├── realtime/       # OpenAI Realtime WebSocket 适配器
 │   └── webrtc/         # WebRTC 适配器

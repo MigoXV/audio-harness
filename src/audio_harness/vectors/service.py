@@ -12,7 +12,7 @@ from audio_harness.database.models import AudioWorkflow, AudioWorkflowRevision
 from audio_harness.engines.catalog import EngineCatalog
 from audio_harness.engines.models import EngineApi, EngineKind
 from audio_harness.engines.pool import InferencerPool
-from audio_harness.inferencers.embedding import AudioEmbeddingInferencer
+from audio_harness.inferencers.embedding import EngineFeatureInferencer
 from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
 from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.media.decode import decode_audio
@@ -132,7 +132,10 @@ class VectorService:
         if asset.api is not EngineApi.ENGINE_FEATURE or not asset.enabled:
             raise ValueError("所选引擎不是已启用的音频向量引擎")
         async with self._pool.lease([asset.snapshot()]) as inferencers:
-            inferencer = cast(AudioEmbeddingInferencer, inferencers[(asset.id, asset.revision)])
+            inferencer = cast(
+                EngineFeatureInferencer,
+                inferencers[(asset.id, asset.revision)],
+            )
             if self._embedding_limiter is None:
                 return await inferencer.embed(pcm, algorithm=algorithm, expected_dimension=dimension, normalize=normalize)
             async with self._embedding_limiter:

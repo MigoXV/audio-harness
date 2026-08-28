@@ -252,6 +252,7 @@ async def test_fresh_baseline_is_explicitly_unconfigured(
 
     node_types = await control_plane.client.get("/api/v1/audio-node-types")
     assert {item["kind"] for item in node_types.json()} == {
+        "automatic_gain_control",
         "streaming_denoise",
         "physical_vad",
         "semantic_vad",

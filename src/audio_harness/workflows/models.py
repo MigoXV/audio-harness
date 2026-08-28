@@ -100,6 +100,23 @@ class StreamingDenoiseNode(StrictModel):
     failure_policy: FailurePolicy = FailurePolicy.FAIL_OPEN
 
 
+class AutomaticGainControlConfig(StrictModel):
+    attack_seconds: float = Field(default=0, ge=0, le=10, allow_inf_nan=False)
+    decay_seconds: float = Field(default=2.5, gt=0, le=60, allow_inf_nan=False)
+    soft_knee_db: float = Field(default=6, ge=0.01, le=10, allow_inf_nan=False)
+    initial_level_db: float = Field(default=-12, ge=-80, le=0, allow_inf_nan=False)
+    output_gain_db: float = Field(default=4.5, ge=-24, le=24, allow_inf_nan=False)
+
+
+class AutomaticGainControlNode(StrictModel):
+    id: str = Field(min_length=1, max_length=100, pattern=_IDENTIFIER)
+    kind: Literal["automatic_gain_control"] = "automatic_gain_control"
+    engine_id: None = None
+    config: AutomaticGainControlConfig = Field(
+        default_factory=AutomaticGainControlConfig
+    )
+
+
 class SemanticVadNode(StrictModel):
     id: str = Field(min_length=1, max_length=100, pattern=_IDENTIFIER)
     kind: Literal["semantic_vad"] = "semantic_vad"
@@ -175,6 +192,37 @@ class HdbscanClusteringParameters(StrictModel):
     allow_single_cluster: bool = Field(default=False, strict=True)
 
 
+class SpeakerClusteringPostprocessingOptions(StrictModel):
+    processor: Literal[
+        "audio_harness.speaker_clustering.complete_link_merge"
+    ] = "audio_harness.speaker_clustering.complete_link_merge"
+    version: Literal[1] = 1
+    high_similarity_threshold: float = Field(
+        default=0.70,
+        ge=0,
+        le=1,
+        allow_inf_nan=False,
+        strict=True,
+    )
+    low_similarity_threshold: float = Field(
+        default=0.50,
+        ge=0,
+        le=1,
+        allow_inf_nan=False,
+        strict=True,
+    )
+
+    @model_validator(mode="after")
+    def validate_thresholds(
+        self,
+    ) -> "SpeakerClusteringPostprocessingOptions":
+        if self.low_similarity_threshold > self.high_similarity_threshold:
+            raise ValueError(
+                "low_similarity_threshold 不能大于 high_similarity_threshold"
+            )
+        return self
+
+
 class SpeakerClusteringNodeConfig(StrictModel):
     embedding_algorithm: str = Field(
         default="eres2netv2",
@@ -187,6 +235,9 @@ class SpeakerClusteringNodeConfig(StrictModel):
     clustering_algorithm: Literal["hdbscan"] = "hdbscan"
     parameters: HdbscanClusteringParameters = Field(
         default_factory=HdbscanClusteringParameters
+    )
+    postprocessing: SpeakerClusteringPostprocessingOptions | None = Field(
+        default_factory=SpeakerClusteringPostprocessingOptions
     )
     max_vectors: int = Field(default=10000, gt=0, le=1000000)
 
@@ -242,6 +293,7 @@ class SpeakerFilterNode(StrictModel):
 AudioNode = Annotated[
     PhysicalVadNode
     | StreamingDenoiseNode
+    | AutomaticGainControlNode
     | SemanticVadNode
     | AsrNode
     | AudioEmbeddingNode
@@ -292,6 +344,32 @@ class AudioWorkflowDocument(StrictModel):
     edges: list[AudioEdge]
     outputs: list[NamedOutputBinding]
     layout: dict[str, NodePosition] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def migrate_detection_audio_port(self) -> "AudioWorkflowDocument":
+        """把旧版降噪到 VAD 的 audio 连线归一化到专用检测端口。"""
+
+        node_kinds = {node.id: node.kind for node in self.nodes}
+        migrated: list[AudioEdge] = []
+        for edge in self.edges:
+            source = edge.source
+            if (
+                edge.target.port == "audio"
+                and node_kinds.get(edge.target.node_id) == "physical_vad"
+                and isinstance(source, NodeOutputRef)
+                and source.port == "audio"
+                and node_kinds.get(source.node_id) == "streaming_denoise"
+            ):
+                edge = edge.model_copy(
+                    update={
+                        "target": edge.target.model_copy(
+                            update={"port": "detection_audio"}
+                        )
+                    }
+                )
+            migrated.append(edge)
+        self.edges = migrated
+        return self
 
     @model_validator(mode="after")
     def validate_identifiers(self) -> "AudioWorkflowDocument":

@@ -9,11 +9,12 @@ from audio_harness.inferencers.diarization.base import DiarizationInferencer
 
 
 class DiarizationPostprocessor:
-    """将流式说话人时间戳收敛为完整且不可撤回的 VAD 区间。"""
+    """将流式说话人时间戳收敛为完整且不可撤回的语义轮次区间。"""
 
     class Span(NamedTuple):
         start_sample: int
         end_sample: int
+        group_id: str | None = None
 
     class Segment(NamedTuple):
         start_sample: int
@@ -48,7 +49,27 @@ class DiarizationPostprocessor:
             if span.end_sample <= span.start_sample:
                 raise ValueError("VAD 区间结束位置必须晚于开始位置")
             previous_end = span.end_sample
-        self._states = [self._SpanState(span) for span in normalized]
+        grouped: list[DiarizationPostprocessor.Span] = []
+        completed_groups: set[str] = set()
+        for span in normalized:
+            if (
+                span.group_id is not None
+                and grouped
+                and grouped[-1].group_id == span.group_id
+            ):
+                previous = grouped[-1]
+                grouped[-1] = self.Span(
+                    previous.start_sample,
+                    span.end_sample,
+                    span.group_id,
+                )
+                continue
+            if span.group_id is not None:
+                if span.group_id in completed_groups:
+                    raise ValueError("同一逻辑轮次的 VAD 区间必须连续")
+                completed_groups.add(span.group_id)
+            grouped.append(span)
+        self._states = [self._SpanState(span) for span in grouped]
         self._total_samples = normalized[-1].end_sample
         self._drain_index = 0
         self._last_start_sample: int | None = None
@@ -73,13 +94,18 @@ class DiarizationPostprocessor:
             if end <= start:
                 continue
             self._close_passed_spans(start)
-            for state in self._states:
+            for state_index, state in enumerate(self._states):
                 if state.closed:
                     continue
                 overlap_start = max(start, state.span.start_sample)
                 overlap_end = min(end, state.span.end_sample)
                 if overlap_end <= overlap_start:
                     continue
+                if state.span.group_id is not None:
+                    # 一个引擎 segment 可能横跨两个逻辑轮次；只要已经进入
+                    # 后一轮次，前一轮次就必须先成为不可撤回结果。
+                    for previous in self._states[:state_index]:
+                        self._finish_span(previous)
                 self._accept_evidence(
                     state,
                     overlap_start,

@@ -8,7 +8,7 @@ from audio_harness.inferencers.asr.grpc import UxSpeechAsrInferencer
 from audio_harness.inferencers.responses.http import ResponsesInferencer
 from audio_harness.inferencers.tts.grpc import QwenDuplexTtsInferencer
 from audio_harness.inferencers.vad.grpc import UxVadInferencer
-from audio_harness.inferencers.embedding import AudioEmbeddingInferencer
+from audio_harness.inferencers.embedding import GrpcEngineFeatureInferencer
 from audio_harness.inferencers.diarization import UxSpeakerDiarizationInferencer
 from audio_harness.inferencers.denoise import UxDenoiseInferencer
 
@@ -48,7 +48,7 @@ def create_inferencer(
         snapshot.protocol is EngineProtocol.GRPC
         and snapshot.api is EngineApi.ENGINE_FEATURE
     ):
-        return AudioEmbeddingInferencer(
+        return GrpcEngineFeatureInferencer(
             endpoint,
             max_message_bytes=max_message_bytes,
         )

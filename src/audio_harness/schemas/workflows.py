@@ -85,6 +85,13 @@ class NodePortRead(StrictSchema):
     accepted_kinds: list[str] = Field(default_factory=list)
 
 
+class NodeInputGroupRead(StrictSchema):
+    name: str
+    ports: list[str]
+    minimum: int = 1
+    maximum: int = 1
+
+
 class AudioNodeTypeRead(StrictSchema):
     kind: str
     display_name: str
@@ -92,4 +99,5 @@ class AudioNodeTypeRead(StrictSchema):
     required_capability: str | None = None
     inputs: list[NodePortRead]
     outputs: list[NodePortRead]
+    input_groups: list[NodeInputGroupRead] = Field(default_factory=list)
     config_schema: dict[str, Any]

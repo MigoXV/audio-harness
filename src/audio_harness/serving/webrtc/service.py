@@ -36,7 +36,7 @@ from audio_harness.serving.webrtc.tracks import (
     IncomingAudioPump,
     ServerAudioTrack,
 )
-from audio_harness.sessions import (
+from audio_harness.sessions.audio_workflow import (
     AudioWorkflowSessionReservation,
     AudioWorkflowSessionService,
 )

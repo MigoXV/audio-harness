@@ -84,7 +84,7 @@ from audio_harness.serving.realtime.protocol import (
     AhaVectorSearchFailedEvent,
 )
 from audio_harness.serving.realtime.tools import ToolRegistry
-from audio_harness.sessions import (
+from audio_harness.sessions.audio_workflow import (
     AudioWorkflowSession,
     AudioWorkflowSessionReservation,
     AudioWorkflowSessionService,

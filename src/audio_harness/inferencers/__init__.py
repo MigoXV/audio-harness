@@ -4,7 +4,10 @@ from audio_harness.inferencers.asr.base import AsrInferencer
 from audio_harness.inferencers.responses.http import ResponsesInferencer
 from audio_harness.inferencers.tts.base import TtsInferencer
 from audio_harness.inferencers.vad.base import VadInferencer
-from audio_harness.inferencers.embedding import AudioEmbeddingInferencer
+from audio_harness.inferencers.embedding import (
+    EngineFeatureInferencer,
+    GrpcEngineFeatureInferencer,
+)
 from audio_harness.inferencers.diarization import DiarizationInferencer
 from audio_harness.inferencers.denoise import DenoiseInferencer
 
@@ -14,7 +17,7 @@ Inferencer: TypeAlias = (
     | VadInferencer
     | TtsInferencer
     | ResponsesInferencer
-    | AudioEmbeddingInferencer
+    | EngineFeatureInferencer
     | DiarizationInferencer
     | DenoiseInferencer
 )
@@ -22,7 +25,8 @@ Inferencer: TypeAlias = (
 
 __all__ = [
     "AsrInferencer",
-    "AudioEmbeddingInferencer",
+    "EngineFeatureInferencer",
+    "GrpcEngineFeatureInferencer",
     "DiarizationInferencer",
     "DenoiseInferencer",
     "Inferencer",

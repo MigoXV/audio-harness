@@ -9,6 +9,7 @@ import pytest
 from google.protobuf import duration_pb2
 
 from audio_harness.configs import EngineEndpoint
+from audio_harness.errors import EngineDeadlineError, EngineUnavailableError
 from audio_harness.inferencers.asr.base import AsrInferencer
 from audio_harness.inferencers.asr.grpc import UxSpeechAsrInferencer
 from audio_harness.inferencers.tts.grpc import QwenDuplexTtsInferencer
@@ -19,7 +20,7 @@ from audio_harness.inferencers.diarization.grpc import (
     UxSpeakerDiarizationInferencer,
 )
 from audio_harness.inferencers.denoise.grpc import UxDenoiseInferencer
-from audio_harness.inferencers.embedding import AudioEmbeddingInferencer
+from audio_harness.inferencers.embedding import GrpcEngineFeatureInferencer
 from audio_harness.protos.embedding import engine_pb2, engine_pb2_grpc
 from audio_harness.protos.asr import ux_speech_pb2 as speech_pb2
 from audio_harness.protos.asr import ux_speech_pb2_grpc as speech_pb2_grpc
@@ -233,6 +234,29 @@ class FakeEmbeddingServicer(engine_pb2_grpc.EngineServicer):
             )
 
 
+class WrongSequenceClusteringServicer(engine_pb2_grpc.EngineServicer):
+    async def StreamingClustering(self, request_iterator, _context):
+        async for _ in request_iterator:
+            yield engine_pb2.StreamingClusteringReply(sequence=1, labels=[0])
+            return
+
+
+class EmptyClusteringServicer(engine_pb2_grpc.EngineServicer):
+    async def StreamingClustering(self, request_iterator, _context):
+        async for _ in request_iterator:
+            return
+        if False:
+            yield engine_pb2.StreamingClusteringReply()
+
+
+class SlowClusteringServicer(engine_pb2_grpc.EngineServicer):
+    async def StreamingClustering(self, request_iterator, _context):
+        async for _ in request_iterator:
+            await asyncio.sleep(0.05)
+            yield engine_pb2.StreamingClusteringReply(sequence=0, labels=[0])
+            return
+
+
 async def audio_chunks(*chunks: bytes) -> AsyncIterator[bytes]:
     for chunk in chunks:
         yield chunk
@@ -245,7 +269,7 @@ async def test_embedding_streaming_clustering_returns_full_revisions() -> None:
     engine_pb2_grpc.add_EngineServicer_to_server(fake, server)
     port = server.add_insecure_port("127.0.0.1:0")
     await server.start()
-    inferencer = AudioEmbeddingInferencer(
+    inferencer = GrpcEngineFeatureInferencer(
         EngineEndpoint(target=f"127.0.0.1:{port}"),
         max_message_bytes=4096,
     )
@@ -269,6 +293,7 @@ async def test_embedding_streaming_clustering_returns_full_revisions() -> None:
         second = await session.add((vector,))
     finally:
         await session.close()
+        await session.close()
         await inferencer.close()
         await server.stop(0)
 
@@ -281,6 +306,45 @@ async def test_embedding_streaming_clustering_returns_full_revisions() -> None:
     assert fake.requests[0].config.parameters["cluster_selection_epsilon"] == 0
     assert fake.requests[0].config.parameters["allow_single_cluster"] is False
     assert fake.requests[1].batch.sequence == 1
+
+
+@pytest.mark.parametrize(
+    ("servicer", "timeout", "expected_error"),
+    [
+        (WrongSequenceClusteringServicer(), 1, ValueError),
+        (EmptyClusteringServicer(), 1, EngineUnavailableError),
+        (SlowClusteringServicer(), 0.01, EngineDeadlineError),
+    ],
+)
+@pytest.mark.asyncio
+async def test_streaming_clustering_rejects_invalid_remote_streams(
+    servicer: engine_pb2_grpc.EngineServicer,
+    timeout: float,
+    expected_error: type[Exception],
+) -> None:
+    server = grpc.aio.server()
+    engine_pb2_grpc.add_EngineServicer_to_server(servicer, server)
+    port = server.add_insecure_port("127.0.0.1:0")
+    await server.start()
+    inferencer = GrpcEngineFeatureInferencer(
+        EngineEndpoint(
+            target=f"127.0.0.1:{port}",
+            request_timeout_seconds=timeout,
+        ),
+        max_message_bytes=4096,
+    )
+    session = inferencer.streaming_clustering()
+    try:
+        with pytest.raises(expected_error):
+            await session.start(
+                (b"vector",),
+                algorithm="hdbscan",
+                parameters={},
+            )
+    finally:
+        await session.close()
+        await inferencer.close()
+        await server.stop(0)
 
 
 @pytest.mark.asyncio

@@ -243,6 +243,12 @@ describe("audio graph templates", () => {
           cluster_selection_epsilon: 0,
           allow_single_cluster: false,
         },
+        postprocessing: {
+          processor: "audio_harness.speaker_clustering.complete_link_merge",
+          version: 1,
+          high_similarity_threshold: 0.70,
+          low_similarity_threshold: 0.50,
+        },
       },
     });
     expect(result.outputs).toContainEqual({

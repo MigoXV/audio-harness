@@ -125,6 +125,13 @@ def _document(
     )
 
 
+def test_legacy_denoise_audio_edge_is_migrated() -> None:
+    definition = _document()
+
+    edge = next(item for item in definition.edges if item.id == "denoise-vad")
+    assert edge.target.port == "detection_audio"
+
+
 @pytest.fixture
 def assets() -> dict[str, EngineAssetData]:
     return {

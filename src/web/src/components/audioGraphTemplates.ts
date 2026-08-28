@@ -241,6 +241,12 @@ function speakerClustering(
         cluster_selection_epsilon: 0,
         allow_single_cluster: false,
       },
+      postprocessing: {
+        processor: "audio_harness.speaker_clustering.complete_link_merge" as const,
+        version: 1 as const,
+        high_similarity_threshold: 0.70,
+        low_similarity_threshold: 0.50,
+      },
       max_vectors: 10000,
     },
     failure_policy: "fail_open" as const,

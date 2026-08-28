@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
+import numpy as np
 import pytest
 from pydantic import ValidationError
 
@@ -17,9 +18,15 @@ from audio_harness.engines.models import (
 )
 from audio_harness.errors import CapacityExceededError
 from audio_harness.inferencers.asr.base import AsrInferencer
-from audio_harness.inferencers.embedding import AudioEmbeddingInferencer
+from audio_harness.inferencers.embedding import EngineFeatureInferencer
 from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.media.pcm import PcmChunk
+from audio_harness.sessions.contracts import SegmentCandidate as _SegmentCandidate
+from audio_harness.sessions.physical_vad import (
+    PhysicalVadSession,
+    VadProgressLimiter,
+)
+from audio_harness.sessions.semantic_vad import SemanticVadSession
 from audio_harness.workflows import (
     AsrNode,
     AsrNodeConfig,
@@ -54,12 +61,6 @@ from audio_harness.workflows.models import (
     SpeakerFilterNodeConfig,
     VectorSearchNode,
     VectorSearchNodeConfig,
-)
-from audio_harness.workflows.runtime import (
-    PhysicalVadSession,
-    SemanticVadSession,
-    VadProgressLimiter,
-    _SegmentCandidate,
 )
 from audio_harness.vectors.models import SpeakerMatch, VectorObservation
 
@@ -223,6 +224,7 @@ def test_physical_vad_keeps_speech_start_across_max_length_segments() -> None:
             speech_pre_roll_seconds=0,
         ),
         sample_rate=4,
+        inferencer=_Vad([]),
     )
     state.append(
         PcmChunk(
@@ -258,20 +260,19 @@ def test_physical_vad_keeps_speech_start_across_max_length_segments() -> None:
 
 @pytest.mark.asyncio
 async def test_semantic_vad_preserves_gaps_in_the_session_timeline() -> None:
+    inferencer = _Vad([], turns=[False, True])
     state = SemanticVadSession(
         config=SemanticVadNode(id="semantic", engine_id="vad-engine").config,
         sample_rate=1,
+        inferencer=inferencer,
     )
-    inferencer = _Vad([], turns=[False, True])
 
     first = await state.accept(
         _SegmentCandidate(bytes(4), start_sample=10, end_sample=12),
-        inferencer=inferencer,
         failure_policy=FailurePolicy.FAIL_OPEN,
     )
     second = await state.accept(
         _SegmentCandidate(bytes(4), start_sample=20, end_sample=22),
-        inferencer=inferencer,
         failure_policy=FailurePolicy.FAIL_OPEN,
     )
 
@@ -461,7 +462,7 @@ class _Asr(AsrInferencer):
     async def close(self) -> None: pass
 
 
-class _Embedding(AudioEmbeddingInferencer):
+class _Embedding(EngineFeatureInferencer):
     def __init__(self) -> None:
         pass
 
@@ -478,6 +479,29 @@ class _Embedding(AudioEmbeddingInferencer):
         assert expected_dimension == 2
         assert normalize is True
         return (1.0, 0.0)
+
+    async def embed_bytes(
+        self,
+        pcm_s16le: bytes,
+        *,
+        algorithm: str,
+        expected_dimension: int,
+        normalize: bool = True,
+    ) -> bytes:
+        values = await self.embed(
+            pcm_s16le,
+            algorithm=algorithm,
+            expected_dimension=expected_dimension,
+            normalize=normalize,
+        )
+        return np.asarray(values, dtype="<f4").tobytes()
+
+    async def ready(self) -> None: pass
+    async def probe(self) -> None: pass
+    async def close(self) -> None: pass
+
+    def streaming_clustering(self):
+        raise AssertionError("audio embedding 节点不应启动聚类流")
 
 
 class _Vectors:

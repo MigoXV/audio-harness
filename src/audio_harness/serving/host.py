@@ -20,7 +20,7 @@ from audio_harness.serving.realtime import RealtimeTranscriptionService
 from audio_harness.serving.realtime.tools import ToolRegistry
 from audio_harness.serving.status import ServingStatusService
 from audio_harness.serving.webrtc import WebRtcCallService
-from audio_harness.sessions import AudioWorkflowSessionService
+from audio_harness.sessions.audio_workflow import AudioWorkflowSessionService
 from audio_harness.voice_agents import (
     VoiceAgentRepository,
     VoiceAgentService,

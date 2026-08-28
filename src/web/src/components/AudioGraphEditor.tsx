@@ -134,6 +134,13 @@ const HDBSCAN_PARAMETER_DEFAULTS = {
   allow_single_cluster: false,
 };
 
+const CLUSTERING_POSTPROCESSING_DEFAULTS = {
+  processor: "audio_harness.speaker_clustering.complete_link_merge" as const,
+  version: 1 as const,
+  high_similarity_threshold: 0.70,
+  low_similarity_threshold: 0.50,
+};
+
 const HDBSCAN_NUMBER_PARAMETER_META = [
   ["min_cluster_size", "最小簇大小", "至少需要形成一个簇的向量数", 2, 1],
   ["min_samples", "最小样本数", "数值越高，噪声判定越保守", 1, 1],
@@ -243,6 +250,20 @@ function RoundedConnectionLine({ fromX, fromY, toX, toY, connectionLineStyle }: 
 
 function nodeConfig(kind: string): AudioNode {
   const id = `${kind.replaceAll("_", "-")}-${crypto.randomUUID().slice(0, 8)}`;
+  if (kind === "automatic_gain_control") {
+    return {
+      id,
+      kind,
+      engine_id: null,
+      config: {
+        attack_seconds: 0,
+        decay_seconds: 2.5,
+        soft_knee_db: 6,
+        initial_level_db: -12,
+        output_gain_db: 4.5,
+      },
+    } as AudioNode;
+  }
   if (kind === "streaming_denoise") {
     return {
       id,
@@ -304,6 +325,7 @@ function nodeConfig(kind: string): AudioNode {
         max_embedding_seconds: 60,
         clustering_algorithm: "hdbscan",
         parameters: structuredClone(HDBSCAN_PARAMETER_DEFAULTS),
+        postprocessing: structuredClone(CLUSTERING_POSTPROCESSING_DEFAULTS),
         max_vectors: 10000,
       },
       failure_policy: "fail_open",
@@ -395,7 +417,14 @@ function AudioGraphEditorInner({
           data: {
             label: node.id,
             subtitle: spec?.display_name ?? node.kind,
-            inputs: spec?.inputs ?? [],
+            inputs: (spec?.inputs ?? []).map((port) => ({
+              ...port,
+              label: node.kind === "physical_vad" && port.name === "audio"
+                ? "主音频"
+                : node.kind === "physical_vad" && port.name === "detection_audio"
+                  ? "仅 VAD 检测"
+                  : undefined,
+            })),
             outputs: (spec?.outputs ?? []).map((port) => ({
               ...port,
               label: node.kind === "physical_vad" && port.name === "speech_stopped"
@@ -558,6 +587,13 @@ function AudioGraphEditorInner({
   const selectedDenoiseConfig = selected?.kind === "streaming_denoise" ? {
     denoised_weight: selected.config?.denoised_weight ?? null,
   } : null;
+  const selectedAgcConfig = selected?.kind === "automatic_gain_control" ? {
+    attack_seconds: selected.config?.attack_seconds ?? 0,
+    decay_seconds: selected.config?.decay_seconds ?? 2.5,
+    soft_knee_db: selected.config?.soft_knee_db ?? 6,
+    initial_level_db: selected.config?.initial_level_db ?? -12,
+    output_gain_db: selected.config?.output_gain_db ?? 4.5,
+  } : null;
   const selectedPostprocessing = selectedPhysicalConfig?.postprocessing ? {
     ...selectedPhysicalConfig.postprocessing,
     parameters: {
@@ -583,6 +619,9 @@ function AudioGraphEditorInner({
       ...HDBSCAN_PARAMETER_DEFAULTS,
       ...(selected.config?.parameters ?? {}),
     },
+    postprocessing: selected.config?.postprocessing === undefined
+      ? structuredClone(CLUSTERING_POSTPROCESSING_DEFAULTS)
+      : selected.config.postprocessing,
     max_vectors: selected.config?.max_vectors ?? 10000,
   } : null;
 
@@ -649,6 +688,15 @@ function AudioGraphEditorInner({
       const targetSpec = targetNode ? specs.get(targetNode.kind) : undefined;
       const targetPort = targetSpec?.inputs.find((port) => port.name === connection.targetHandle);
       if (source !== target && !targetPort?.accepted_kinds?.includes(source)) return false;
+      const inputGroup = targetSpec?.input_groups?.find((group) =>
+        group.ports.includes(connection.targetHandle ?? ""),
+      );
+      if (inputGroup) {
+        const connected = document.edges.filter((edge) =>
+          edge.target.node_id === connection.target && inputGroup.ports.includes(edge.target.port),
+        ).length;
+        if (connected >= inputGroup.maximum) return false;
+      }
     } else if (source !== target) return false;
     return connection.target === "$outputs" || !document.edges.some(
       (edge) => edge.target.node_id === connection.target && edge.target.port === connection.targetHandle,
@@ -843,7 +891,7 @@ function AudioGraphEditorInner({
           <div className={`inspector-state ${selectedEngineConfigured ? "configured" : "unconfigured"}`}><strong>{selectedSpec.display_name}</strong><span>{selectedSpec.required_api == null ? "基础设施节点" : selectedEngineConfigured ? "已绑定执行引擎" : selected.engine_id ? "所选引擎不可用" : "待绑定执行引擎"}</span></div>
           <label><span>节点 ID</span><input value={selected.id} disabled /></label>
           {selectedSpec.required_api != null && <label><span>执行引擎</span><select value={selected.engine_id ?? ""} onChange={(event) => updateNode({ ...selected, engine_id: event.target.value || null } as AudioNode)}><option value="">未绑定</option>{engines.filter((engine) => engine.enabled && engine.api === selectedSpec.required_api && (!selectedSpec.required_capability || (Array.isArray(engine.details?.capabilities) && engine.details.capabilities.includes(selectedSpec.required_capability)))).map((engine) => <option key={engine.id} value={engine.id}>{engine.name} · {engine.status}</option>)}</select><small>需要 {selectedSpec.required_api}{selectedSpec.required_capability ? ` / ${selectedSpec.required_capability}` : ""} 能力</small></label>}
-          {Object.entries(selected.config ?? {}).filter(([key]) => !["postprocessing", "parameters", "clustering_algorithm", "remove_punctuation", "normalize", "include_embedding", "filter", "collection_name", "vector_name", "progress_interval_seconds", "allowed_speaker_ids", "min_score", "denoised_weight"].includes(key)).map(([key, value]) => <label key={key}><span>{key}</span><input type={typeof value === "number" || value === null ? "number" : "text"} step="0.1" value={value == null ? "" : String(value)} onChange={(event) => updateNode({ ...selected, config: { ...(selected.config ?? {}), [key]: typeof value === "number" || value === null ? (event.target.value ? Number(event.target.value) : null) : event.target.value } } as AudioNode)} /></label>)}
+          {Object.entries(selected.config ?? {}).filter(([key]) => !["postprocessing", "parameters", "clustering_algorithm", "remove_punctuation", "normalize", "include_embedding", "filter", "collection_name", "vector_name", "progress_interval_seconds", "allowed_speaker_ids", "min_score", "denoised_weight", "attack_seconds", "decay_seconds", "soft_knee_db", "initial_level_db", "output_gain_db"].includes(key)).map(([key, value]) => <label key={key}><span>{key}</span><input type={typeof value === "number" || value === null ? "number" : "text"} step="0.1" value={value == null ? "" : String(value)} onChange={(event) => updateNode({ ...selected, config: { ...(selected.config ?? {}), [key]: typeof value === "number" || value === null ? (event.target.value ? Number(event.target.value) : null) : event.target.value } } as AudioNode)} /></label>)}
           {selected.kind === "audio_embedding" && <label className="switch-control"><input type="checkbox" checked={selected.config?.normalize ?? true} onChange={(event) => updateNode({ ...selected, config: { algorithm: selected.config?.algorithm ?? "eres2netv2", expected_dimension: selected.config?.expected_dimension ?? 192, normalize: event.target.checked } })} /><span>L2 归一化</span></label>}
           {selected.kind === "vector_search" && <><label><span>Voiceprint Collection</span><select value={selected.config.collection_name} onChange={(event) => { const space = vectorSpaces.find((item) => item.collection_name === event.target.value); if (space) updateNode({ ...selected, config: { ...selected.config, collection_name: space.collection_name, vector_name: space.vectors[0]?.name ?? "" } }); }}><option value="">请选择 voiceprint Collection</option>{vectorSpaces.filter((space) => space.template === "voiceprint").map((space) => <option value={space.collection_name} key={space.collection_name}>{space.collection_name}</option>)}</select></label><label><span>Named Vector</span><select value={selected.config.vector_name} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, vector_name: event.target.value } })}>{vectorSpaces.find((item) => item.collection_name === selected.config.collection_name)?.vectors.map((vector) => <option key={vector.name}>{vector.name}</option>)}</select></label><label><span>Filter JSON</span><textarea value={JSON.stringify(selected.config.filter ?? {}, null, 2)} onChange={(event) => { try { updateNode({ ...selected, config: { ...selected.config, filter: JSON.parse(event.target.value) } }); } catch { /* 保存前由校验提示 */ } }} /></label><label className="switch-control"><input type="checkbox" checked={selected.config.include_embedding} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, include_embedding: event.target.checked } })} /><span>在 AHA 事件中返回查询向量</span></label></>}
           {selected.kind === "speaker_filter" && <><label><span>允许的 Speaker ID</span><textarea value={selected.config.allowed_speaker_ids.join("\n")} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, allowed_speaker_ids: event.target.value.split("\n").map((value) => value.trim()).filter(Boolean) } })} /><small>每行一个，精确且区分大小写。</small></label><label><span>最低匹配分数</span><input type="number" step="0.01" value={selected.config.min_score} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, min_score: Number(event.target.value) } })} /><small>低于该分数、未命中或检索失败时均静默拒绝。</small></label></>}
@@ -851,6 +899,14 @@ function AudioGraphEditorInner({
           {selected.kind === "streaming_denoise" && selectedDenoiseConfig && <section className="vad-postprocessing-settings">
             <label className="switch-control"><input type="checkbox" checked={selectedDenoiseConfig.denoised_weight != null} onChange={(event) => updateNode({ ...selected, config: { denoised_weight: event.target.checked ? 0.5 : null } })} /><span>混合原音与降噪音频</span><small>关闭时物理 VAD 使用纯降噪音频；下游始终使用原音。</small></label>
             {selectedDenoiseConfig.denoised_weight != null && <label><span>降噪音频权重</span><input type="number" min="0" max="1" step="0.05" value={selectedDenoiseConfig.denoised_weight} onChange={(event) => updateNode({ ...selected, config: { denoised_weight: Number(event.target.value) } })} /><small>输出 = (1-w) × 原音 + w × 降噪音频</small></label>}
+          </section>}
+          {selected.kind === "automatic_gain_control" && selectedAgcConfig && <section className="vad-postprocessing-settings">
+            <div className="inspector-state configured"><strong>无前瞻实时 AGC</strong><span>处理后的 PCM 供全部下游使用</span></div>
+            <label><span>压制响应（秒）</span><input type="number" min="0" max="10" step="0.01" value={selectedAgcConfig.attack_seconds} onChange={(event) => updateNode({ ...selected, config: { ...selectedAgcConfig, attack_seconds: Number(event.target.value) } })} /><small>默认 0，声音突然变大时立即压低增益。</small></label>
+            <label><span>增益恢复（秒）</span><input type="number" min="0.01" max="60" step="0.1" value={selectedAgcConfig.decay_seconds} onChange={(event) => updateNode({ ...selected, config: { ...selectedAgcConfig, decay_seconds: Number(event.target.value) } })} /><small>默认 2.5 秒。</small></label>
+            <label><span>软拐点宽度（dB）</span><input type="number" min="0.01" max="10" step="0.5" value={selectedAgcConfig.soft_knee_db} onChange={(event) => updateNode({ ...selected, config: { ...selectedAgcConfig, soft_knee_db: Number(event.target.value) } })} /></label>
+            <label><span>初始检测电平（dBFS）</span><input type="number" min="-80" max="0" step="1" value={selectedAgcConfig.initial_level_db} onChange={(event) => updateNode({ ...selected, config: { ...selectedAgcConfig, initial_level_db: Number(event.target.value) } })} /><small>默认 -12 dBFS，降低流启动时的增益突变。</small></label>
+            <label><span>末级补偿（dB）</span><input type="number" min="-24" max="24" step="0.5" value={selectedAgcConfig.output_gain_db} onChange={(event) => updateNode({ ...selected, config: { ...selectedAgcConfig, output_gain_db: Number(event.target.value) } })} /><small>固定曲线：-80/-80 | -55/-42 | -40/-28 | -30/-18 | -20/-13 | -10/-9 | 0/-6</small></label>
           </section>}
           {selected.kind === "physical_vad" && selectedPhysicalConfig && <section className="vad-postprocessing-settings">
             <label><span>进度发送间隔（秒）</span><input type="number" min="0" step="0.1" value={selectedPhysicalConfig.progress_interval_seconds} onChange={(event) => updateNode({ ...selected, config: { ...selectedPhysicalConfig, progress_interval_seconds: Number(event.target.value) } })} /><small>默认 0.2 秒；设置为 0 时关闭进度事件。</small></label>
@@ -869,6 +925,12 @@ function AudioGraphEditorInner({
             <div className="inspector-state configured"><strong>HDBSCAN 参数模板</strong><span>固定字段 · 严格校验</span></div>
             {HDBSCAN_NUMBER_PARAMETER_META.map(([key, label, help, min, step]) => <label key={key}><span>{label}</span><input type="number" min={min} step={step} value={selectedClusteringConfig.parameters[key]} onChange={(event) => updateNode({ ...selected, config: { ...selectedClusteringConfig, parameters: { ...selectedClusteringConfig.parameters, [key]: Number(event.target.value) } } })} /><small>{help}</small></label>)}
             <label className="switch-control"><input type="checkbox" checked={selectedClusteringConfig.parameters.allow_single_cluster} onChange={(event) => updateNode({ ...selected, config: { ...selectedClusteringConfig, parameters: { ...selectedClusteringConfig.parameters, allow_single_cluster: event.target.checked } } })} /><span>允许所有向量形成单一簇</span><small>开启后更容易把不同说话人融合到同一个簇。</small></label>
+            <label className="switch-control"><input type="checkbox" checked={selectedClusteringConfig.postprocessing != null} onChange={(event) => updateNode({ ...selected, config: { ...selectedClusteringConfig, postprocessing: event.target.checked ? structuredClone(CLUSTERING_POSTPROCESSING_DEFAULTS) : null } })} /><span>启用声纹合并后处理</span><small>聚合每个全局说话人的前 20 秒音频，通过双阈值约束合并碎片化身份。</small></label>
+            {selectedClusteringConfig.postprocessing && <>
+              <div className="inspector-state configured"><strong>完整链接声纹合并</strong><span>每次成功全量快照执行 · 会话内缓存相似度矩阵</span></div>
+              <label><span>触发合并高阈值</span><input type="number" min="0" max="1" step="0.01" value={selectedClusteringConfig.postprocessing.high_similarity_threshold} onChange={(event) => updateNode({ ...selected, config: { ...selectedClusteringConfig, postprocessing: { ...selectedClusteringConfig.postprocessing!, high_similarity_threshold: Number(event.target.value) } } })} /><small>默认 0.70；达到该相似度的关系才会尝试合并。</small></label>
+              <label><span>组内约束低阈值</span><input type="number" min="0" max="1" step="0.01" value={selectedClusteringConfig.postprocessing.low_similarity_threshold} onChange={(event) => updateNode({ ...selected, config: { ...selectedClusteringConfig, postprocessing: { ...selectedClusteringConfig.postprocessing!, low_similarity_threshold: Number(event.target.value) } } })} /><small>默认 0.50；合并组内任意两人都不得低于该值。</small></label>
+            </>}
           </section>}
           {selected.kind === "semantic_vad" && <label><span>失败策略</span><select value={selected.failure_policy} onChange={(event) => updateNode({ ...selected, failure_policy: event.target.value as "fail_open" | "fail_pipeline" })}><option value="fail_open">fail_open</option><option value="fail_pipeline">fail_pipeline</option></select></label>}
           {selected.kind === "streaming_denoise" && <label><span>失败策略</span><select value={selected.failure_policy} onChange={(event) => updateNode({ ...selected, failure_policy: event.target.value as "fail_open" | "fail_pipeline" })}><option value="fail_open">fail_open（旁路原音）</option><option value="fail_pipeline">fail_pipeline（终止会话）</option></select></label>}

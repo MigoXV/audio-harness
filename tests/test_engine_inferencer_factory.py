@@ -18,6 +18,10 @@ from audio_harness.inferencers.diarization.grpc import (
     UxSpeakerDiarizationInferencer,
 )
 from audio_harness.inferencers.denoise import DenoiseInferencer, UxDenoiseInferencer
+from audio_harness.inferencers.embedding import (
+    EngineFeatureInferencer,
+    GrpcEngineFeatureInferencer,
+)
 
 
 def snapshot(api: EngineApi, protocol: EngineProtocol) -> EngineSnapshot:
@@ -44,6 +48,11 @@ def snapshot(api: EngineApi, protocol: EngineProtocol) -> EngineSnapshot:
             EngineApi.UX_SPEAKER_DIARIZATION,
             EngineProtocol.GRPC,
             UxSpeakerDiarizationInferencer,
+        ),
+        (
+            EngineApi.ENGINE_FEATURE,
+            EngineProtocol.GRPC,
+            GrpcEngineFeatureInferencer,
         ),
         (
             EngineApi.QWEN_TTS_DUPLEX,
@@ -88,6 +97,10 @@ def test_grpc_inferencers_inherit_capability_base_only(
 ) -> None:
     assert issubclass(concrete, base)
     assert not issubclass(concrete, GrpcTransport)
+
+
+def test_grpc_engine_feature_inferencer_implements_unified_capability() -> None:
+    assert issubclass(GrpcEngineFeatureInferencer, EngineFeatureInferencer)
 
 
 @pytest.mark.parametrize(
