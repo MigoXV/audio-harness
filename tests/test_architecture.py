@@ -25,7 +25,7 @@ def test_business_modules_do_not_import_grpc_or_protobuf_adapters() -> None:
         SOURCE_ROOT / "engines" / "pool.py",
         SOURCE_ROOT / "engines" / "catalog.py",
         SOURCE_ROOT / "errors.py",
-        SOURCE_ROOT / "sessions" / "transcription.py",
+        *sorted((SOURCE_ROOT / "sessions").rglob("*.py")),
         *sorted((SOURCE_ROOT / "workflows").rglob("*.py")),
         *sorted((SOURCE_ROOT / "voice_agents").rglob("*.py")),
     ]
@@ -83,6 +83,8 @@ def test_inferencers_are_grouped_by_capability() -> None:
         ("responses", "http.py"),
         ("tts", "grpc.py"),
         ("diarization", "grpc.py"),
+        ("denoise", "grpc.py"),
+        ("embedding", "grpc.py"),
     ):
         assert (inferencer_root / capability / protocol).is_file()
 
@@ -93,7 +95,14 @@ def test_inferencers_are_grouped_by_capability() -> None:
 def test_inferencer_contracts_are_capability_base_classes() -> None:
     inferencer_root = SOURCE_ROOT / "inferencers"
 
-    for capability in ("asr", "vad", "tts", "diarization"):
+    for capability in (
+        "asr",
+        "vad",
+        "tts",
+        "diarization",
+        "denoise",
+        "embedding",
+    ):
         assert (inferencer_root / capability / "base.py").is_file()
 
     assert not (inferencer_root / "base.py").exists()
@@ -124,12 +133,17 @@ def test_inferencer_data_types_are_owned_by_capability_bases() -> None:
     asr = (inferencer_root / "asr" / "base.py").read_text(encoding="utf-8")
     vad = (inferencer_root / "vad" / "base.py").read_text(encoding="utf-8")
     tts = (inferencer_root / "tts" / "base.py").read_text(encoding="utf-8")
+    embedding = (inferencer_root / "embedding" / "base.py").read_text(
+        encoding="utf-8"
+    )
     assert "class Options(NamedTuple)" in asr
     assert "class Result(NamedTuple)" in asr
     assert "class Update(NamedTuple)" in vad
     assert "class Postprocessing(TypedDict)" in vad
     assert "class ReferenceVoice(NamedTuple)" in tts
     assert "class Chunk(NamedTuple)" in tts
+    assert "class StreamingClusteringSession(ABC)" in embedding
+    assert not (inferencer_root / "speaker_clustering").exists()
 
 
 def test_pcm_and_workflow_events_have_explicit_owners() -> None:
@@ -190,7 +204,7 @@ def test_realtime_does_not_implement_wire_codecs() -> None:
 
 def test_workflow_session_uses_injected_inferencers() -> None:
     session_source = (
-        SOURCE_ROOT / "sessions" / "transcription.py"
+        SOURCE_ROOT / "sessions" / "audio_workflow" / "session.py"
     ).read_text(encoding="utf-8")
     runtime_source = (
         SOURCE_ROOT / "workflows" / "runtime.py"
@@ -203,6 +217,10 @@ def test_workflow_session_uses_injected_inferencers() -> None:
     assert "inferencer_pool" not in session_class
     assert "AudioWorkflowInferencer" not in runtime_source
     assert "class AudioWorkflowRuntime:" in runtime_source
+    assert "class PhysicalVadSession:" not in runtime_source
+    assert "class SemanticVadSession:" not in runtime_source
+    assert "class DiarizationBatcher:" not in runtime_source
+    assert "class SpeakerClusteringSession:" not in runtime_source
 
 
 def test_capacity_is_owned_by_resource_packages() -> None:

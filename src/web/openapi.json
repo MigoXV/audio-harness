@@ -3866,6 +3866,13 @@
             "type": "array",
             "title": "Outputs"
           },
+          "input_groups": {
+            "items": {
+              "$ref": "#/components/schemas/NodeInputGroupRead"
+            },
+            "type": "array",
+            "title": "Input Groups"
+          },
           "config_schema": {
             "additionalProperties": true,
             "type": "object",
@@ -3969,6 +3976,12 @@
                   "$ref": "#/components/schemas/PhysicalVadNode"
                 },
                 {
+                  "$ref": "#/components/schemas/StreamingDenoiseNode"
+                },
+                {
+                  "$ref": "#/components/schemas/AutomaticGainControlNode"
+                },
+                {
                   "$ref": "#/components/schemas/SemanticVadNode"
                 },
                 {
@@ -3995,11 +4008,13 @@
                 "mapping": {
                   "asr": "#/components/schemas/AsrNode",
                   "audio_embedding": "#/components/schemas/AudioEmbeddingNode",
+                  "automatic_gain_control": "#/components/schemas/AutomaticGainControlNode",
                   "physical_vad": "#/components/schemas/PhysicalVadNode",
                   "semantic_vad": "#/components/schemas/SemanticVadNode",
                   "speaker_clustering": "#/components/schemas/SpeakerClusteringNode",
                   "speaker_diarization": "#/components/schemas/SpeakerDiarizationNode",
                   "speaker_filter": "#/components/schemas/SpeakerFilterNode",
+                  "streaming_denoise": "#/components/schemas/StreamingDenoiseNode",
                   "vector_search": "#/components/schemas/VectorSearchNode"
                 }
               }
@@ -4287,6 +4302,78 @@
           "diagnostics"
         ],
         "title": "AudioWorkflowValidationRead"
+      },
+      "AutomaticGainControlConfig": {
+        "properties": {
+          "attack_seconds": {
+            "type": "number",
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Attack Seconds",
+            "default": 0
+          },
+          "decay_seconds": {
+            "type": "number",
+            "maximum": 60.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Decay Seconds",
+            "default": 2.5
+          },
+          "soft_knee_db": {
+            "type": "number",
+            "maximum": 10.0,
+            "minimum": 0.01,
+            "title": "Soft Knee Db",
+            "default": 6
+          },
+          "initial_level_db": {
+            "type": "number",
+            "maximum": 0.0,
+            "minimum": -80.0,
+            "title": "Initial Level Db",
+            "default": -12
+          },
+          "output_gain_db": {
+            "type": "number",
+            "maximum": 24.0,
+            "minimum": -24.0,
+            "title": "Output Gain Db",
+            "default": 4.5
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AutomaticGainControlConfig"
+      },
+      "AutomaticGainControlNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "automatic_gain_control",
+            "title": "Kind",
+            "default": "automatic_gain_control"
+          },
+          "engine_id": {
+            "type": "null",
+            "title": "Engine Id"
+          },
+          "config": {
+            "$ref": "#/components/schemas/AutomaticGainControlConfig"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "AutomaticGainControlNode"
       },
       "Body_create_voice_api_v1_voices_post": {
         "properties": {
@@ -4670,6 +4757,7 @@
       "EngineApi": {
         "type": "string",
         "enum": [
+          "ux_denoise",
           "ux_speech",
           "ux_vad",
           "responses",
@@ -4842,6 +4930,7 @@
       "EngineKind": {
         "type": "string",
         "enum": [
+          "denoise",
           "asr",
           "vad",
           "llm",
@@ -5872,6 +5961,38 @@
         ],
         "title": "NamedVectorSchema"
       },
+      "NodeInputGroupRead": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "ports": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Ports"
+          },
+          "minimum": {
+            "type": "integer",
+            "title": "Minimum",
+            "default": 1
+          },
+          "maximum": {
+            "type": "integer",
+            "title": "Maximum",
+            "default": 1
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "ports"
+        ],
+        "title": "NodeInputGroupRead"
+      },
       "NodeInputRef": {
         "properties": {
           "node_id": {
@@ -6662,6 +6783,16 @@
           "parameters": {
             "$ref": "#/components/schemas/HdbscanClusteringParameters"
           },
+          "postprocessing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpeakerClusteringPostprocessingOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "max_vectors": {
             "type": "integer",
             "maximum": 1000000.0,
@@ -6673,6 +6804,39 @@
         "additionalProperties": false,
         "type": "object",
         "title": "SpeakerClusteringNodeConfig"
+      },
+      "SpeakerClusteringPostprocessingOptions": {
+        "properties": {
+          "processor": {
+            "type": "string",
+            "const": "audio_harness.speaker_clustering.complete_link_merge",
+            "title": "Processor",
+            "default": "audio_harness.speaker_clustering.complete_link_merge"
+          },
+          "version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Version",
+            "default": 1
+          },
+          "high_similarity_threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "High Similarity Threshold",
+            "default": 0.7
+          },
+          "low_similarity_threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Low Similarity Threshold",
+            "default": 0.5
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SpeakerClusteringPostprocessingOptions"
       },
       "SpeakerContextConfig": {
         "properties": {
@@ -6861,6 +7025,67 @@
           "observation"
         ],
         "title": "SpeakerMatchRead"
+      },
+      "StreamingDenoiseConfig": {
+        "properties": {
+          "denoised_weight": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denoised Weight"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "StreamingDenoiseConfig"
+      },
+      "StreamingDenoiseNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "streaming_denoise",
+            "title": "Kind",
+            "default": "streaming_denoise"
+          },
+          "engine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Id"
+          },
+          "config": {
+            "$ref": "#/components/schemas/StreamingDenoiseConfig"
+          },
+          "failure_policy": {
+            "$ref": "#/components/schemas/FailurePolicy",
+            "default": "fail_open"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "StreamingDenoiseNode"
       },
       "VadAudioPreviewRead": {
         "properties": {

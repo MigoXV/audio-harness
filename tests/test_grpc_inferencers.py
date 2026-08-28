@@ -9,6 +9,7 @@ import pytest
 from google.protobuf import duration_pb2
 
 from audio_harness.configs import EngineEndpoint
+from audio_harness.errors import EngineDeadlineError, EngineUnavailableError
 from audio_harness.inferencers.asr.base import AsrInferencer
 from audio_harness.inferencers.asr.grpc import UxSpeechAsrInferencer
 from audio_harness.inferencers.tts.grpc import QwenDuplexTtsInferencer
@@ -18,7 +19,8 @@ from audio_harness.inferencers.vad.grpc import UxVadInferencer
 from audio_harness.inferencers.diarization.grpc import (
     UxSpeakerDiarizationInferencer,
 )
-from audio_harness.inferencers.embedding import AudioEmbeddingInferencer
+from audio_harness.inferencers.denoise.grpc import UxDenoiseInferencer
+from audio_harness.inferencers.embedding import GrpcEngineFeatureInferencer
 from audio_harness.protos.embedding import engine_pb2, engine_pb2_grpc
 from audio_harness.protos.asr import ux_speech_pb2 as speech_pb2
 from audio_harness.protos.asr import ux_speech_pb2_grpc as speech_pb2_grpc
@@ -36,6 +38,8 @@ from audio_harness.protos.diarization import (
 from audio_harness.protos.diarization import (
     ux_speaker_diarization_pb2_grpc as diarization_pb2_grpc,
 )
+from audio_harness.protos.denoise import ux_denoise_pb2 as denoise_pb2
+from audio_harness.protos.denoise import ux_denoise_pb2_grpc as denoise_pb2_grpc
 
 
 def duration(seconds: float) -> duration_pb2.Duration:
@@ -77,6 +81,28 @@ class FakeVadServicer(vad_pb2_grpc.UxVoiceActivityDetectorServicer):
                 )
             ]
         )
+
+
+class FakeDenoiseServicer(denoise_pb2_grpc.UxDenoiseServicer):
+    def __init__(self) -> None:
+        self.config: denoise_pb2.DenoiseConfig | None = None
+        self.audio = bytearray()
+
+    async def SynchronizedStreamingDenoise(self, request_iterator, context):
+        async for request in request_iterator:
+            if request.HasField("config"):
+                self.config = request.config
+            else:
+                self.audio.extend(request.audio_in)
+        original = bytes(self.audio)
+        split = max(2, len(original) - 2)
+        for start, end in ((0, split), (split, len(original))):
+            if end > start:
+                value = original[start:end]
+                yield denoise_pb2.SynchronizedStreamingDenoiseResponse(
+                    audio_in=value,
+                    audio_out=bytes(byte ^ 0xFF for byte in value),
+                )
 
 
 class FakeSpeechServicer(speech_pb2_grpc.UxSpeechServicer):
@@ -208,6 +234,29 @@ class FakeEmbeddingServicer(engine_pb2_grpc.EngineServicer):
             )
 
 
+class WrongSequenceClusteringServicer(engine_pb2_grpc.EngineServicer):
+    async def StreamingClustering(self, request_iterator, _context):
+        async for _ in request_iterator:
+            yield engine_pb2.StreamingClusteringReply(sequence=1, labels=[0])
+            return
+
+
+class EmptyClusteringServicer(engine_pb2_grpc.EngineServicer):
+    async def StreamingClustering(self, request_iterator, _context):
+        async for _ in request_iterator:
+            return
+        if False:
+            yield engine_pb2.StreamingClusteringReply()
+
+
+class SlowClusteringServicer(engine_pb2_grpc.EngineServicer):
+    async def StreamingClustering(self, request_iterator, _context):
+        async for _ in request_iterator:
+            await asyncio.sleep(0.05)
+            yield engine_pb2.StreamingClusteringReply(sequence=0, labels=[0])
+            return
+
+
 async def audio_chunks(*chunks: bytes) -> AsyncIterator[bytes]:
     for chunk in chunks:
         yield chunk
@@ -220,7 +269,7 @@ async def test_embedding_streaming_clustering_returns_full_revisions() -> None:
     engine_pb2_grpc.add_EngineServicer_to_server(fake, server)
     port = server.add_insecure_port("127.0.0.1:0")
     await server.start()
-    inferencer = AudioEmbeddingInferencer(
+    inferencer = GrpcEngineFeatureInferencer(
         EngineEndpoint(target=f"127.0.0.1:{port}"),
         max_message_bytes=4096,
     )
@@ -244,6 +293,7 @@ async def test_embedding_streaming_clustering_returns_full_revisions() -> None:
         second = await session.add((vector,))
     finally:
         await session.close()
+        await session.close()
         await inferencer.close()
         await server.stop(0)
 
@@ -256,6 +306,45 @@ async def test_embedding_streaming_clustering_returns_full_revisions() -> None:
     assert fake.requests[0].config.parameters["cluster_selection_epsilon"] == 0
     assert fake.requests[0].config.parameters["allow_single_cluster"] is False
     assert fake.requests[1].batch.sequence == 1
+
+
+@pytest.mark.parametrize(
+    ("servicer", "timeout", "expected_error"),
+    [
+        (WrongSequenceClusteringServicer(), 1, ValueError),
+        (EmptyClusteringServicer(), 1, EngineUnavailableError),
+        (SlowClusteringServicer(), 0.01, EngineDeadlineError),
+    ],
+)
+@pytest.mark.asyncio
+async def test_streaming_clustering_rejects_invalid_remote_streams(
+    servicer: engine_pb2_grpc.EngineServicer,
+    timeout: float,
+    expected_error: type[Exception],
+) -> None:
+    server = grpc.aio.server()
+    engine_pb2_grpc.add_EngineServicer_to_server(servicer, server)
+    port = server.add_insecure_port("127.0.0.1:0")
+    await server.start()
+    inferencer = GrpcEngineFeatureInferencer(
+        EngineEndpoint(
+            target=f"127.0.0.1:{port}",
+            request_timeout_seconds=timeout,
+        ),
+        max_message_bytes=4096,
+    )
+    session = inferencer.streaming_clustering()
+    try:
+        with pytest.raises(expected_error):
+            await session.start(
+                (b"vector",),
+                algorithm="hdbscan",
+                parameters={},
+            )
+    finally:
+        await session.close()
+        await inferencer.close()
+        await server.stop(0)
 
 
 @pytest.mark.asyncio
@@ -294,6 +383,39 @@ async def test_grpc_vad_inferencer_uses_async_stream_and_unary_turn_detection() 
     assert fake.streaming_config.sample_rate_hertz == 4
     assert not fake.streaming_config.HasField("postprocessing")
     assert bytes(fake.streaming_audio) == b"\x00\x00\x01\x00"
+
+
+@pytest.mark.asyncio
+async def test_grpc_denoise_inferencer_uses_synchronized_stream() -> None:
+    fake = FakeDenoiseServicer()
+    server = grpc.aio.server()
+    denoise_pb2_grpc.add_UxDenoiseServicer_to_server(fake, server)
+    port = server.add_insecure_port("127.0.0.1:0")
+    await server.start()
+    inferencer = UxDenoiseInferencer(
+        EngineEndpoint(target=f"127.0.0.1:{port}"),
+        max_message_bytes=1024,
+    )
+    try:
+        values = [
+            value
+            async for value in inferencer.stream_synchronized(
+                audio_chunks(b"\x00\x00", b"\x01\x00"),
+                sample_rate=16_000,
+            )
+        ]
+    finally:
+        await inferencer.close()
+        await server.stop(0)
+
+    assert fake.config is not None
+    assert fake.config.audio_in_config.encoding == denoise_pb2.LINEAR16
+    assert fake.config.audio_in_config.sample_rate_hertz == 16_000
+    assert fake.config.audio_out_config.sample_rate_hertz == 16_000
+    assert b"".join(value.original_pcm_s16le for value in values) == bytes(fake.audio)
+    assert b"".join(value.denoised_pcm_s16le for value in values) == bytes(
+        byte ^ 0xFF for byte in fake.audio
+    )
 
 
 @pytest.mark.asyncio

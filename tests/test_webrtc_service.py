@@ -29,7 +29,7 @@ from audio_harness.inferencers.asr.base import AsrInferencer
 from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.serving.webrtc import WebRtcCallService
 from audio_harness.serving.webrtc.service import WebRtcCall
-from audio_harness.sessions import AudioWorkflowSessionService
+from audio_harness.sessions.audio_workflow import AudioWorkflowSessionService
 from audio_harness.workflows.settings import WorkflowSettingsSnapshot
 from tests.graph_fakes import StaticRouteService, static_audio_workflow
 from tests.test_agent_runtime import _profile

@@ -25,7 +25,7 @@ from audio_harness.serving.realtime.protocol import (
     AHA_REALTIME_SERVER_EVENT_ADAPTER,
 )
 from audio_harness.api.routers.data_plane import create_data_plane_router
-from audio_harness.sessions import AudioWorkflowSessionService
+from audio_harness.sessions.audio_workflow import AudioWorkflowSessionService
 from audio_harness.workflows.settings import WorkflowSettingsSnapshot
 from tests.graph_fakes import StaticRouteService, static_audio_workflow
 

@@ -1,11 +1,1 @@
-from audio_harness.sessions.transcription import (
-    AudioWorkflowSession,
-    AudioWorkflowSessionReservation,
-    AudioWorkflowSessionService,
-)
-
-__all__ = [
-    "AudioWorkflowSession",
-    "AudioWorkflowSessionReservation",
-    "AudioWorkflowSessionService",
-]
+"""协议无关的内部执行会话。具体类型从对应子包导入。"""

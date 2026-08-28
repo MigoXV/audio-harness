@@ -84,7 +84,7 @@ from audio_harness.serving.realtime.protocol import (
     AhaVectorSearchFailedEvent,
 )
 from audio_harness.serving.realtime.tools import ToolRegistry
-from audio_harness.sessions import (
+from audio_harness.sessions.audio_workflow import (
     AudioWorkflowSession,
     AudioWorkflowSessionReservation,
     AudioWorkflowSessionService,
@@ -1696,8 +1696,10 @@ class RealtimeTranscriptionSession:
                 self._discard_workflow_outputs = True
             if self._transcription is not None:
                 await self._transcription.finish()
-            if send_results:
-                await task
+            # 即使连接关闭时不再向客户端发送结果，也必须等待工作流自然耗尽。
+            # 否则紧接着取消任务会把双向流式 gRPC 变成 cancel，降噪服务端
+            # 无法收到请求流的 half-close/EOF。
+            await task
         except BaseException as exc:
             failure = exc
         if send_results and not isinstance(failure, asyncio.CancelledError):

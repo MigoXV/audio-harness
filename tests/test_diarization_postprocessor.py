@@ -51,6 +51,51 @@ def test_preserves_vad_span_boundaries_even_for_same_speaker() -> None:
     )
 
 
+def test_merges_same_speaker_across_vad_spans_in_one_logical_turn() -> None:
+    state = DiarizationPostprocessor(
+        (Span(0, 50, "turn-1"), Span(50, 100, "turn-1"))
+    )
+
+    assert state.accept((RawSegment(10, 40, 1),)) == ()
+    assert state.accept((RawSegment(60, 90, 1),)) == ()
+    assert state.finish() == (ProcessedSegment(0, 100, 1),)
+
+
+def test_different_speaker_after_vad_gap_commits_previous_speaker() -> None:
+    state = DiarizationPostprocessor(
+        (Span(0, 50, "turn-1"), Span(50, 100, "turn-1"))
+    )
+
+    assert state.accept((RawSegment(10, 40, 1),)) == ()
+    assert state.accept((RawSegment(60, 90, 2),)) == (
+        ProcessedSegment(0, 50, 1),
+    )
+    assert state.finish() == (ProcessedSegment(50, 100, 2),)
+
+
+def test_logical_turn_boundary_flushes_same_speaker() -> None:
+    state = DiarizationPostprocessor(
+        (Span(0, 50, "turn-1"), Span(50, 100, "turn-2"))
+    )
+
+    assert state.accept((RawSegment(10, 40, 1),)) == ()
+    assert state.accept((RawSegment(60, 90, 1),)) == (
+        ProcessedSegment(0, 50, 1),
+    )
+    assert state.finish() == (ProcessedSegment(50, 100, 1),)
+
+
+def test_crossing_segment_flushes_previous_logical_turn() -> None:
+    state = DiarizationPostprocessor(
+        (Span(0, 50, "turn-1"), Span(50, 100, "turn-2"))
+    )
+
+    assert state.accept((RawSegment(10, 90, 1),)) == (
+        ProcessedSegment(0, 50, 1),
+    )
+    assert state.finish() == (ProcessedSegment(50, 100, 1),)
+
+
 def test_emits_empty_vad_span_as_unknown_before_later_evidence() -> None:
     state = DiarizationPostprocessor((Span(0, 50), Span(50, 100)))
 
@@ -96,6 +141,14 @@ def test_rejects_invalid_spans_and_calls_after_completion() -> None:
         DiarizationPostprocessor((Span(1, 10),))
     with pytest.raises(ValueError, match="连续排列"):
         DiarizationPostprocessor((Span(0, 10), Span(11, 20)))
+    with pytest.raises(ValueError, match="逻辑轮次"):
+        DiarizationPostprocessor(
+            (
+                Span(0, 10, "turn-1"),
+                Span(10, 20, "turn-2"),
+                Span(20, 30, "turn-1"),
+            )
+        )
 
     state = DiarizationPostprocessor((Span(0, 10),))
     assert state.finish() == (ProcessedSegment(0, 10, None),)

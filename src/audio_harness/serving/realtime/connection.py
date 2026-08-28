@@ -46,7 +46,7 @@ from audio_harness.serving.realtime.protocol import (
     AhaSessionCreatedEvent,
     AhaV1ServerEventBase,
 )
-from audio_harness.sessions import AudioWorkflowSessionService
+from audio_harness.sessions.audio_workflow import AudioWorkflowSessionService
 from audio_harness.serving.realtime.tools import ToolRegistry
 from audio_harness.workflows.settings import WorkflowSettingsStore
 from audio_harness.voice_agents.service import ActiveVoiceAgent

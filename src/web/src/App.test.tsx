@@ -38,7 +38,7 @@ function fakeApi() {
   const saveAudioWorkflowDraft = vi.fn().mockImplementation(async (_id, next, revision) => ({ id: "wf-1", slug: "audio-main", name: "主语音图", description: null, document: next, revision: revision + 1, active_revision: 1, updated_at: "2026-08-09T00:00:00Z" }));
   const saveVoiceAgentDraft = vi.fn().mockImplementation(async (_id, next, revision) => ({ ...agent, definition: next, revision: revision + 1 }));
   const createVoiceAgent = vi.fn().mockResolvedValue(agent);
-  const engine = (id: string, kind: "vad" | "asr" | "llm" | "tts" | "embedding", api: "ux_vad" | "ux_speech" | "responses" | "qwen_tts_duplex" | "engine_feature") => ({
+  const engine = (id: string, kind: "denoise" | "vad" | "asr" | "llm" | "tts" | "embedding", api: "ux_denoise" | "ux_vad" | "ux_speech" | "responses" | "qwen_tts_duplex" | "engine_feature") => ({
     id, slug: id, name: id.toUpperCase(), kind, api, protocol: "grpc", target: "test:1", connect_timeout_seconds: 1,
     request_timeout_seconds: null, credential_env: null, api_key: null, enabled: true, status: "healthy", image: null,
     description: null, status_basis: "人工连通性校验通过", status_observed_at: "2026-08-09T00:00:00Z", last_success_at: null,
@@ -64,7 +64,9 @@ function fakeApi() {
     publishAudioWorkflow: vi.fn().mockResolvedValue({ workflow_id: "wf-1", revision: 2, document, engine_revisions: {}, activated_at: "2026-08-09T00:00:00Z" }),
     validateAudioWorkflow: vi.fn().mockResolvedValue({ valid: true, diagnostics: [], topological_order: ["physical-vad", "asr"] }),
     listAudioNodeTypes: vi.fn().mockResolvedValue([
-      { kind: "physical_vad", display_name: "物理 VAD", required_api: "ux_vad", inputs: [{ name: "audio", kind: "pcm_chunk" }], outputs: [{ name: "segments", kind: "audio_segment" }, { name: "speech_started", kind: "speech_started" }, { name: "speech_stopped", kind: "speech_stopped" }], config_schema: {} },
+      { kind: "automatic_gain_control", display_name: "自动增益控制", required_api: null, inputs: [{ name: "audio", kind: "pcm_chunk" }], outputs: [{ name: "audio", kind: "pcm_chunk" }], config_schema: {} },
+      { kind: "streaming_denoise", display_name: "在线降噪", required_api: "ux_denoise", inputs: [{ name: "audio", kind: "pcm_chunk" }], outputs: [{ name: "audio", kind: "vad_audio_chunk" }], config_schema: {} },
+      { kind: "physical_vad", display_name: "物理 VAD", required_api: "ux_vad", inputs: [{ name: "audio", kind: "pcm_chunk" }, { name: "detection_audio", kind: "vad_audio_chunk" }], outputs: [{ name: "segments", kind: "audio_segment" }, { name: "speech_started", kind: "speech_started" }, { name: "speech_stopped", kind: "speech_stopped" }], input_groups: [{ name: "audio_source", ports: ["audio", "detection_audio"], minimum: 1, maximum: 1 }], config_schema: {} },
       { kind: "semantic_vad", display_name: "语义 VAD", required_api: "ux_vad", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "segments", kind: "audio_segment" }, { name: "speech_stopped", kind: "speech_stopped" }, { name: "turn_progress", kind: "transcription" }], config_schema: {} },
       { kind: "asr", display_name: "语音识别", required_api: "ux_speech", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "transcripts", kind: "transcription" }, { name: "speaker_transcripts", kind: "speaker_transcription" }], config_schema: {} },
       { kind: "audio_embedding", display_name: "语音特征向量提取", required_api: "engine_feature", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "embeddings", kind: "embedding" }], config_schema: {} },
@@ -74,7 +76,7 @@ function fakeApi() {
       { kind: "speaker_clustering", display_name: "说话人聚类", required_api: "engine_feature", inputs: [{ name: "segments", kind: "diarization_segment" }], outputs: [{ name: "results", kind: "diarization_cluster_result" }], config_schema: {} },
     ]),
     listAudioWorkflowRevisions: vi.fn().mockResolvedValue([]),
-    listEngines: vi.fn().mockResolvedValue({ items: [engine("vad-1", "vad", "ux_vad"), engine("asr-1", "asr", "ux_speech"), engine("llm-1", "llm", "responses"), engine("tts-1", "tts", "qwen_tts_duplex"), engine("embedding-1", "embedding", "engine_feature")], total: 5, limit: 200, offset: 0 }),
+    listEngines: vi.fn().mockResolvedValue({ items: [engine("vad-1", "vad", "ux_vad"), engine("asr-1", "asr", "ux_speech"), engine("llm-1", "llm", "responses"), engine("tts-1", "tts", "qwen_tts_duplex"), engine("embedding-1", "embedding", "engine_feature"), engine("denoise-1", "denoise", "ux_denoise")], total: 6, limit: 200, offset: 0 }),
     listEngineModels: vi.fn().mockResolvedValue({ engine_id: "llm-1", engine_revision: 1, items: ["deepseek-chat", "deepseek-reasoner"] }),
     getRuntimeStatus: vi.fn().mockResolvedValue({ realtime: { active: 2, capacity: 64, rejected: 1 }, webrtc: { active: 1, capacity: 64, rejected: 0 }, asr: { active: 2, capacity: 8, rejected: 0 }, responses: { active: 1, capacity: 8, rejected: 0 }, tts: { active: 1, capacity: 1, rejected: 2 }, started_at: "2026-08-09T00:00:00Z" }),
     getCapacitySettings: vi.fn().mockResolvedValue({ realtime: { max_sessions: 64 }, webrtc: { max_sessions: 64 }, max_asr_concurrency: 8, max_responses_concurrency: 8, max_tts_concurrency: 1, revision: 1, updated_at: "2026-08-09T00:00:00Z" }),
@@ -300,6 +302,61 @@ describe("typed audio workflow control plane", () => {
     });
   });
 
+  it("configures optional denoise weighting with fail-open default", async () => {
+    const { api, saveAudioWorkflowDraft } = fakeApi();
+    renderApp(api, "/audio-workflows/wf-1/build");
+    fireEvent.click(await screen.findByText("节点目录"));
+    fireEvent.click(screen.getByRole("button", { name: /^在线降噪/ }));
+    fireEvent.change(screen.getByRole("combobox", { name: /执行引擎/ }), { target: { value: "denoise-1" } });
+
+    const toggle = screen.getByRole("checkbox", { name: /混合原音与降噪音频/ });
+    expect(screen.queryByText("denoised_weight")).not.toBeInTheDocument();
+    expect(toggle).not.toBeChecked();
+    expect(screen.getByRole("combobox", { name: "失败策略" })).toHaveValue("fail_open");
+
+    fireEvent.click(toggle);
+    expect(screen.getByLabelText(/降噪音频权重/)).toHaveValue(0.5);
+    fireEvent.change(screen.getByLabelText(/降噪音频权重/), { target: { value: "0.7" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+    await waitFor(() => expect(saveAudioWorkflowDraft).toHaveBeenCalled());
+    const saved = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
+    const denoise = saved.nodes.find((node) => node.kind === "streaming_denoise");
+    expect(denoise).toMatchObject({
+      engine_id: "denoise-1",
+      config: { denoised_weight: 0.7 },
+      failure_policy: "fail_open",
+    });
+  });
+
+  it("configures a transparent automatic gain control node", async () => {
+    const { api, saveAudioWorkflowDraft } = fakeApi();
+    renderApp(api, "/audio-workflows/wf-1/build");
+    fireEvent.click(await screen.findByText("节点目录"));
+    fireEvent.click(screen.getByRole("button", { name: /^自动增益控制/ }));
+
+    expect(screen.getByText("处理后的 PCM 供全部下游使用")).toBeVisible();
+    expect(screen.getByLabelText(/压制响应/)).toHaveValue(0);
+    expect(screen.getByLabelText(/增益恢复/)).toHaveValue(2.5);
+    expect(screen.getByLabelText(/软拐点宽度/)).toHaveValue(6);
+    expect(screen.getByLabelText(/初始检测电平/)).toHaveValue(-12);
+    fireEvent.change(screen.getByLabelText(/末级补偿/), { target: { value: "6" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+    await waitFor(() => expect(saveAudioWorkflowDraft).toHaveBeenCalled());
+    const saved = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
+    expect(saved.nodes.find((node) => node.kind === "automatic_gain_control")).toMatchObject({
+      engine_id: null,
+      config: {
+        attack_seconds: 0,
+        decay_seconds: 2.5,
+        soft_knee_db: 6,
+        initial_level_db: -12,
+        output_gain_db: 6,
+      },
+    });
+  });
+
   it("configures VAD coverage postprocessing on diarization nodes", async () => {
     const { api, saveAudioWorkflowDraft } = fakeApi();
     renderApp(api, "/audio-workflows/wf-1/build");
@@ -362,9 +419,15 @@ describe("typed audio workflow control plane", () => {
     expect(screen.getByLabelText(/簇选择距离容差/)).toHaveValue(0);
     const singleCluster = screen.getByRole("checkbox", { name: /允许所有向量形成单一簇/ });
     expect(singleCluster).not.toBeChecked();
+    const postprocessing = screen.getByRole("checkbox", { name: /启用声纹合并后处理/ });
+    expect(postprocessing).toBeChecked();
+    expect(screen.getByLabelText(/触发合并高阈值/)).toHaveValue(0.7);
+    expect(screen.getByLabelText(/组内约束低阈值/)).toHaveValue(0.5);
 
     fireEvent.change(screen.getByLabelText(/最小簇大小/), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText(/簇选择距离容差/), { target: { value: "0.2" } });
+    fireEvent.change(screen.getByLabelText(/触发合并高阈值/), { target: { value: "0.75" } });
+    fireEvent.change(screen.getByLabelText(/组内约束低阈值/), { target: { value: "0.55" } });
     fireEvent.click(singleCluster);
 
     fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
@@ -376,6 +439,19 @@ describe("typed audio workflow control plane", () => {
         cluster_selection_epsilon: 0.2,
         allow_single_cluster: true,
       });
+      expect(saved.nodes.find((node) => node.kind === "speaker_clustering")?.config?.postprocessing).toEqual({
+        processor: "audio_harness.speaker_clustering.complete_link_merge",
+        version: 1,
+        high_similarity_threshold: 0.75,
+        low_similarity_threshold: 0.55,
+      });
+    });
+
+    fireEvent.click(postprocessing);
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+    await waitFor(() => {
+      const saved = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
+      expect(saved.nodes.find((node) => node.kind === "speaker_clustering")?.config?.postprocessing).toBeNull();
     });
   });
 

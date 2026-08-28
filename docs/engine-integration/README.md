@@ -6,6 +6,7 @@
 
 | `api` | `protocol` | 实现契约 | 主要调用方 |
 | --- | --- | --- | --- |
+| `ux_denoise` | `grpc` | `ux_denoise_proto.UxDenoise` | Streaming Denoise 节点 |
 | `ux_speech` | `grpc` | `ux_speech.UxSpeech` | ASR 节点 |
 | `ux_vad` | `grpc` | `ux_vad.UxVoiceActivityDetector` | Physical/Semantic VAD |
 | `engine_feature` | `grpc` | `pb.Engine` 的 Feature/StreamingClustering | Embedding/Clustering 节点 |

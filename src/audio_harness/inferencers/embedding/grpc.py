@@ -8,11 +8,15 @@ import numpy as np
 
 from audio_harness.configs import EngineEndpoint
 from audio_harness.errors import EngineDeadlineError, EngineUnavailableError
+from audio_harness.inferencers.embedding.base import (
+    EngineFeatureInferencer,
+    StreamingClusteringSession,
+)
 from audio_harness.inferencers.transports.grpc import GrpcTransport, raise_grpc_error
 from audio_harness.protos.embedding import engine_pb2, engine_pb2_grpc
 
 
-class StreamingClusteringSession:
+class GrpcStreamingClusteringSession(StreamingClusteringSession):
     def __init__(
         self,
         stub: engine_pb2_grpc.EngineStub,
@@ -109,8 +113,8 @@ class StreamingClusteringSession:
                 self._call.cancel()
 
 
-class AudioEmbeddingInferencer:
-    """将临时 Feature 协议隔离为稳定的 float32 音频向量接口。"""
+class GrpcEngineFeatureInferencer(EngineFeatureInferencer):
+    """Engine Feature gRPC 客户端。"""
 
     def __init__(self, endpoint: EngineEndpoint, *, max_message_bytes: int) -> None:
         self._transport = GrpcTransport(endpoint, max_message_bytes=max_message_bytes)
@@ -176,7 +180,7 @@ class AudioEmbeddingInferencer:
         return np.asarray(values, dtype="<f4").tobytes()
 
     def streaming_clustering(self) -> StreamingClusteringSession:
-        return StreamingClusteringSession(
+        return GrpcStreamingClusteringSession(
             self._stub,
             timeout=self._transport.endpoint.request_timeout_seconds,
         )

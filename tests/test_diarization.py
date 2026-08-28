@@ -6,11 +6,15 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from audio_harness.inferencers.diarization import DiarizationInferencer
-from audio_harness.inferencers.embedding import AudioEmbeddingInferencer
+from audio_harness.inferencers.diarization import (
+    DiarizationInferencer,
+    DiarizationPostprocessor,
+)
+from audio_harness.inferencers.embedding import EngineFeatureInferencer
 from audio_harness.engines.models import (
     EngineApi,
     EngineAssetData,
@@ -21,6 +25,16 @@ from audio_harness.engines.models import (
 from audio_harness.inferencers.asr import AsrInferencer
 from audio_harness.inferencers.vad import VadInferencer
 from audio_harness.media.pcm import PcmChunk
+from audio_harness.sessions.contracts import (
+    DiarizationContext as _DiarizationContext,
+    SegmentCandidate as _SegmentCandidate,
+    TimelineSpan as _TimelineSpan,
+)
+from audio_harness.sessions.diarization import (
+    DiarizationBatcher,
+    DiarizationSession,
+)
+from audio_harness.sessions.speaker_clustering import SpeakerClusteringSession
 from audio_harness.serving.realtime.protocol import (
     AHA_REALTIME_SERVER_EVENT_ADAPTER,
 )
@@ -32,6 +46,7 @@ from audio_harness.workflows import (
     AudioRuntimeConfig,
     AudioWorkflowDocument,
     AudioWorkflowRuntime,
+    FailurePolicy,
     GraphInputRef,
     NamedOutputBinding,
     NodeInputRef,
@@ -52,16 +67,10 @@ from audio_harness.workflows.events import (
 )
 from audio_harness.workflows.models import (
     SpeakerClusteringNodeConfig,
+    SpeakerClusteringPostprocessingOptions,
     SpeakerDiarizationNodeConfig,
     SpeakerDiarizationPostprocessingOptions,
 )
-from audio_harness.workflows.runtime import (
-    DiarizationBatcher,
-    _SegmentCandidate,
-    _TimelineSpan,
-)
-
-
 def _event_payload(event) -> dict:
     return (
         event.model_dump(mode="json", exclude_none=True)
@@ -136,6 +145,36 @@ def test_diarization_config_rejects_invalid_postprocessing(
 def test_diarization_config_rejects_negative_asr_filter() -> None:
     with pytest.raises(ValidationError, match="min_asr_segment_seconds"):
         SpeakerDiarizationNodeConfig(min_asr_segment_seconds=-0.1)
+
+
+def test_clustering_config_enables_double_threshold_postprocessing_by_default() -> None:
+    config = SpeakerClusteringNodeConfig()
+
+    assert config.postprocessing == SpeakerClusteringPostprocessingOptions()
+    assert config.postprocessing.high_similarity_threshold == 0.70
+    assert config.postprocessing.low_similarity_threshold == 0.50
+
+
+def test_clustering_config_can_disable_postprocessing() -> None:
+    assert SpeakerClusteringNodeConfig(postprocessing=None).postprocessing is None
+
+
+@pytest.mark.parametrize(
+    "postprocessing",
+    [
+        {"high_similarity_threshold": 1.1},
+        {"low_similarity_threshold": -0.1},
+        {
+            "high_similarity_threshold": 0.6,
+            "low_similarity_threshold": 0.7,
+        },
+    ],
+)
+def test_clustering_config_rejects_invalid_postprocessing_thresholds(
+    postprocessing: dict,
+) -> None:
+    with pytest.raises(ValidationError):
+        SpeakerClusteringNodeConfig(postprocessing=postprocessing)
 
 
 def test_diarization_batcher_accumulates_until_minimum() -> None:
@@ -223,6 +262,40 @@ def test_diarization_maps_semantic_audio_across_preserved_gaps() -> None:
         (11, 12, 7),
         (20, 21, 7),
     ]
+
+
+def test_postprocessed_diarization_maps_one_turn_across_vad_gaps() -> None:
+    state = batcher(0, 5)
+    batch = state.accept(
+        _SegmentCandidate(
+            audio=bytes((1, 0)) * 4,
+            start_sample=10,
+            end_sample=22,
+            timeline_spans=(
+                _TimelineSpan(0, 2, 10),
+                _TimelineSpan(2, 4, 20),
+            ),
+        )
+    )[0]
+
+    mapped, output = batch.map_processed(
+        DiarizationPostprocessor.Segment(0, 4, 7),
+        "batch-1",
+        min_asr_segment_seconds=0.5,
+        batch_completed=True,
+    )
+
+    assert mapped is not None
+    assert (mapped.start_sample, mapped.end_sample, mapped.speaker) == (10, 22, 7)
+    assert output.audio == bytes((1, 0)) * 4
+    assert (output.start_sample, output.end_sample) == (10, 22)
+    assert [
+        (span.input_start_sample, span.input_end_sample, span.session_start_sample)
+        for span in output.timeline_spans
+    ] == [(0, 2, 10), (2, 4, 20)]
+    assert output.diarization is not None
+    assert output.diarization.source_completed is True
+    assert output.diarization.batch_completed is True
 
 
 def test_diarization_mapping_clamps_invalid_service_ranges() -> None:
@@ -437,6 +510,7 @@ class _ClusteringSession:
     def __init__(self) -> None:
         self.started: list[tuple[bytes, ...]] = []
         self.added: list[tuple[bytes, ...]] = []
+        self.closed = False
 
     async def start(self, vectors, *, algorithm, parameters):
         assert algorithm == "hdbscan"
@@ -453,7 +527,7 @@ class _ClusteringSession:
         return tuple(reversed(range(total)))
 
     async def close(self) -> None:
-        pass
+        self.closed = True
 
 
 class _NoiseClusteringSession(_ClusteringSession):
@@ -482,7 +556,7 @@ class _MixedClusteringSession(_ClusteringSession):
         return (0, -1, 0, -1)
 
 
-class _Embedding(AudioEmbeddingInferencer):
+class _Embedding(EngineFeatureInferencer):
     def __init__(self, session: _ClusteringSession | None = None) -> None:
         self.audios: list[bytes] = []
         self.session = session or _ClusteringSession()
@@ -499,9 +573,30 @@ class _Embedding(AudioEmbeddingInferencer):
         expected_dimension: int,
         normalize: bool = True,
     ) -> bytes:
-        del algorithm, expected_dimension, normalize
+        del algorithm, normalize
         self.audios.append(pcm_s16le)
-        return bytes([len(self.audios)]) * 8
+        vector = np.zeros(expected_dimension, dtype="<f4")
+        angle = (len(self.audios) - 1) * 2.0
+        vector[0] = np.cos(angle)
+        if expected_dimension > 1:
+            vector[1] = np.sin(angle)
+        return vector.tobytes()
+
+    async def embed(
+        self,
+        pcm_s16le: bytes,
+        *,
+        algorithm: str,
+        expected_dimension: int,
+        normalize: bool = True,
+    ) -> tuple[float, ...]:
+        vector = await self.embed_bytes(
+            pcm_s16le,
+            algorithm=algorithm,
+            expected_dimension=expected_dimension,
+            normalize=normalize,
+        )
+        return tuple(float(value) for value in np.frombuffer(vector, dtype="<f4"))
 
     def streaming_clustering(self):
         return self.session
@@ -518,6 +613,41 @@ class _FailingEmbedding(_Embedding):
     ) -> bytes:
         del pcm_s16le, algorithm, expected_dimension, normalize
         raise RuntimeError("embedding unavailable")
+
+
+class _SimilarEmbedding(_Embedding):
+    async def embed_bytes(
+        self,
+        pcm_s16le: bytes,
+        *,
+        algorithm: str,
+        expected_dimension: int,
+        normalize: bool = True,
+    ) -> bytes:
+        del algorithm, normalize
+        self.audios.append(pcm_s16le)
+        vector = np.zeros(expected_dimension, dtype="<f4")
+        vector[0] = 1
+        return vector.tobytes()
+
+
+class _FailingPostprocessingEmbedding(_Embedding):
+    async def embed_bytes(
+        self,
+        pcm_s16le: bytes,
+        *,
+        algorithm: str,
+        expected_dimension: int,
+        normalize: bool = True,
+    ) -> bytes:
+        if len(self.audios) >= 2:
+            raise RuntimeError("postprocessing unavailable")
+        return await super().embed_bytes(
+            pcm_s16le,
+            algorithm=algorithm,
+            expected_dimension=expected_dimension,
+            normalize=normalize,
+        )
 
 
 def _asset(
@@ -672,7 +802,11 @@ def _speaker_workflow(
     )
 
 
-def _cluster_workflow(*, max_batch_seconds: float = 120) -> AudioWorkflowDocument:
+def _cluster_workflow(
+    *,
+    max_batch_seconds: float = 120,
+    postprocessing: bool = True,
+) -> AudioWorkflowDocument:
     document = _speaker_workflow()
     diarization = next(
         node for node in document.nodes if node.kind == "speaker_diarization"
@@ -697,6 +831,11 @@ def _cluster_workflow(*, max_batch_seconds: float = 120) -> AudioWorkflowDocumen
                     engine_id="clustering-engine",
                     config=SpeakerClusteringNodeConfig(
                         expected_dimension=2,
+                        postprocessing=(
+                            SpeakerClusteringPostprocessingOptions()
+                            if postprocessing
+                            else None
+                        ),
                     ),
                 )
             ],
@@ -819,6 +958,7 @@ async def _run_cluster_chain(
     diarization: _Diarization,
     *,
     max_batch_seconds: float = 120,
+    postprocessing: bool = True,
     embedding: _Embedding | None = None,
 ):
     clustering_asset = _asset(
@@ -839,7 +979,10 @@ async def _run_cluster_chain(
     embedding = embedding or _Embedding()
     runtime = AudioWorkflowRuntime(
         plan=compile_audio_graph(
-            _cluster_workflow(max_batch_seconds=max_batch_seconds),
+            _cluster_workflow(
+                max_batch_seconds=max_batch_seconds,
+                postprocessing=postprocessing,
+            ),
             assets=assets,
         ),
         inferencers={
@@ -862,6 +1005,47 @@ async def _run_cluster_chain(
         )
     ]
     return outputs, embedding
+
+
+@pytest.mark.asyncio
+async def test_session_merges_one_speaker_across_vad_gaps_before_asr() -> None:
+    async def candidates() -> AsyncIterator[_SegmentCandidate]:
+        yield _SegmentCandidate(
+            audio=bytes((1, 0)) * 4,
+            start_sample=10,
+            end_sample=22,
+            timeline_spans=(
+                _TimelineSpan(0, 2, 10),
+                _TimelineSpan(2, 4, 20),
+            ),
+        )
+
+    session = DiarizationSession(
+        SpeakerDiarizationNodeConfig(
+            min_batch_seconds=0,
+            max_batch_seconds=5,
+        ),
+        sample_rate=1,
+        inferencer=_OneSpeakerDiarization(),
+    )
+
+    emissions = [emission async for emission in session.run(candidates())]
+    segments = [payload for port, payload in emissions if port == "segments"]
+    completed = next(
+        payload
+        for port, payload in emissions
+        if port == "local_results" and payload.phase == "completed"
+    )
+
+    assert len(segments) == 1
+    assert segments[0].audio == bytes((1, 0)) * 4
+    assert (segments[0].start_sample, segments[0].end_sample) == (10, 22)
+    assert len(completed.segments) == 1
+    assert (
+        completed.segments[0].start_sample,
+        completed.segments[0].end_sample,
+        completed.segments[0].speaker,
+    ) == (10, 22, 7)
 
 
 @pytest.mark.asyncio
@@ -1094,14 +1278,174 @@ async def test_clustering_groups_local_speakers_and_emits_full_snapshot() -> Non
         if output.name == "diarization_cluster"
     )
 
-    assert len(embedding.audios) == 2
+    assert len(embedding.audios) == 4
     assert len(embedding.session.started) == 1
     assert len(embedding.session.started[0]) == 2
+    assert embedding.session.closed is True
     assert result.phase == "completed"
     assert result.revision == 1
     assert result.replaces_revision is None
     assert [item.speaker_id for item in result.assignments] == [0, 1]
     assert all(item.segment_id.startswith("dseg_") for item in result.assignments)
+
+
+@pytest.mark.asyncio
+async def test_clustering_postprocessing_merges_similar_global_speakers() -> None:
+    outputs, embedding = await _run_cluster_chain(
+        _Diarization(),
+        embedding=_SimilarEmbedding(),
+    )
+    result = next(
+        output.payload
+        for output in outputs
+        if output.name == "diarization_cluster"
+    )
+
+    assert len(embedding.audios) == 4
+    assert [item.speaker_id for item in result.assignments] == [0, 0]
+
+
+@pytest.mark.asyncio
+async def test_clustering_can_disable_postprocessing() -> None:
+    outputs, embedding = await _run_cluster_chain(
+        _Diarization(),
+        postprocessing=False,
+        embedding=_SimilarEmbedding(),
+    )
+    result = next(
+        output.payload
+        for output in outputs
+        if output.name == "diarization_cluster"
+    )
+
+    assert len(embedding.audios) == 2
+    assert [item.speaker_id for item in result.assignments] == [0, 1]
+
+
+@pytest.mark.asyncio
+async def test_clustering_postprocessing_failure_uses_raw_snapshot_when_open() -> None:
+    outputs, _ = await _run_cluster_chain(
+        _Diarization(),
+        embedding=_FailingPostprocessingEmbedding(),
+    )
+    result = next(
+        output.payload
+        for output in outputs
+        if output.name == "diarization_cluster"
+    )
+
+    assert result.phase == "completed"
+    assert [item.speaker_id for item in result.assignments] == [0, 1]
+
+
+@pytest.mark.asyncio
+async def test_clustering_postprocessing_failure_honors_fail_pipeline() -> None:
+    inferencer = _FailingPostprocessingEmbedding()
+
+    async def candidates() -> AsyncIterator[_SegmentCandidate]:
+        for index in range(2):
+            yield _SegmentCandidate(
+                audio=bytes((index + 1, 0)) * 2,
+                start_sample=index * 2,
+                end_sample=index * 2 + 2,
+                diarization=_DiarizationContext(
+                    item_source_id="source-1",
+                    source_start_sample=0,
+                    source_end_sample=4,
+                    source_completed=index == 1,
+                    segment_id=f"segment-{index + 1}",
+                    batch_id="batch-1",
+                    speaker=index + 1,
+                    local_speaker_id=f"batch-1:{index + 1}",
+                    min_asr_segment_seconds=0,
+                    batch_completed=index == 1,
+                ),
+            )
+
+    session = SpeakerClusteringSession(
+        SpeakerClusteringNodeConfig(expected_dimension=2),
+        1,
+        inferencer,
+        failure_policy=FailurePolicy.FAIL_PIPELINE,
+    )
+    results = session.run(candidates())
+
+    failure = await anext(results)
+    assert failure[1].phase == "failed"
+    with pytest.raises(RuntimeError, match="postprocessing unavailable"):
+        await anext(results)
+
+
+@pytest.mark.asyncio
+async def test_clustering_session_uses_unified_engine_feature_inferencer() -> None:
+    inferencer = _Embedding()
+
+    async def candidates() -> AsyncIterator[_SegmentCandidate]:
+        for index in range(2):
+            yield _SegmentCandidate(
+                audio=bytes((index + 1, 0)) * 2,
+                start_sample=index * 2,
+                end_sample=index * 2 + 2,
+                diarization=_DiarizationContext(
+                    item_source_id="source-1",
+                    source_start_sample=0,
+                    source_end_sample=4,
+                    source_completed=index == 1,
+                    segment_id=f"segment-{index + 1}",
+                    batch_id="batch-1",
+                    speaker=index + 1,
+                    local_speaker_id=f"batch-1:{index + 1}",
+                    min_asr_segment_seconds=0,
+                    batch_completed=index == 1,
+                ),
+            )
+
+    session = SpeakerClusteringSession(
+        SpeakerClusteringNodeConfig(),
+        1,
+        inferencer,
+        failure_policy=FailurePolicy.FAIL_OPEN,
+    )
+    results = [payload async for _, payload in session.run(candidates())]
+
+    assert inferencer.audios == [
+        b"\x01\x00\x01\x00",
+        b"\x02\x00\x02\x00",
+        b"\x01\x00\x01\x00",
+        b"\x02\x00\x02\x00",
+    ]
+    assert len(inferencer.session.started) == 1
+    assert [item.speaker_id for item in results[0].assignments] == [0, 1]
+
+
+def test_runtime_rejects_invalid_engine_feature_inferencer() -> None:
+    assets = {
+        "vad-engine": _asset("vad-engine", EngineKind.VAD, EngineApi.UX_VAD),
+        "asr-engine": _asset("asr-engine", EngineKind.ASR, EngineApi.UX_SPEECH),
+        "diarization-engine": _asset(
+            "diarization-engine",
+            EngineKind.DIARIZATION,
+            EngineApi.UX_SPEAKER_DIARIZATION,
+        ),
+        "clustering-engine": _asset(
+            "clustering-engine",
+            EngineKind.EMBEDDING,
+            EngineApi.ENGINE_FEATURE,
+        ),
+    }
+
+    with pytest.raises(TypeError, match="EngineFeatureInferencer"):
+        AudioWorkflowRuntime(
+            plan=compile_audio_graph(_cluster_workflow(), assets=assets),
+            inferencers={
+                "vad": _Vad(),
+                "asr": _Asr(),
+                "diarization": _Diarization(),
+                "clustering": _Vad(),
+            },
+            runtime_config=AudioRuntimeConfig(4, 32),
+            asr_semaphore=asyncio.Semaphore(1),
+        )
 
 
 @pytest.mark.asyncio

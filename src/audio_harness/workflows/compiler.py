@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from audio_harness.engines.models import EngineApi, EngineAssetData, EngineProtocol, EngineSnapshot
 from audio_harness.workflows.models import (
+    AutomaticGainControlConfig,
     AsrNode,
     AsrNodeConfig,
     AudioEmbeddingNodeConfig,
@@ -25,11 +26,13 @@ from audio_harness.workflows.models import (
     SpeakerFilterNodeConfig,
     SemanticVadNode,
     SemanticVadConfig,
+    StreamingDenoiseConfig,
 )
 
 
 class PortKind(str, Enum):
     PCM_CHUNK = "pcm_chunk"
+    VAD_AUDIO_CHUNK = "vad_audio_chunk"
     AUDIO_SEGMENT = "audio_segment"
     SPEECH_STARTED = "speech_started"
     SPEECH_STOPPED = "speech_stopped"
@@ -53,6 +56,14 @@ class PortSpec:
 
 
 @dataclass(frozen=True)
+class InputGroupSpec:
+    name: str
+    ports: tuple[str, ...]
+    minimum: int = 1
+    maximum: int = 1
+
+
+@dataclass(frozen=True)
 class AudioNodeSpec:
     kind: str
     display_name: str
@@ -61,14 +72,34 @@ class AudioNodeSpec:
     required_api: EngineApi | None
     config_model: type[BaseModel]
     required_capability: str | None = None
+    input_groups: tuple[InputGroupSpec, ...] = ()
     version: int = 1
 
 
 _NODE_SPECS: dict[str, AudioNodeSpec] = {
+    "automatic_gain_control": AudioNodeSpec(
+        kind="automatic_gain_control",
+        display_name="自动增益控制",
+        inputs={"audio": PortSpec(PortKind.PCM_CHUNK)},
+        outputs={"audio": PortSpec(PortKind.PCM_CHUNK)},
+        required_api=None,
+        config_model=AutomaticGainControlConfig,
+    ),
+    "streaming_denoise": AudioNodeSpec(
+        kind="streaming_denoise",
+        display_name="在线降噪",
+        inputs={"audio": PortSpec(PortKind.PCM_CHUNK)},
+        outputs={"audio": PortSpec(PortKind.VAD_AUDIO_CHUNK)},
+        required_api=EngineApi.UX_DENOISE,
+        config_model=StreamingDenoiseConfig,
+    ),
     "physical_vad": AudioNodeSpec(
         kind="physical_vad",
         display_name="物理 VAD",
-        inputs={"audio": PortSpec(PortKind.PCM_CHUNK)},
+        inputs={
+            "audio": PortSpec(PortKind.PCM_CHUNK),
+            "detection_audio": PortSpec(PortKind.VAD_AUDIO_CHUNK),
+        },
         outputs={
             "segments": PortSpec(PortKind.AUDIO_SEGMENT),
             "speech_started": PortSpec(PortKind.SPEECH_STARTED),
@@ -76,6 +107,12 @@ _NODE_SPECS: dict[str, AudioNodeSpec] = {
         },
         required_api=EngineApi.UX_VAD,
         config_model=PhysicalVadConfig,
+        input_groups=(
+            InputGroupSpec(
+                name="audio_source",
+                ports=("audio", "detection_audio"),
+            ),
+        ),
     ),
     "semantic_vad": AudioNodeSpec(
         kind="semantic_vad",
@@ -489,7 +526,12 @@ def compile_audio_graph(
 
     for node in definition.nodes:
         spec = _NODE_SPECS[node.kind]
-        for port_name in spec.inputs:
+        grouped_ports = {
+            port_name
+            for group in spec.input_groups
+            for port_name in group.ports
+        }
+        for port_name in set(spec.inputs).difference(grouped_ports):
             if (node.id, port_name) not in incoming:
                 diagnostics.append(
                     AudioGraphDiagnostic(
@@ -497,6 +539,28 @@ def compile_audio_graph(
                         f"{spec.display_name}缺少必需输入 {port_name}",
                         node_id=node.id,
                         port=port_name,
+                    )
+                )
+        for group in spec.input_groups:
+            connected = [
+                port_name
+                for port_name in group.ports
+                if (node.id, port_name) in incoming
+            ]
+            if len(connected) < group.minimum:
+                diagnostics.append(
+                    AudioGraphDiagnostic(
+                        "required_input_group_missing",
+                        f"{spec.display_name}必须连接一个音频输入",
+                        node_id=node.id,
+                    )
+                )
+            elif len(connected) > group.maximum:
+                diagnostics.append(
+                    AudioGraphDiagnostic(
+                        "mutually_exclusive_inputs",
+                        f"{spec.display_name}的主音频与仅检测音频不能同时连接",
+                        node_id=node.id,
                     )
                 )
         if node.kind != "speaker_filter":
@@ -558,6 +622,15 @@ def compile_audio_graph(
             )
             continue
         expected = _KNOWN_OUTPUTS.get(output.name)
+        if source_port.kind in {PortKind.PCM_CHUNK, PortKind.VAD_AUDIO_CHUNK}:
+            diagnostics.append(
+                AudioGraphDiagnostic(
+                    "private_audio_output",
+                    "流式 PCM 音频只能连接图内节点，不能绑定工作流出口",
+                    node_id=source_node.id,
+                    port=output.source.port,
+                )
+            )
         if expected is not None and source_port.kind is not expected:
             diagnostics.append(
                 AudioGraphDiagnostic(

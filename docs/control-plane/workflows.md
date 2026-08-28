@@ -71,7 +71,9 @@ curl -sS -X POST "http://localhost:8000/api/v1/audio-workflows/$WORKFLOW_ID/publ
 
 | kind | 输入 | 输出 | Engine API | 关键配置 |
 | --- | --- | --- | --- | --- |
-| `physical_vad` | `audio: pcm_chunk` | `segments: audio_segment`、`speech_started`、`speech_stopped` | `ux_vad` | 分段时长、缓冲、pre-roll、进度间隔、FireRed 后处理 |
+| `automatic_gain_control` | `audio: pcm_chunk` | `audio: pcm_chunk` | 无直接 Engine | attack、decay、soft-knee、初始电平和末级补偿；固定七段曲线 |
+| `streaming_denoise` | `audio: pcm_chunk` | `audio: vad_audio_chunk` | `ux_denoise` | `denoised_weight` 可空，默认关闭混合；默认 `fail_open` |
+| `physical_vad` | `audio: pcm_chunk` 或 `detection_audio: vad_audio_chunk`，两者互斥 | `segments: audio_segment`、`speech_started`、`speech_stopped` | `ux_vad` | 分段时长、缓冲、pre-roll、进度间隔、FireRed 后处理 |
 | `semantic_vad` | `segments: audio_segment` | `segments`、`speech_stopped`、`turn_progress` | `ux_vad` | `max_buffer_seconds`，默认 `fail_open` |
 | `asr` | `segments: audio_segment`，也接受 `diarization_segment` | `transcripts`、`speaker_transcripts` | `ux_speech` | `remove_punctuation` |
 | `audio_embedding` | `segments` | `embeddings` | `engine_feature` | 算法、维度、归一化 |
@@ -81,6 +83,21 @@ curl -sS -X POST "http://localhost:8000/api/v1/audio-workflows/$WORKFLOW_ID/publ
 | `speaker_clustering` | diarization `segments` | `results` | `engine_feature` | embedding/聚类算法、参数、最大向量数 |
 
 客户端不应把本表硬编码为动态插件目录；编辑器应调用 `/audio-node-types` 读取当前端口和 `config_schema`。
+
+`physical_vad.audio` 是主音频入口，VAD 判定、切片及后续节点都使用同一份 PCM；
+`physical_vad.detection_audio` 是仅检测入口，只接受私有 `vad_audio_chunk`。同步降噪
+响应中的处理音频用于 VAD 判定，响应中的原音用于 VAD 切片，因此其他引擎不会看到
+纯降噪或加权波形。两个输入必须且只能连接一个。
+`denoised_weight=w` 时检测音频为 `(1-w) × 原音 + w × 降噪音频`；字段为 `null`
+时直接使用纯降噪音频。
+
+`automatic_gain_control` 是无前瞻、跨块保持包络状态的本地 `PCM → PCM` 节点，输出
+连接 `physical_vad.audio` 后，VAD 与所有后续节点都会使用 AGC 波形。默认参数为
+`attack_seconds=0`、`decay_seconds=2.5`、`soft_knee_db=6`、
+`initial_level_db=-12`、`output_gain_db=4.5`，points 固定为
+`-80/-80|-55/-42|-40/-28|-30/-18|-20/-13|-10/-9|0/-6`。每条会话通过 PyAV
+持有独立的 FFmpeg `libavfilter` graph，直接执行 `compand,volume`，因此 detector、
+时间常数和 soft-knee 均沿用 FFmpeg 实现；`delay=0` 不引入额外采样缓存。
 
 ## 稳定命名出口
 

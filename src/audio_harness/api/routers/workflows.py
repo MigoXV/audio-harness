@@ -22,6 +22,7 @@ from audio_harness.schemas.workflows import (
     AudioWorkflowRevisionRead,
     AudioWorkflowValidationRead,
     GraphDiagnosticRead,
+    NodeInputGroupRead,
     NodePortRead,
     PublishRequest,
     RestoreRequest,
@@ -102,6 +103,15 @@ def create_workflow_router(
                 outputs=[
                     NodePortRead(name=name, kind=port.kind.value)
                     for name, port in spec.outputs.items()
+                ],
+                input_groups=[
+                    NodeInputGroupRead(
+                        name=group.name,
+                        ports=list(group.ports),
+                        minimum=group.minimum,
+                        maximum=group.maximum,
+                    )
+                    for group in spec.input_groups
                 ],
                 config_schema=spec.config_model.model_json_schema(),
             )

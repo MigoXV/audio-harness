@@ -121,6 +121,7 @@ class EngineCatalog:
     @staticmethod
     def _validate_asset_shape(asset: EngineAssetData) -> None:
         expected = {
+            EngineKind.DENOISE: EngineApi.UX_DENOISE,
             EngineKind.ASR: EngineApi.UX_SPEECH,
             EngineKind.VAD: EngineApi.UX_VAD,
             EngineKind.LLM: EngineApi.RESPONSES,

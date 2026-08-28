@@ -323,3 +323,4 @@ class AudioWorkflowSessionReservation:
             return
         self._closed = True
         await self.close_session()
+
