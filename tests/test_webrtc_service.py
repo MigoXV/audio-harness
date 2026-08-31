@@ -464,7 +464,17 @@ async def test_webrtc_x_aha_reports_pending_semantic_turn() -> None:
             if event.get("type")
             == "x_aha.vad.physical_speech_stopped"
         )
-        assert extension["turn_completed"] is False
+        assert "turn_completed" not in extension
+        assert extension["physical_segment_id"]
+        assert extension["vad_turn_id"]
+        completed = next(
+            event
+            for event in received
+            if event.get("type") == "x_aha.vad.turn_completed"
+        )
+        assert extension["physical_segment_id"] in completed[
+            "physical_segment_ids"
+        ]
         item_ids = {
             event["item_id"]
             for event in received

@@ -44,6 +44,7 @@ class AudioWorkflowSession:
         embedding_limiter: ResizableConcurrencyLimiter | None = None,
         options: AsrInferencer.Options,
         include_vad_events: bool,
+        include_physical_vad_events: bool,
         include_vad_progress: bool,
         include_interim_transcripts: bool,
         include_vector_search: bool = False,
@@ -59,6 +60,7 @@ class AudioWorkflowSession:
         self._request = AudioInferenceRequest(
             recognition=options,
             include_vad_events=include_vad_events,
+            include_physical_vad_events=include_physical_vad_events,
             include_vad_progress=include_vad_progress,
             include_interim_transcripts=include_interim_transcripts,
             include_vector_search=include_vector_search,
@@ -213,6 +215,7 @@ class AudioWorkflowSessionService:
         options: AsrInferencer.Options,
         *,
         include_vad_events: bool = False,
+        include_physical_vad_events: bool = False,
         include_vad_progress: bool = False,
         include_interim_transcripts: bool = False,
         include_vector_search: bool = False,
@@ -224,6 +227,7 @@ class AudioWorkflowSessionService:
             session = await reservation.create(
                 options=options,
                 include_vad_events=include_vad_events,
+                include_physical_vad_events=include_physical_vad_events,
                 include_vad_progress=include_vad_progress,
                 include_interim_transcripts=include_interim_transcripts,
                 include_vector_search=include_vector_search,
@@ -253,6 +257,7 @@ class AudioWorkflowSessionReservation:
         *,
         options: AsrInferencer.Options,
         include_vad_events: bool = False,
+        include_physical_vad_events: bool = False,
         include_vad_progress: bool = False,
         include_interim_transcripts: bool = False,
         include_vector_search: bool = False,
@@ -289,6 +294,7 @@ class AudioWorkflowSessionReservation:
                 embedding_limiter=self._service.embedding_limiter,
                 options=options,
                 include_vad_events=include_vad_events,
+                include_physical_vad_events=include_physical_vad_events,
                 include_vad_progress=include_vad_progress,
                 include_interim_transcripts=include_interim_transcripts,
                 include_vector_search=include_vector_search,
@@ -323,4 +329,3 @@ class AudioWorkflowSessionReservation:
             return
         self._closed = True
         await self.close_session()
-

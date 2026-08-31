@@ -9,7 +9,7 @@ AHA v1 为 OpenAI Realtime 事件流追加 Audio Harness 特有的中间转写�
 - 未传 `x_aha` 时服务端绝不发送 `x_aha.*`、`audio_harness.*` 或其他私有事件。
 - 只支持精确值 `v1`。WebSocket 未升级前以 `4400` 拒绝；WebRTC 返回 `400 unsupported_x_aha_version`。
 - 服务端使用项目内建的 `AhaRealtimeServerEvent` 联合类型校验标准事件与全部 `x_aha.*` 事件；客户端若只使用官方 OpenAI SDK，仍应先按原始 JSON 的 `type` 分派私有事件。
-- 新增可选字段不视为破坏性变更；客户端必须忽略未知字段。事件名、既有字段含义或覆盖规则变化需要新版本。
+- 新增可选字段不视为破坏性变更；客户端必须忽略未知字段。本项目当前直接演进 v1，严格校验客户端必须与服务端同步升级。
 
 所有事件都带服务端唯一 `event_id`。带 `item_id` 的事件与同一轮 OpenAI speech/transcription item 对齐；除 `x_aha.vad.progress.processed_audio_ms` 外，毫秒时间均为会话输入音频的绝对时间。
 
@@ -18,7 +18,8 @@ AHA v1 为 OpenAI Realtime 事件流追加 Audio Harness 特有的中间转写�
 | 事件 | 产生条件 | 失败影响 |
 | --- | --- | --- |
 | `x_aha.vad.progress` | 主物理 VAD 正在处理或已正常排空 | 观测事件，无失败变体 |
-| `x_aha.vad.physical_speech_stopped` | 物理 VAD 停止，但语义 VAD 判定轮次未结束 | 观测事件，无失败变体 |
+| `x_aha.vad.physical_speech_started/stopped` | 主物理 VAD 检出即时边界 | 观测事件，无失败变体 |
+| `x_aha.vad.turn_completed` | 工作流公共语义轮次完成 | 关联物理段与标准 item |
 | `x_aha.input_audio_transcription.interim` | Workflow 有 interim 出口、自动 VAD、AHA 已协商 | 可跳过，不影响正式转写 |
 | `x_aha.input_audio_transcription.interim_cleared` | 正式转写开始或预览被替代 | 客户端清空临时文本 |
 | `x_aha.vector.search.completed/failed` | Workflow 有 vector_search 出口 | fail-open，不中断 ASR |
@@ -82,22 +83,52 @@ Harness 从稳定 `speech_started` 出口自动确定唯一的主物理 VAD，�
 
 `processed_audio_ms` 是当前一次 commit 实际消费的完整 PCM 时长，包含尾部静音，不是连接累计值。普通事件省略 `final`，等同于 false。clear、异常取消、未协商 AHA v1 或节点配置为 `0` 时不会发送正常终值。
 
-物理停顿但语义轮次尚未完成时还会发送：
+主物理 VAD 的开始和结束边界会立即成对发送，不等待语义 VAD：
+
+```json
+{
+  "type":"x_aha.vad.physical_speech_started",
+  "event_id":"event_xxx",
+  "vad_turn_id":"vturn_xxx",
+  "physical_segment_id":"pseg_xxx",
+  "audio_start_ms":1200
+}
+```
 
 ```json
 {
   "type":"x_aha.vad.physical_speech_stopped",
   "event_id":"event_xxx",
+  "vad_turn_id":"vturn_xxx",
+  "physical_segment_id":"pseg_xxx",
   "item_id":"item_xxx",
   "audio_start_ms":1200,
-  "audio_end_ms":2380,
-  "turn_completed":false
+  "audio_end_ms":2380
 }
 ```
 
-`turn_completed` 在 v1 固定为 false。它表示用户可能短暂停顿，不能提交最终 UI turn、不能触发 Agent 回复；最终仍以原生 `input_audio_buffer.speech_stopped` 和 transcription completed 为准。
+同一个物理段的 started/stopped 共享 `physical_segment_id`；同一工作流轮次内的多个物理段共享 `vad_turn_id`。`item_id` 在 OpenAI item 尚未创建时省略。
 
-连续长语音达到 VAD 最大分段限制后，后续音频会进入新的逻辑 turn。若物理语音仍连续而没有再次产生起点，Harness 会先补发标准 `input_audio_buffer.speech_started`，再发送该 turn 的 AHA 进度或标准 stopped 事件；这些事件使用同一个新 `item_id`。
+工作流公共 `speech_stopped` 到达时，先发送聚合关系，再发送原生 stopped：
+
+```json
+{
+  "type":"x_aha.vad.turn_completed",
+  "event_id":"event_xxx",
+  "vad_turn_id":"vturn_xxx",
+  "item_id":"item_xxx",
+  "audio_start_ms":1200,
+  "audio_end_ms":8920,
+  "physical_segment_ids":["pseg_a","pseg_b"]
+}
+```
+
+`audio_start_ms/audio_end_ms` 是语义轮次首尾范围；真正送入下游的有效物理区间由 `physical_segment_ids` 对应的 stopped 事件给出。客户端不得把两个物理段之间的空洞解释为持续语音。
+
+连续长语音达到物理 VAD 最大分段限制后，Harness 会在切点生成上一物理段的
+stopped 和下一物理段的 started；两段使用不同 `physical_segment_id`，后续音频进入
+新的 `vad_turn_id` 和标准 Realtime item。这样即使底层引擎保持持续 speech 状态，
+每个对外物理段仍具有完整且无歧义的边界。
 
 ## 中间转写
 

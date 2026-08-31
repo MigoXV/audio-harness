@@ -70,11 +70,27 @@ async def receive_results(
             "conversation.item.input_audio_transcription.completed"
         ):
             print(event["transcript"])
+        elif event["type"] == "x_aha.vad.physical_speech_started":
+            print(
+                "[x_aha] 物理语音已开始："
+                f"turn={event['vad_turn_id']} "
+                f"segment={event['physical_segment_id']} "
+                f"start={event['audio_start_ms']} ms",
+                flush=True,
+            )
         elif event["type"] == "x_aha.vad.physical_speech_stopped":
             print(
-                "[x_aha] 物理语音已停止，语义轮次仍在等待："
-                f"item={event['item_id']} "
+                "[x_aha] 物理语音已停止："
+                f"turn={event['vad_turn_id']} "
+                f"segment={event['physical_segment_id']} "
                 f"{event['audio_start_ms']}–{event['audio_end_ms']} ms",
+                flush=True,
+            )
+        elif event["type"] == "x_aha.vad.turn_completed":
+            print(
+                "[x_aha] VAD 轮次已完成："
+                f"turn={event['vad_turn_id']} "
+                f"segments={','.join(event['physical_segment_ids'])}",
                 flush=True,
             )
         elif event["type"] == "error":

@@ -107,13 +107,24 @@ describe("eventDetail", () => {
     })).toBe("音频数据已省略");
   });
 
-  it("describes a pending semantic turn after the physical pause", () => {
+  it("describes physical boundaries and their completed VAD turn", () => {
+    expect(eventDetail({
+      type: "x_aha.vad.physical_speech_started",
+      audio_start_ms: 1200,
+      physical_segment_id: "pseg_a",
+    })).toBe("物理语音开始 1200 ms · pseg_a");
     expect(eventDetail({
       type: "x_aha.vad.physical_speech_stopped",
       audio_start_ms: 1200,
       audio_end_ms: 2380,
-      turn_completed: false,
-    })).toBe("物理停顿 1200–2380 ms；语义轮次未结束");
+      physical_segment_id: "pseg_a",
+    })).toBe("物理语音结束 1200–2380 ms · pseg_a");
+    expect(eventDetail({
+      type: "x_aha.vad.turn_completed",
+      audio_start_ms: 1200,
+      audio_end_ms: 8380,
+      physical_segment_ids: ["pseg_a", "pseg_b"],
+    })).toBe("VAD 轮次完成 1200–8380 ms · 2 个物理段");
   });
 
   it("distinguishes streaming and final VAD progress", () => {

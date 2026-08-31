@@ -207,8 +207,14 @@ export function eventDetail(event: Record<string, unknown>): string {
       ? `VAD 处理完成 · ${String(event.processed_audio_ms ?? "—")} ms`
       : `VAD 处理中 · ${String(event.processed_audio_ms ?? "—")} ms`;
   }
+  if (event.type === "x_aha.vad.physical_speech_started") {
+    return `物理语音开始 ${String(event.audio_start_ms)} ms · ${String(event.physical_segment_id ?? "—")}`;
+  }
   if (event.type === "x_aha.vad.physical_speech_stopped") {
-    return `物理停顿 ${String(event.audio_start_ms)}–${String(event.audio_end_ms)} ms；语义轮次未结束`;
+    return `物理语音结束 ${String(event.audio_start_ms)}–${String(event.audio_end_ms)} ms · ${String(event.physical_segment_id ?? "—")}`;
+  }
+  if (event.type === "x_aha.vad.turn_completed") {
+    return `VAD 轮次完成 ${String(event.audio_start_ms)}–${String(event.audio_end_ms)} ms · ${String((event.physical_segment_ids as unknown[] | undefined)?.length ?? 0)} 个物理段`;
   }
   if (event.type === "x_aha.input_audio_transcription.interim") {
     return `预览 r${String(event.revision)} · ${String(event.audio_start_ms)}–${String(event.audio_end_ms)} ms · ${String(event.transcript ?? "")}`;
@@ -615,8 +621,12 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
       interimItemRef.current = startedItemId;
       setAssistant("");
       setLatencies({});
+    } else if (type === "x_aha.vad.physical_speech_started") {
+      setNotice("检测到物理语音，正在接收本段音频");
     } else if (type === "x_aha.vad.physical_speech_stopped") {
-      setNotice("检测到物理停顿，语义 VAD 仍在等待本轮后续语音");
+      setNotice("物理语音已停止，正在等待语义轮次结果");
+    } else if (type === "x_aha.vad.turn_completed") {
+      setNotice("语义 VAD 轮次已确定，正在提交正式转写");
     } else if (type === "x_aha.input_audio_transcription.interim") {
       const itemId = String(event.item_id ?? "");
       const revision = Number(event.revision ?? 0);

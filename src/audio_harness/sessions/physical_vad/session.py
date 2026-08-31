@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import AsyncIterator
+from uuid import uuid4
 
 from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.media.pcm import PcmChunk, VadAudioChunk
@@ -144,6 +145,7 @@ class PhysicalVadSession:
         self._audio = RollingPcmBuffer(capacity)
         self._speech_start: int | None = None
         self._segment_start: int | None = None
+        self._physical_segment_id: str | None = None
         self._last_processed = 0
 
     @property
@@ -156,7 +158,12 @@ class PhysicalVadSession:
         self._audio.append(chunk.pcm_s16le)
 
     def _segment(
-        self, start: int, end: int, *, evaluate_turn: bool
+        self,
+        start: int,
+        end: int,
+        *,
+        evaluate_turn: bool,
+        physical_segment_completed: bool = False,
     ) -> PhysicalEmission | None:
         start = max(start, self._audio.base_sample)
         end = min(end, self._audio.end_sample)
@@ -170,22 +177,59 @@ class PhysicalVadSession:
                 end_sample=end,
                 turn_completed=True,
                 evaluate_turn=evaluate_turn,
+                physical_segment_id=self._physical_segment_id,
+                physical_segment_completed=physical_segment_completed,
             ),
         )
 
-    def _physical_segments(self, start: int, end: int) -> list[PhysicalEmission]:
+    def _close_active_segment(
+        self,
+        end: int,
+        *,
+        evaluate_turn: bool,
+        reopen: bool,
+    ) -> list[PhysicalEmission]:
+        assert self._speech_start is not None
+        assert self._segment_start is not None
+        assert self._physical_segment_id is not None
         result: list[PhysicalEmission] = []
-        current = max(start, self._audio.base_sample)
-        final = min(end, self._audio.end_sample)
-        while current + self._max_samples < final:
-            cut = current + self._max_samples
-            item = self._segment(current, cut, evaluate_turn=True)
-            if item is not None:
-                result.append(item)
-            current = cut
-        item = self._segment(current, final, evaluate_turn=True)
+        item = self._segment(
+            self._segment_start,
+            end,
+            evaluate_turn=evaluate_turn,
+            physical_segment_completed=True,
+        )
         if item is not None:
             result.append(item)
+        result.append(
+            (
+                "speech_stopped",
+                SpeechStopped(
+                    start_sample=self._speech_start,
+                    end_sample=end,
+                    sample_rate=self._sample_rate,
+                    physical_segment_id=self._physical_segment_id,
+                ),
+            )
+        )
+        if reopen:
+            self._speech_start = end
+            self._segment_start = end
+            self._physical_segment_id = f"pseg_{uuid4().hex}"
+            result.append(
+                (
+                    "speech_started",
+                    SpeechStarted(
+                        start_sample=end,
+                        sample_rate=self._sample_rate,
+                        physical_segment_id=self._physical_segment_id,
+                    ),
+                )
+            )
+        else:
+            self._speech_start = None
+            self._segment_start = None
+            self._physical_segment_id = None
         return result
 
     def update(self, update: VadInferencer.Update) -> list[PhysicalEmission]:
@@ -206,10 +250,15 @@ class PhysicalVadSession:
                 if self._speech_start is None:
                     self._speech_start = start
                     self._segment_start = start
+                    self._physical_segment_id = f"pseg_{uuid4().hex}"
                     result.append(
                         (
                             "speech_started",
-                            SpeechStarted(start_sample=start, sample_rate=self._sample_rate),
+                            SpeechStarted(
+                                start_sample=start,
+                                sample_rate=self._sample_rate,
+                                physical_segment_id=self._physical_segment_id,
+                            ),
                         )
                     )
                 else:
@@ -221,46 +270,61 @@ class PhysicalVadSession:
                 end = min(max(end_sample, 0), self._audio.end_sample)
                 if self._speech_start is not None and end > self._speech_start:
                     assert self._segment_start is not None
-                    result.extend(self._physical_segments(self._segment_start, end))
-                    result.append(
-                        (
-                            "speech_stopped",
-                            SpeechStopped(
-                                start_sample=self._speech_start,
-                                end_sample=end,
-                                sample_rate=self._sample_rate,
-                            ),
+                    while self._segment_start + self._max_samples < end:
+                        result.extend(
+                            self._close_active_segment(
+                                self._segment_start + self._max_samples,
+                                evaluate_turn=False,
+                                reopen=True,
+                            )
+                        )
+                    result.extend(
+                        self._close_active_segment(
+                            end,
+                            evaluate_turn=True,
+                            reopen=False,
                         )
                     )
-                self._speech_start = None
-                self._segment_start = None
+                else:
+                    self._speech_start = None
+                    self._segment_start = None
+                    self._physical_segment_id = None
         if self._segment_start is not None:
-            while self._segment_start + self._max_samples <= processed:
-                cut = self._segment_start + self._max_samples
-                item = self._segment(self._segment_start, cut, evaluate_turn=False)
-                if item is not None:
-                    result.append(item)
-                self._segment_start = cut
+            while self._segment_start + self._max_samples < processed:
+                result.extend(
+                    self._close_active_segment(
+                        self._segment_start + self._max_samples,
+                        evaluate_turn=False,
+                        reopen=True,
+                    )
+                )
         return result
 
     def finish(self) -> list[PhysicalEmission]:
         if self._speech_start is None or self._audio.end_sample <= self._speech_start:
             self._speech_start = None
             self._segment_start = None
+            self._physical_segment_id = None
             return []
-        start = self._speech_start
         assert self._segment_start is not None
         end = self._audio.end_sample
-        segment_start = self._segment_start
-        self._speech_start = None
-        self._segment_start = None
-        return [
-            *self._physical_segments(segment_start, end),
-            (
-                "speech_stopped",
-                SpeechStopped(start_sample=start, end_sample=end, sample_rate=self._sample_rate),
+        result: list[PhysicalEmission] = []
+        while self._segment_start + self._max_samples < end:
+            result.extend(
+                self._close_active_segment(
+                    self._segment_start + self._max_samples,
+                    evaluate_turn=False,
+                    reopen=True,
+                )
+            )
+        result.extend(
+            self._close_active_segment(
+                end,
+                evaluate_turn=True,
+                reopen=False,
             ),
-        ]
+        )
+        return result
 
     async def run(
         self,

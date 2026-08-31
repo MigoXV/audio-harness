@@ -48,6 +48,8 @@ from audio_harness.workflows import (
 )
 from audio_harness.workflows.events import (
     SpeakerFilterResult,
+    SpeechStarted,
+    SpeechStopped,
     VadProgress,
     VectorSearchResult,
 )
@@ -215,7 +217,7 @@ def test_vad_progress_limiter_coalesces_and_normalizes_updates() -> None:
     )
 
 
-def test_physical_vad_keeps_speech_start_across_max_length_segments() -> None:
+def test_physical_vad_pairs_boundaries_across_max_length_segments() -> None:
     state = PhysicalVadSession(
         PhysicalVadConfig(
             min_segment_seconds=0,
@@ -249,13 +251,67 @@ def test_physical_vad_keeps_speech_start_across_max_length_segments() -> None:
 
     assert [(port, payload.start_sample) for port, payload in first] == [
         ("speech_started", 0),
-        ("segments", 0),
     ]
     assert [(port, payload.start_sample) for port, payload in second] == [
-        ("segments", 4),
+        ("segments", 0),
         ("speech_stopped", 0),
+        ("speech_started", 4),
+        ("segments", 4),
+        ("speech_stopped", 4),
     ]
     assert second[-1][1].end_sample == 8
+    started = first[0][1]
+    first_stopped = second[1][1]
+    second_started = second[2][1]
+    second_stopped = second[-1][1]
+    assert isinstance(started, SpeechStarted)
+    assert isinstance(first_stopped, SpeechStopped)
+    assert isinstance(second_started, SpeechStarted)
+    assert isinstance(second_stopped, SpeechStopped)
+    assert started.physical_segment_id is not None
+    assert first_stopped.physical_segment_id == started.physical_segment_id
+    assert second_started.physical_segment_id != started.physical_segment_id
+    assert (
+        second_stopped.physical_segment_id
+        == second_started.physical_segment_id
+    )
+
+
+def test_physical_vad_tail_drain_keeps_segment_id() -> None:
+    state = PhysicalVadSession(
+        PhysicalVadConfig(
+            min_segment_seconds=0,
+            max_segment_seconds=60,
+            audio_buffer_seconds=61,
+            speech_pre_roll_seconds=0,
+        ),
+        sample_rate=4,
+        inferencer=_Vad([]),
+    )
+    state.append(
+        PcmChunk(
+            pcm_s16le=bytes(16),
+            sample_rate=4,
+            start_sample=0,
+        )
+    )
+    started = state.update(
+        VadInferencer.Update(
+            boundaries=((0, None),),
+            processed_samples=4,
+        )
+    )[0][1]
+
+    final = state.finish()
+
+    segment = final[0][1]
+    stopped = final[-1][1]
+    assert isinstance(started, SpeechStarted)
+    assert isinstance(segment, _SegmentCandidate)
+    assert isinstance(stopped, SpeechStopped)
+    assert segment.physical_segment_id == started.physical_segment_id
+    assert segment.physical_segment_completed is True
+    assert stopped.physical_segment_id == started.physical_segment_id
 
 
 @pytest.mark.asyncio
@@ -272,7 +328,12 @@ async def test_semantic_vad_preserves_gaps_in_the_session_timeline() -> None:
         failure_policy=FailurePolicy.FAIL_OPEN,
     )
     second = await state.accept(
-        _SegmentCandidate(bytes(4), start_sample=20, end_sample=22),
+        _SegmentCandidate(
+            bytes(4),
+            start_sample=20,
+            end_sample=22,
+            physical_segment_completed=True,
+        ),
         failure_policy=FailurePolicy.FAIL_OPEN,
     )
 
@@ -288,6 +349,7 @@ async def test_semantic_vad_preserves_gaps_in_the_session_timeline() -> None:
         for span in segment.timeline_spans
     ] == [(0, 2, 10), (2, 4, 20)]
     assert (stopped.start_sample, stopped.end_sample) == (10, 22)
+    assert stopped.awaiting_physical_stop is True
 
 
 def test_speaker_clustering_uses_safe_hdbscan_defaults() -> None:
@@ -1020,6 +1082,8 @@ async def test_vad_progress_uses_only_primary_physical_vad_without_binding(
                     language_code="zh-CN",
                 ),
                 include_interim_transcripts=True,
+                include_vad_events=True,
+                include_physical_vad_events=True,
                 include_vad_progress=True,
             ),
         )
@@ -1032,6 +1096,21 @@ async def test_vad_progress_uses_only_primary_physical_vad_without_binding(
         VadProgress(processed_samples=8, sample_rate=4),
         VadProgress(processed_samples=8, sample_rate=4, final=True),
     ]
+    physical = [
+        output
+        for output in outputs
+        if output.name
+        in {"physical_speech_started", "physical_speech_stopped"}
+    ]
+    assert [output.name for output in physical] == [
+        "physical_speech_started",
+        "physical_speech_stopped",
+    ]
+    assert physical[0].payload.physical_segment_id is not None
+    assert (
+        physical[1].payload.physical_segment_id
+        == physical[0].payload.physical_segment_id
+    )
 
 
 @pytest.mark.asyncio
@@ -1266,6 +1345,7 @@ async def test_inferencer_merges_semantic_turn_and_emits_named_outputs(
         if output.name == "speech_stopped"
     )
     assert stopped.last_segment_start_sample == 4
+    assert stopped.awaiting_physical_stop is True
     assert len(asr.calls) == 1
     assert asr.calls[0][1:3] == (0, 8)
 

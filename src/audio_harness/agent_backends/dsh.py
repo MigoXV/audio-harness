@@ -124,6 +124,7 @@ class _DshConnection:
         self._connect_ws = connect_ws
         self._sessions: dict[str, _SessionState] = {}
         self._sessions_lock = asyncio.Lock()
+        self._opening_sessions = 0
         self._start_lock = asyncio.Lock()
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._connected = {
@@ -131,13 +132,32 @@ class _DshConnection:
             "events.host": asyncio.Event(),
         }
         self._stream_errors: dict[str, BaseException] = {}
+        self._stream_failure_counts: dict[str, int] = {}
         self._mux_connections = 0
         self._closed = False
         self.retiring = False
 
     @property
     def active_sessions(self) -> int:
-        return len(self._sessions)
+        return len(self._sessions) + self._opening_sessions
+
+    async def _stop_streams_if_idle(self) -> None:
+        async with self._sessions_lock:
+            if self._sessions or self._opening_sessions:
+                return
+        async with self._start_lock:
+            async with self._sessions_lock:
+                if self._sessions or self._opening_sessions:
+                    return
+            tasks = list(self._tasks.values())
+            self._tasks.clear()
+            for event in self._connected.values():
+                event.clear()
+            self._stream_errors.clear()
+            self._stream_failure_counts.clear()
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def ensure_started(self) -> None:
         if self._closed:
@@ -237,41 +257,54 @@ class _DshConnection:
         cwd: str,
         agent_preset: str,
     ) -> DshWebSession:
-        await self.ensure_started()
-        session_id = str(uuid4())
-        state = _SessionState()
         async with self._sessions_lock:
-            self._sessions[session_id] = state
+            self._opening_sessions += 1
         try:
-            value = await self.rpc(
-                "session.create",
-                {
-                    "sessionId": session_id,
-                    "cwd": cwd,
-                    "agentPreset": agent_preset,
-                },
-            )
-            value = _required_mapping(value, at="session.create.value")
-            actual_id = _required_string(
-                value.get("sessionId"),
-                at="session.create.value.sessionId",
-            )
-            if actual_id != session_id:
-                raise DshProtocolError("session.create 未采用预分配 sessionId")
-        except BaseException:
+            await self.ensure_started()
+            session_id = str(uuid4())
+            state = _SessionState()
             async with self._sessions_lock:
-                self._sessions.pop(session_id, None)
-            raise
-        return DshWebSession(self, session_id, state)
+                self._sessions[session_id] = state
+            try:
+                value = await self.rpc(
+                    "session.create",
+                    {
+                        "sessionId": session_id,
+                        "cwd": cwd,
+                        "agentPreset": agent_preset,
+                    },
+                )
+                value = _required_mapping(value, at="session.create.value")
+                actual_id = _required_string(
+                    value.get("sessionId"),
+                    at="session.create.value.sessionId",
+                )
+                if actual_id != session_id:
+                    raise DshProtocolError("session.create 未采用预分配 sessionId")
+            except BaseException:
+                async with self._sessions_lock:
+                    self._sessions.pop(session_id, None)
+                raise
+            return DshWebSession(self, session_id, state)
+        finally:
+            async with self._sessions_lock:
+                self._opening_sessions -= 1
+            await self._stop_streams_if_idle()
 
     async def release_session(self, session_id: str) -> None:
         async with self._sessions_lock:
             state = self._sessions.pop(session_id, None)
-            should_close = self.retiring and not self._sessions
+            should_close = (
+                self.retiring
+                and not self._sessions
+                and not self._opening_sessions
+            )
         if state is not None:
             self._put_nowait(state, _CLOSED)
         if should_close:
             await self.close()
+        else:
+            await self._stop_streams_if_idle()
 
     def _put_nowait(
         self,
@@ -306,6 +339,7 @@ class _DshConnection:
                     if stream == "events.mux":
                         self._mux_connections += 1
                     self._stream_errors.pop(stream, None)
+                    self._stream_failure_counts.pop(stream, None)
                     self._connected[stream].set()
                     delay = 0.25
                     if reconnecting:
@@ -318,9 +352,17 @@ class _DshConnection:
                 self._stream_errors[stream] = exc
                 if self._closed:
                     return
-                logger.warning(
-                    "DSH %s WebSocket 断开，将重连: %s",
+                failures = self._stream_failure_counts.get(stream, 0) + 1
+                self._stream_failure_counts[stream] = failures
+                log = (
+                    logger.warning
+                    if failures == 1 or failures % 12 == 0
+                    else logger.debug
+                )
+                log(
+                    "DSH %s WebSocket 断开，第 %d 次重连失败: %s",
                     stream,
+                    failures,
                     exc,
                 )
             finally:
@@ -761,7 +803,6 @@ class DshWebGateway(AgentBackendGateway):
         snapshot: AgentBackendSnapshot,
     ) -> AgentBackendCapabilities:
         connection = await self._connection(snapshot)
-        await connection.ensure_started()
         host, preset_value, plugin_value = await asyncio.gather(
             connection.rpc("host.describe", {}),
             connection.rpc("agentPreset.list", {}),
