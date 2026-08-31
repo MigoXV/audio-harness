@@ -9,6 +9,7 @@ from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.sessions.contracts import (
     SegmentCandidate,
     TimelineSpan,
+    candidate_physical_segment_ids,
     candidate_timeline_spans,
     slice_timeline_spans,
 )
@@ -39,6 +40,7 @@ class SemanticVadSession:
         self._pending_spans: list[TimelineSpan] = []
         self._pending_last_segment_start: int | None = None
         self._pending_awaiting_physical_stop = False
+        self._pending_physical_segment_ids: list[str] = []
 
     def _complete(self) -> list[SemanticEmission]:
         if not self._pending_spans or not self._pending_audio:
@@ -46,17 +48,20 @@ class SemanticVadSession:
             self._pending_spans.clear()
             self._pending_last_segment_start = None
             self._pending_awaiting_physical_stop = False
+            self._pending_physical_segment_ids.clear()
             return []
         start = self._pending_spans[0].session_start_sample
         end = self._pending_spans[-1].session_end_sample
         last_segment_start = self._pending_last_segment_start
         awaiting_physical_stop = self._pending_awaiting_physical_stop
+        physical_segment_ids = tuple(self._pending_physical_segment_ids)
         audio = bytes(self._pending_audio)
         spans = tuple(self._pending_spans)
         self._pending_audio.clear()
         self._pending_spans.clear()
         self._pending_last_segment_start = None
         self._pending_awaiting_physical_stop = False
+        self._pending_physical_segment_ids.clear()
         return [
             (
                 "segments",
@@ -67,6 +72,7 @@ class SemanticVadSession:
                     turn_completed=True,
                     evaluate_turn=False,
                     timeline_spans=spans,
+                    physical_segment_ids=physical_segment_ids,
                 ),
             ),
             (
@@ -77,6 +83,7 @@ class SemanticVadSession:
                     sample_rate=self._sample_rate,
                     last_segment_start_sample=last_segment_start,
                     awaiting_physical_stop=awaiting_physical_stop,
+                    physical_segment_ids=physical_segment_ids,
                 ),
             ),
         ]
@@ -106,6 +113,9 @@ class SemanticVadSession:
         )
         if spans:
             self._pending_last_segment_start = spans[0].session_start_sample
+        for physical_segment_id in candidate_physical_segment_ids(candidate):
+            if physical_segment_id not in self._pending_physical_segment_ids:
+                self._pending_physical_segment_ids.append(physical_segment_id)
         self._pending_awaiting_physical_stop = (
             candidate.physical_segment_completed
             and end_sample == len(candidate.audio) // 2
@@ -161,6 +171,9 @@ class SemanticVadSession:
                         end_sample=candidate.end_sample,
                         sample_rate=self._sample_rate,
                         turn_completed=False,
+                        physical_segment_ids=(
+                            candidate_physical_segment_ids(candidate)
+                        ),
                     ),
                 )
             )

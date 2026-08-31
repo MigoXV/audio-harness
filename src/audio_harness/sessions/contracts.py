@@ -42,6 +42,17 @@ class SegmentCandidate(NamedTuple):
     timeline_spans: tuple[TimelineSpan, ...] = ()
     physical_segment_id: str | None = None
     physical_segment_completed: bool = False
+    physical_segment_ids: tuple[str, ...] = ()
+
+
+def candidate_physical_segment_ids(
+    candidate: SegmentCandidate,
+) -> tuple[str, ...]:
+    if candidate.physical_segment_ids:
+        return candidate.physical_segment_ids
+    if candidate.physical_segment_id is not None:
+        return (candidate.physical_segment_id,)
+    return ()
 
 
 def candidate_timeline_spans(

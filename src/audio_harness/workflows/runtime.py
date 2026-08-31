@@ -52,6 +52,7 @@ from audio_harness.workflows.models import (
 )
 from audio_harness.sessions.contracts import (
     SegmentCandidate as _SegmentCandidate,
+    candidate_physical_segment_ids,
 )
 from audio_harness.sessions.diarization import DiarizationSession
 from audio_harness.sessions.physical_vad import PhysicalVadSession
@@ -1218,6 +1219,9 @@ class AudioWorkflowRuntime:
                 reason=reason,
                 speaker_id=speaker_id,
                 score=score,
+                physical_segment_ids=candidate_physical_segment_ids(
+                    candidate
+                ),
             )
             await router.emit(node_id, "decisions", decision)
             if status != "matched":
@@ -1235,6 +1239,9 @@ class AudioWorkflowRuntime:
                         candidate.start_sample,
                         candidate.end_sample,
                         request.recognition.sample_rate,
+                        physical_segment_ids=candidate_physical_segment_ids(
+                            candidate
+                        ),
                     ),
                 )
             await router.emit(node_id, "segments", candidate)

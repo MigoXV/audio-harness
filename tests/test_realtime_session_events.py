@@ -954,6 +954,135 @@ async def test_x_aha_buffers_semantic_stop_until_physical_stop() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("stop_b_before_completion", [False, True])
+async def test_x_aha_assigns_late_next_segment_after_previous_resolution(
+    stop_b_before_completion: bool,
+) -> None:
+    emitted: list[dict] = []
+
+    async def send_event(event) -> None:
+        emitted.append(
+            event.model_dump(mode="json", exclude_none=True)
+            if hasattr(event, "model_dump")
+            else event
+        )
+
+    session = RealtimeTranscriptionSession(
+        send_event=send_event,
+        session_service=object(),  # type: ignore[arg-type]
+        workflow_settings=_Settings(),  # type: ignore[arg-type]
+        model="voice-agent",
+        target=_profile(),
+        inferencer_pool=FakePool(),  # type: ignore[arg-type]
+        tool_registry=ToolRegistry(),
+        aha_version="v1",
+    )
+    await session.start()
+    first = SpeechStarted(
+        start_sample=1_000,
+        sample_rate=1_000,
+        physical_segment_id="pseg_a",
+    )
+    await session._handle_workflow_event("physical_speech_started", first)
+    await session._handle_workflow_event("speech_started", first)
+    await session._handle_workflow_event(
+        "physical_speech_stopped",
+        SpeechStopped(
+            start_sample=1_000,
+            end_sample=2_000,
+            sample_rate=1_000,
+            physical_segment_id="pseg_a",
+        ),
+    )
+    second = SpeechStarted(
+        start_sample=3_000,
+        sample_rate=1_000,
+        physical_segment_id="pseg_b",
+    )
+    await session._handle_workflow_event("physical_speech_started", second)
+    await session._handle_workflow_event("speech_started", second)
+    if stop_b_before_completion:
+        await session._handle_workflow_event(
+            "physical_speech_stopped",
+            SpeechStopped(
+                start_sample=3_000,
+                end_sample=4_000,
+                sample_rate=1_000,
+                physical_segment_id="pseg_b",
+            ),
+        )
+
+    physical_starts = [
+        event
+        for event in emitted
+        if event["type"] == "x_aha.vad.physical_speech_started"
+    ]
+    assert [event["physical_segment_id"] for event in physical_starts] == [
+        "pseg_a"
+    ]
+
+    await session._handle_workflow_event(
+        "speech_stopped",
+        SpeechStopped(
+            start_sample=1_000,
+            end_sample=2_000,
+            sample_rate=1_000,
+            last_segment_start_sample=1_000,
+            physical_segment_ids=("pseg_a",),
+        ),
+    )
+    if not stop_b_before_completion:
+        await session._handle_workflow_event(
+            "physical_speech_stopped",
+            SpeechStopped(
+                start_sample=3_000,
+                end_sample=4_000,
+                sample_rate=1_000,
+                physical_segment_id="pseg_b",
+            ),
+        )
+    await session._handle_workflow_event(
+        "speech_stopped",
+        SpeechStopped(
+            start_sample=3_000,
+            end_sample=4_000,
+            sample_rate=1_000,
+            last_segment_start_sample=3_000,
+            physical_segment_ids=("pseg_b",),
+        ),
+    )
+    await session.close()
+
+    physical_events = [
+        event
+        for event in emitted
+        if event["type"].startswith("x_aha.vad.physical_speech_")
+    ]
+    by_segment: dict[str, list[dict]] = {}
+    for event in physical_events:
+        by_segment.setdefault(event["physical_segment_id"], []).append(event)
+    assert [event["type"] for event in by_segment["pseg_a"]] == [
+        "x_aha.vad.physical_speech_started",
+        "x_aha.vad.physical_speech_stopped",
+    ]
+    assert [event["type"] for event in by_segment["pseg_b"]] == [
+        "x_aha.vad.physical_speech_started",
+        "x_aha.vad.physical_speech_stopped",
+    ]
+    first_turn_id = by_segment["pseg_a"][0]["vad_turn_id"]
+    second_turn_id = by_segment["pseg_b"][0]["vad_turn_id"]
+    assert first_turn_id != second_turn_id
+    assert {
+        event["vad_turn_id"]: event["physical_segment_ids"]
+        for event in emitted
+        if event["type"] == "x_aha.vad.turn_completed"
+    } == {
+        first_turn_id: ["pseg_a"],
+        second_turn_id: ["pseg_b"],
+    }
+
+
+@pytest.mark.asyncio
 async def test_x_aha_rejected_turn_still_pairs_late_physical_stop() -> None:
     emitted: list[dict] = []
 
@@ -983,16 +1112,6 @@ async def test_x_aha_rejected_turn_still_pairs_late_physical_stop() -> None:
     await session._handle_workflow_event("physical_speech_started", started)
     rejected_turn_id = emitted[-1]["vad_turn_id"]
     await session._handle_workflow_event(
-        "speaker_filter",
-        SpeakerFilterResult(
-            start_sample=1_000,
-            end_sample=2_000,
-            sample_rate=1_000,
-            status="rejected",
-            reason="no_match",
-        ),
-    )
-    await session._handle_workflow_event(
         "physical_speech_stopped",
         SpeechStopped(
             start_sample=1_000,
@@ -1010,6 +1129,21 @@ async def test_x_aha_rejected_turn_still_pairs_late_physical_stop() -> None:
         "physical_speech_started",
         next_started,
     )
+    assert all(
+        event.get("physical_segment_id") != "pseg_next"
+        for event in emitted
+    )
+    await session._handle_workflow_event(
+        "speaker_filter",
+        SpeakerFilterResult(
+            start_sample=1_000,
+            end_sample=2_000,
+            sample_rate=1_000,
+            status="rejected",
+            reason="no_match",
+            physical_segment_ids=("pseg_rejected",),
+        ),
+    )
     await session.close()
 
     physical_stopped = next(
@@ -1022,6 +1156,79 @@ async def test_x_aha_rejected_turn_still_pairs_late_physical_stop() -> None:
         event["type"] != "x_aha.vad.turn_completed" for event in emitted
     )
     assert emitted[-1]["vad_turn_id"] != rejected_turn_id
+
+
+@pytest.mark.asyncio
+async def test_x_aha_duplicate_and_unknown_physical_stops_are_nonfatal(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    emitted: list[dict] = []
+
+    async def send_event(event) -> None:
+        emitted.append(
+            event.model_dump(mode="json", exclude_none=True)
+            if hasattr(event, "model_dump")
+            else event
+        )
+
+    session = RealtimeTranscriptionSession(
+        send_event=send_event,
+        session_service=object(),  # type: ignore[arg-type]
+        workflow_settings=_Settings(),  # type: ignore[arg-type]
+        model="voice-agent",
+        target=_profile(),
+        inferencer_pool=FakePool(),  # type: ignore[arg-type]
+        tool_registry=ToolRegistry(),
+        aha_version="v1",
+    )
+    await session.start()
+    started = SpeechStarted(
+        start_sample=1_000,
+        sample_rate=1_000,
+        physical_segment_id="pseg_known",
+    )
+    stopped = SpeechStopped(
+        start_sample=1_000,
+        end_sample=2_000,
+        sample_rate=1_000,
+        physical_segment_id="pseg_known",
+    )
+    await session._handle_workflow_event("physical_speech_started", started)
+    await session._handle_workflow_event("physical_speech_stopped", stopped)
+    event_count = len(emitted)
+    await session._handle_workflow_event("physical_speech_stopped", stopped)
+    assert len(emitted) == event_count
+    completed = SpeechStopped(
+        start_sample=1_000,
+        end_sample=2_000,
+        sample_rate=1_000,
+        last_segment_start_sample=1_000,
+        physical_segment_ids=("pseg_known",),
+    )
+    await session._handle_workflow_event("speech_stopped", completed)
+    event_count = len(emitted)
+    await session._handle_workflow_event("physical_speech_stopped", stopped)
+    await session._handle_workflow_event("speech_stopped", completed)
+    assert len(emitted) == event_count
+
+    with caplog.at_level("WARNING"):
+        await session._handle_workflow_event(
+            "physical_speech_stopped",
+            SpeechStopped(
+                start_sample=3_000,
+                end_sample=4_000,
+                sample_rate=1_000,
+                physical_segment_id="pseg_unknown",
+            ),
+            sequence=77,
+        )
+    await session.close()
+
+    assert "sequence=77 physical_segment_id=pseg_unknown" in caplog.text
+    assert all(
+        event.get("physical_segment_id") != "pseg_unknown"
+        for event in emitted
+    )
 
 
 @pytest.mark.asyncio

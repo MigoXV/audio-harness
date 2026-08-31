@@ -260,6 +260,12 @@ class _PhysicalVadSegmentState:
     start_sample: int
     sample_rate: int
     end_sample: int | None = None
+    turn_id: str | None = None
+    started_emitted: bool = False
+    stopped_emitted: bool = False
+    resolution: Literal["pending", "continued", "completed", "rejected"] = (
+        "pending"
+    )
 
 
 @dataclass
@@ -267,6 +273,7 @@ class _VadTurnState:
     vad_turn_id: str
     segments: list[_PhysicalVadSegmentState]
     discarded: bool = False
+    pending_completion: SpeechStopped | None = None
 
 
 def _join_interim_parts(parts: list[str]) -> str:
@@ -418,7 +425,14 @@ class RealtimeTranscriptionSession:
         self._active_item_id: str | None = None
         self._deferred_speech_starts: deque[SpeechStarted] = deque()
         self._vad_turn: _VadTurnState | None = None
-        self._pending_vad_speech_stops: deque[SpeechStopped] = deque()
+        self._vad_turns: dict[str, _VadTurnState] = {}
+        self._physical_vad_segments: dict[
+            str, _PhysicalVadSegmentState
+        ] = {}
+        self._pending_physical_vad_starts: deque[str] = deque()
+        self._physical_vad_tombstones: set[str] = set()
+        self._physical_vad_tombstone_order: deque[str] = deque()
+        self._workflow_event_sequence = 0
         self._pending_items: deque[_TranscriptItem] = deque()
         # 分角色 ASR 可在 primary completed 之后才返回；保留已提交 turn 的
         # 时间范围，才能把迟到的 segment 关联回正确的 Realtime item_id。
@@ -833,8 +847,7 @@ class RealtimeTranscriptionSession:
             await self._clear_interim("input_audio_buffer_cleared")
             self._active_item_id = None
             self._deferred_speech_starts.clear()
-            self._vad_turn = None
-            self._pending_vad_speech_stops.clear()
+            self._discard_vad_state()
             self._pending_items.clear()
             self._speaker_item_history.clear()
             self._manual_audio_buffer.clear()
@@ -850,8 +863,7 @@ class RealtimeTranscriptionSession:
         finally:
             self._manual_audio_buffer.clear()
             self._deferred_speech_starts.clear()
-            self._vad_turn = None
-            self._pending_vad_speech_stops.clear()
+            self._discard_vad_state()
             try:
                 await self._finish_workflow(send_results=False)
             finally:
@@ -1029,7 +1041,11 @@ class RealtimeTranscriptionSession:
             async for output in self._transcription.outputs():
                 if self._discard_workflow_outputs:
                     continue
-                await self._handle_workflow_event(output.name, output.payload)
+                await self._handle_workflow_event(
+                    output.name,
+                    output.payload,
+                    sequence=output.sequence,
+                )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -1103,6 +1119,83 @@ class RealtimeTranscriptionSession:
     def _vad_item_id(self) -> str | None:
         return self._active_item_id or self._interim_item_id
 
+    @staticmethod
+    def _physical_segment_ids(event: Any) -> tuple[str, ...]:
+        values = tuple(getattr(event, "physical_segment_ids", ()) or ())
+        if values:
+            return tuple(dict.fromkeys(values))
+        value = getattr(event, "physical_segment_id", None)
+        return (value,) if isinstance(value, str) and value else ()
+
+    def _remember_physical_vad_tombstone(self, segment_id: str) -> None:
+        if segment_id in self._physical_vad_tombstones:
+            return
+        while len(self._physical_vad_tombstone_order) >= 2_048:
+            expired = self._physical_vad_tombstone_order.popleft()
+            self._physical_vad_tombstones.discard(expired)
+        self._physical_vad_tombstone_order.append(segment_id)
+        self._physical_vad_tombstones.add(segment_id)
+
+    def _discard_vad_state(self) -> None:
+        for segment_id in self._physical_vad_segments:
+            self._remember_physical_vad_tombstone(segment_id)
+        self._vad_turn = None
+        self._vad_turns.clear()
+        self._physical_vad_segments.clear()
+        self._pending_physical_vad_starts.clear()
+
+    def _new_vad_turn(self) -> _VadTurnState:
+        turn = _VadTurnState(
+            vad_turn_id=f"vturn_{uuid4().hex}",
+            segments=[],
+        )
+        self._vad_turns[turn.vad_turn_id] = turn
+        self._vad_turn = turn
+        return turn
+
+    async def _assign_physical_segment(
+        self,
+        segment: _PhysicalVadSegmentState,
+        turn: _VadTurnState,
+    ) -> None:
+        segment.turn_id = turn.vad_turn_id
+        turn.segments.append(segment)
+        segment.started_emitted = True
+        await self._send_event(
+            AhaVadPhysicalSpeechStartedEvent(
+                type="x_aha.vad.physical_speech_started",
+                event_id=event_id(),
+                vad_turn_id=turn.vad_turn_id,
+                physical_segment_id=segment.physical_segment_id,
+                item_id=self._vad_item_id(),
+                audio_start_ms=round(
+                    segment.start_sample * 1000 / segment.sample_rate
+                ),
+            )
+        )
+        if segment.end_sample is not None:
+            await self._emit_physical_segment_stopped(segment)
+
+    async def _release_pending_physical_starts(self) -> None:
+        while self._pending_physical_vad_starts:
+            turn = self._vad_turn
+            if turn is not None:
+                if not turn.segments:
+                    return
+                if turn.segments[-1].resolution != "continued":
+                    return
+            else:
+                turn = self._new_vad_turn()
+            segment_id = self._pending_physical_vad_starts.popleft()
+            segment = self._physical_vad_segments.get(segment_id)
+            if segment is None or segment.turn_id is not None:
+                continue
+            await self._assign_physical_segment(segment, turn)
+            if segment.resolution == "continued":
+                continue
+            await self._try_finalize_vad_turn(turn)
+            return
+
     async def _handle_physical_speech_started(
         self,
         event: SpeechStarted,
@@ -1111,40 +1204,60 @@ class RealtimeTranscriptionSession:
             return
         physical_segment_id = event.physical_segment_id
         if physical_segment_id is None:
-            raise ValueError("主物理 VAD speech_started 缺少 physical_segment_id")
-        if self._vad_turn is None:
-            self._vad_turn = _VadTurnState(
-                vad_turn_id=f"vturn_{uuid4().hex}",
-                segments=[],
+            logger.warning(
+                "忽略缺少 physical_segment_id 的主物理 VAD started: "
+                "sequence=%s start_sample=%s",
+                self._workflow_event_sequence,
+                event.start_sample,
             )
-        existing = next(
-            (
-                segment
-                for segment in self._vad_turn.segments
-                if segment.physical_segment_id == physical_segment_id
-            ),
-            None,
-        )
-        if existing is not None:
+            return
+        if physical_segment_id in self._physical_vad_segments:
+            logger.debug("忽略重复物理 VAD started: %s", physical_segment_id)
+            return
+        if physical_segment_id in self._physical_vad_tombstones:
+            logger.debug("忽略已结束物理 VAD started: %s", physical_segment_id)
             return
         segment = _PhysicalVadSegmentState(
             physical_segment_id=physical_segment_id,
             start_sample=event.start_sample,
             sample_rate=event.sample_rate,
         )
-        self._vad_turn.segments.append(segment)
+        self._physical_vad_segments[physical_segment_id] = segment
+        turn = self._vad_turn
+        if turn is None:
+            await self._assign_physical_segment(segment, self._new_vad_turn())
+            return
+        if turn.segments and turn.segments[-1].resolution == "continued":
+            await self._assign_physical_segment(segment, turn)
+            return
+        self._pending_physical_vad_starts.append(physical_segment_id)
+
+    async def _emit_physical_segment_stopped(
+        self,
+        segment: _PhysicalVadSegmentState,
+    ) -> None:
+        if segment.stopped_emitted or segment.turn_id is None:
+            return
+        assert segment.end_sample is not None
+        segment.stopped_emitted = True
         await self._send_event(
-            AhaVadPhysicalSpeechStartedEvent(
-                type="x_aha.vad.physical_speech_started",
+            AhaVadPhysicalSpeechStoppedEvent(
+                type="x_aha.vad.physical_speech_stopped",
                 event_id=event_id(),
-                vad_turn_id=self._vad_turn.vad_turn_id,
-                physical_segment_id=physical_segment_id,
+                vad_turn_id=segment.turn_id,
+                physical_segment_id=segment.physical_segment_id,
                 item_id=self._vad_item_id(),
                 audio_start_ms=round(
-                    event.start_sample * 1000 / event.sample_rate
+                    segment.start_sample * 1000 / segment.sample_rate
+                ),
+                audio_end_ms=round(
+                    segment.end_sample * 1000 / segment.sample_rate
                 ),
             )
         )
+        turn = self._vad_turns.get(segment.turn_id)
+        if turn is not None:
+            await self._try_finalize_vad_turn(turn)
 
     async def _handle_physical_speech_stopped(
         self,
@@ -1154,88 +1267,82 @@ class RealtimeTranscriptionSession:
             return
         physical_segment_id = event.physical_segment_id
         if physical_segment_id is None:
-            raise ValueError("主物理 VAD speech_stopped 缺少 physical_segment_id")
-        turn = self._vad_turn
-        if turn is None:
-            raise ValueError("主物理 VAD speech_stopped 缺少活动 vad_turn")
-        segment = next(
-            (
-                value
-                for value in turn.segments
-                if value.physical_segment_id == physical_segment_id
-            ),
-            None,
-        )
+            logger.warning(
+                "忽略缺少 physical_segment_id 的主物理 VAD stopped: "
+                "sequence=%s range=%s-%s",
+                self._workflow_event_sequence,
+                event.start_sample,
+                event.end_sample,
+            )
+            return
+        segment = self._physical_vad_segments.get(physical_segment_id)
         if segment is None:
-            raise ValueError("主物理 VAD speech_stopped 缺少对应 started")
+            if physical_segment_id in self._physical_vad_tombstones:
+                logger.debug("忽略重复物理 VAD stopped: %s", physical_segment_id)
+            else:
+                logger.warning(
+                    "忽略无法关联的主物理 VAD stopped: "
+                    "sequence=%s physical_segment_id=%s range=%s-%s",
+                    self._workflow_event_sequence,
+                    physical_segment_id,
+                    event.start_sample,
+                    event.end_sample,
+                )
+            return
         if segment.end_sample is not None:
+            logger.debug("忽略重复物理 VAD stopped: %s", physical_segment_id)
             return
         if (
             segment.start_sample != event.start_sample
             or segment.sample_rate != event.sample_rate
         ):
-            raise ValueError("主物理 VAD started/stopped 边界不一致")
+            logger.warning(
+                "主物理 VAD started/stopped 边界不一致，采用 started 时间轴: "
+                "sequence=%s physical_segment_id=%s started=%s/%s stopped=%s/%s",
+                self._workflow_event_sequence,
+                physical_segment_id,
+                segment.start_sample,
+                segment.sample_rate,
+                event.start_sample,
+                event.sample_rate,
+            )
         segment.end_sample = event.end_sample
-        await self._send_event(
-            AhaVadPhysicalSpeechStoppedEvent(
-                type="x_aha.vad.physical_speech_stopped",
-                event_id=event_id(),
-                vad_turn_id=turn.vad_turn_id,
-                physical_segment_id=physical_segment_id,
-                item_id=self._vad_item_id(),
-                audio_start_ms=round(
-                    event.start_sample * 1000 / event.sample_rate
-                ),
-                audio_end_ms=round(
-                    event.end_sample * 1000 / event.sample_rate
-                ),
-            )
-        )
-        if turn.discarded:
-            self._vad_turn = None
-            return
-        await self._flush_pending_vad_speech_stops(segment)
+        await self._emit_physical_segment_stopped(segment)
 
-    def _awaits_open_physical_segment(self, event: SpeechStopped) -> bool:
-        if not event.awaiting_physical_stop or self._vad_turn is None:
-            return False
-        return any(
-            segment.end_sample is None
-            and segment.sample_rate == event.sample_rate
-            and (
-                event.last_segment_start_sample is None
-                or segment.start_sample == event.last_segment_start_sample
-            )
-            for segment in self._vad_turn.segments
+    def _turn_for_physical_ids(
+        self,
+        physical_segment_ids: tuple[str, ...],
+    ) -> _VadTurnState | None:
+        segments = [
+            self._physical_vad_segments.get(physical_segment_id)
+            for physical_segment_id in physical_segment_ids
+        ]
+        if not physical_segment_ids or any(
+            segment is None or segment.turn_id is None
+            for segment in segments
+        ):
+            return None
+        turn_ids = {segment.turn_id for segment in segments if segment}
+        if len(turn_ids) != 1:
+            return None
+        return self._vad_turns.get(next(iter(turn_ids)))
+
+    def _all_physical_ids_are_tombstones(
+        self,
+        physical_segment_ids: tuple[str, ...],
+    ) -> bool:
+        return bool(physical_segment_ids) and all(
+            physical_segment_id in self._physical_vad_tombstones
+            for physical_segment_id in physical_segment_ids
         )
 
-    async def _flush_pending_vad_speech_stops(
+    async def _emit_vad_turn_completed(
         self,
-        segment: _PhysicalVadSegmentState,
-    ) -> None:
-        while self._pending_vad_speech_stops:
-            event = self._pending_vad_speech_stops[0]
-            if (
-                event.sample_rate != segment.sample_rate
-                or event.last_segment_start_sample != segment.start_sample
-                or event.end_sample > (segment.end_sample or 0)
-            ):
-                return
-            self._pending_vad_speech_stops.popleft()
-            await self._handle_public_speech_stopped(event)
-
-    async def _complete_vad_turn(
-        self,
+        turn: _VadTurnState,
         event: SpeechStopped,
         *,
         item_id_value: str,
     ) -> None:
-        if self._aha_version != "v1" or self._vad_turn is None:
-            return
-        if self._vad_turn.discarded:
-            self._vad_turn = None
-            return
-        turn = self._vad_turn
         ordered = sorted(
             turn.segments,
             key=lambda segment: (
@@ -1260,11 +1367,12 @@ class RealtimeTranscriptionSession:
                 ],
             )
         )
-        self._vad_turn = None
 
-    async def _handle_public_speech_stopped(
+    async def _handle_standard_speech_stopped(
         self,
         event: SpeechStopped,
+        *,
+        turn: _VadTurnState | None,
     ) -> None:
         if event.last_segment_start_sample is not None:
             self._consume_deferred_speech_starts(
@@ -1284,8 +1392,7 @@ class RealtimeTranscriptionSession:
         self._active_item_id = None
         if self._manual_commit_enabled:
             self._deferred_speech_starts.clear()
-            self._vad_turn = None
-            self._pending_vad_speech_stops.clear()
+            self._discard_vad_state()
             return
         item = _TranscriptItem(
             item_id=current_item_id,
@@ -1293,10 +1400,12 @@ class RealtimeTranscriptionSession:
             end_sample=event.end_sample,
         )
         self._pending_items.append(item)
-        await self._complete_vad_turn(
-            event,
-            item_id_value=current_item_id,
-        )
+        if turn is not None:
+            await self._emit_vad_turn_completed(
+                turn,
+                event,
+                item_id_value=current_item_id,
+            )
         await self._send_event(
             InputAudioBufferSpeechStoppedEvent(
                 audio_end_ms=round(
@@ -1309,6 +1418,117 @@ class RealtimeTranscriptionSession:
         )
         await self._emit_committed_item(item, append_pending=False)
         await self._promote_deferred_speech_start()
+
+    async def _close_vad_turn(self, turn: _VadTurnState) -> None:
+        for segment in turn.segments:
+            self._physical_vad_segments.pop(
+                segment.physical_segment_id,
+                None,
+            )
+            self._remember_physical_vad_tombstone(
+                segment.physical_segment_id
+            )
+        self._vad_turns.pop(turn.vad_turn_id, None)
+        if self._vad_turn is turn:
+            self._vad_turn = None
+        await self._release_pending_physical_starts()
+
+    async def _try_finalize_vad_turn(self, turn: _VadTurnState) -> None:
+        if self._vad_turns.get(turn.vad_turn_id) is not turn:
+            return
+        if not turn.discarded and turn.pending_completion is None:
+            return
+        if any(not segment.stopped_emitted for segment in turn.segments):
+            return
+        if not turn.discarded:
+            assert turn.pending_completion is not None
+            await self._handle_standard_speech_stopped(
+                turn.pending_completion,
+                turn=turn,
+            )
+        await self._close_vad_turn(turn)
+
+    async def _handle_vad_turn_progress(
+        self,
+        event: AsrInferencer.Result,
+    ) -> None:
+        physical_segment_ids = self._physical_segment_ids(event)
+        if self._all_physical_ids_are_tombstones(physical_segment_ids):
+            logger.debug(
+                "忽略已关闭物理段的 VAD turn_progress: %s",
+                physical_segment_ids,
+            )
+            return
+        turn = self._turn_for_physical_ids(physical_segment_ids)
+        if turn is None and self._vad_turn is not None:
+            matching = [
+                segment
+                for segment in self._vad_turn.segments
+                if segment.start_sample == event.start_sample
+            ]
+            turn = self._vad_turn if matching else None
+            physical_segment_ids = tuple(
+                segment.physical_segment_id for segment in matching
+            )
+        if turn is None or not physical_segment_ids:
+            logger.warning(
+                "忽略无法关联物理段的 VAD turn_progress: "
+                "sequence=%s physical_segment_ids=%s range=%s-%s",
+                self._workflow_event_sequence,
+                physical_segment_ids,
+                event.start_sample,
+                event.end_sample,
+            )
+            return
+        last = self._physical_vad_segments.get(physical_segment_ids[-1])
+        if last is None or last.turn_id != turn.vad_turn_id:
+            return
+        last.resolution = "continued"
+        await self._release_pending_physical_starts()
+
+    async def _handle_vad_turn_completed(
+        self,
+        event: SpeechStopped,
+    ) -> None:
+        physical_segment_ids = self._physical_segment_ids(event)
+        if self._all_physical_ids_are_tombstones(physical_segment_ids):
+            logger.debug(
+                "忽略已关闭物理段的 VAD speech_stopped: %s",
+                physical_segment_ids,
+            )
+            return
+        turn = self._turn_for_physical_ids(physical_segment_ids)
+        if turn is None and self._vad_turn is not None:
+            matching = [
+                segment
+                for segment in self._vad_turn.segments
+                if (
+                    event.last_segment_start_sample is None
+                    or segment.start_sample
+                    <= event.last_segment_start_sample
+                )
+            ]
+            if matching:
+                turn = self._vad_turn
+                physical_segment_ids = tuple(
+                    segment.physical_segment_id for segment in matching
+                )
+        if turn is None or not physical_segment_ids:
+            logger.warning(
+                "VAD speech_stopped 无法关联物理段，继续发送标准事件: "
+                "sequence=%s physical_segment_ids=%s range=%s-%s",
+                self._workflow_event_sequence,
+                physical_segment_ids,
+                event.start_sample,
+                event.end_sample,
+            )
+            await self._handle_standard_speech_stopped(event, turn=None)
+            return
+        last = self._physical_vad_segments.get(physical_segment_ids[-1])
+        if last is not None:
+            last.resolution = "completed"
+        turn.pending_completion = event
+        await self._try_finalize_vad_turn(turn)
 
     def _defer_speech_start(self, event: SpeechStarted) -> None:
         if self._deferred_speech_starts:
@@ -1344,7 +1564,19 @@ class RealtimeTranscriptionSession:
             sample_rate=event.sample_rate,
         )
 
-    async def _handle_workflow_event(self, output_name: str, event: Any) -> None:
+    async def _handle_workflow_event(
+        self,
+        output_name: str,
+        event: Any,
+        *,
+        sequence: int | None = None,
+    ) -> None:
+        if sequence is None:
+            self._workflow_event_sequence = (
+                getattr(self, "_workflow_event_sequence", 0) + 1
+            )
+        else:
+            self._workflow_event_sequence = sequence
         if output_name == "vad_progress" and isinstance(event, VadProgress):
             if self._aha_version != "v1":
                 return
@@ -1595,14 +1827,46 @@ class RealtimeTranscriptionSession:
                     )
                 )
             if event.status != "matched":
-                self._pending_vad_speech_stops.clear()
-                if self._vad_turn is not None:
-                    self._vad_turn.discarded = True
-                    if all(
-                        segment.end_sample is not None
+                physical_segment_ids = self._physical_segment_ids(event)
+                if self._all_physical_ids_are_tombstones(
+                    physical_segment_ids
+                ):
+                    logger.debug(
+                        "忽略已关闭物理段的说话人过滤结果: %s",
+                        physical_segment_ids,
+                    )
+                    return
+                turn = self._turn_for_physical_ids(physical_segment_ids)
+                if turn is None and self._vad_turn is not None:
+                    matching = [
+                        segment
                         for segment in self._vad_turn.segments
-                    ):
-                        self._vad_turn = None
+                        if segment.start_sample >= event.start_sample
+                        and segment.start_sample < event.end_sample
+                    ]
+                    if matching:
+                        turn = self._vad_turn
+                        physical_segment_ids = tuple(
+                            segment.physical_segment_id
+                            for segment in matching
+                        )
+                if turn is None:
+                    logger.warning(
+                        "说话人过滤结果无法关联物理段: "
+                        "sequence=%s physical_segment_ids=%s range=%s-%s",
+                        self._workflow_event_sequence,
+                        physical_segment_ids,
+                        event.start_sample,
+                        event.end_sample,
+                    )
+                else:
+                    turn.discarded = True
+                    last = self._physical_vad_segments.get(
+                        physical_segment_ids[-1]
+                    )
+                    if last is not None:
+                        last.resolution = "rejected"
+                    await self._try_finalize_vad_turn(turn)
             return
         if output_name == "vector_search" and isinstance(event, VectorSearchResult):
             if self._aha_version != "v1":
@@ -1660,6 +1924,7 @@ class RealtimeTranscriptionSession:
                 and isinstance(event, AsrInferencer.Result)
                 and not event.turn_completed
             ):
+                await self._handle_vad_turn_progress(event)
                 if self._active_item_id is None:
                     self._consume_deferred_speech_starts(
                         through_start_sample=event.start_sample,
@@ -1684,10 +1949,13 @@ class RealtimeTranscriptionSession:
             )
             return
         if isinstance(event, SpeechStopped):
-            if self._awaits_open_physical_segment(event):
-                self._pending_vad_speech_stops.append(event)
-                return
-            await self._handle_public_speech_stopped(event)
+            if self._aha_version == "v1":
+                await self._handle_vad_turn_completed(event)
+            else:
+                await self._handle_standard_speech_stopped(
+                    event,
+                    turn=None,
+                )
             return
         if not isinstance(event, AsrInferencer.Result):
             return

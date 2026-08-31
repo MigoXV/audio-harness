@@ -28,6 +28,7 @@ class _DiarizationSourceSpan:
     source_start_sample: int
     source_end_sample: int
     source_completed: bool
+    physical_segment_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -212,6 +213,13 @@ class DiarizationBatch:
                 )
                 for span, overlap_start, overlap_end in overlaps
             ),
+            physical_segment_ids=tuple(
+                dict.fromkeys(
+                    physical_segment_id
+                    for span, _, _ in overlaps
+                    for physical_segment_id in span.physical_segment_ids
+                )
+            ),
         )
         return mapped, candidate
 
@@ -297,6 +305,7 @@ class DiarizationBatch:
                                 0 if fallback else min_asr_segment_seconds
                             ),
                         ),
+                        physical_segment_ids=span.physical_segment_ids,
                     )
                 )
         if result:
@@ -360,6 +369,7 @@ class DiarizationBatcher:
                     source_completed=(
                         source_completed and index == len(spans) - 1
                     ),
+                    physical_segment_ids=candidate.physical_segment_ids,
                 )
             )
 

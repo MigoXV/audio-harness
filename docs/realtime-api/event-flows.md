@@ -19,9 +19,10 @@ Client                                      Server
   | <------ transcription.completed ------------ |
 ```
 
-协商 AHA v1 后，主物理 VAD 会即时产生带 `physical_segment_id` 的
-`x_aha.vad.physical_speech_started/stopped`。同一语义轮次内的物理段共享
-`vad_turn_id`；轮次完成时依次发送 `x_aha.vad.turn_completed` 和原生 speech stopped。
+协商 AHA v1 后，主物理 VAD 会产生带 `physical_segment_id` 的
+`x_aha.vad.physical_speech_started/stopped`。首段 started 即时发送；若前一段语义结果
+尚未确定，后一段边界会短暂暂存。同一语义轮次内的物理段共享 `vad_turn_id`；轮次
+完成时依次发送 `x_aha.vad.turn_completed` 和原生 speech stopped。
 
 ## 手动提交
 

@@ -18,6 +18,7 @@ class SpeechStopped(NamedTuple):
     last_segment_start_sample: int | None = None
     physical_segment_id: str | None = None
     awaiting_physical_stop: bool = False
+    physical_segment_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,7 @@ class SpeakerFilterResult:
     ]
     speaker_id: str | None = None
     score: float | None = None
+    physical_segment_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
