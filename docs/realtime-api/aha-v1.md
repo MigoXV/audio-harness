@@ -83,7 +83,7 @@ Harness 从稳定 `speech_started` 出口自动确定唯一的主物理 VAD，�
 
 `processed_audio_ms` 是当前一次 commit 实际消费的完整 PCM 时长，包含尾部静音，不是连接累计值。普通事件省略 `final`，等同于 false。clear、异常取消、未协商 AHA v1 或节点配置为 `0` 时不会发送正常终值。
 
-主物理 VAD 的开始和结束边界会立即成对发送，不等待语义 VAD：
+每个语义轮次的首个主物理 VAD 开始边界会立即发送：
 
 ```json
 {
@@ -108,6 +108,9 @@ Harness 从稳定 `speech_started` 出口自动确定唯一的主物理 VAD，�
 ```
 
 同一个物理段的 started/stopped 共享 `physical_segment_id`；同一工作流轮次内的多个物理段共享 `vad_turn_id`。`item_id` 在 OpenAI item 尚未创建时省略。
+如果后一物理段到达时前一段的语义或说话人过滤结果仍未决，服务端会短暂暂存
+后一段的 started/stopped，待前一段确定为继续、完成或拒绝后再按正确
+`vad_turn_id` 成对发送。该暂存不会改变音频绝对时间戳，也不会产生 ID 纠正事件。
 
 工作流公共 `speech_stopped` 到达时，先发送聚合关系，再发送原生 stopped：
 

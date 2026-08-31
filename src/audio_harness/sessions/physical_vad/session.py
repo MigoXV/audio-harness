@@ -179,6 +179,7 @@ class PhysicalVadSession:
                 evaluate_turn=evaluate_turn,
                 physical_segment_id=self._physical_segment_id,
                 physical_segment_completed=physical_segment_completed,
+                physical_segment_ids=(self._physical_segment_id,),
             ),
         )
 
@@ -209,6 +210,7 @@ class PhysicalVadSession:
                     end_sample=end,
                     sample_rate=self._sample_rate,
                     physical_segment_id=self._physical_segment_id,
+                    physical_segment_ids=(self._physical_segment_id,),
                 ),
             )
         )

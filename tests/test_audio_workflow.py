@@ -310,8 +310,10 @@ def test_physical_vad_tail_drain_keeps_segment_id() -> None:
     assert isinstance(segment, _SegmentCandidate)
     assert isinstance(stopped, SpeechStopped)
     assert segment.physical_segment_id == started.physical_segment_id
+    assert segment.physical_segment_ids == (started.physical_segment_id,)
     assert segment.physical_segment_completed is True
     assert stopped.physical_segment_id == started.physical_segment_id
+    assert stopped.physical_segment_ids == (started.physical_segment_id,)
 
 
 @pytest.mark.asyncio
@@ -324,7 +326,12 @@ async def test_semantic_vad_preserves_gaps_in_the_session_timeline() -> None:
     )
 
     first = await state.accept(
-        _SegmentCandidate(bytes(4), start_sample=10, end_sample=12),
+        _SegmentCandidate(
+            bytes(4),
+            start_sample=10,
+            end_sample=12,
+            physical_segment_ids=("pseg_a",),
+        ),
         failure_policy=FailurePolicy.FAIL_OPEN,
     )
     second = await state.accept(
@@ -333,6 +340,7 @@ async def test_semantic_vad_preserves_gaps_in_the_session_timeline() -> None:
             start_sample=20,
             end_sample=22,
             physical_segment_completed=True,
+            physical_segment_ids=("pseg_b",),
         ),
         failure_policy=FailurePolicy.FAIL_OPEN,
     )
@@ -342,6 +350,7 @@ async def test_semantic_vad_preserves_gaps_in_the_session_timeline() -> None:
         payload for port, payload in second if port == "speech_stopped"
     )
     assert [port for port, _ in first] == ["turn_progress"]
+    assert first[0][1].physical_segment_ids == ("pseg_a",)
     assert segment.audio == bytes(8)
     assert (segment.start_sample, segment.end_sample) == (10, 22)
     assert [
@@ -350,6 +359,8 @@ async def test_semantic_vad_preserves_gaps_in_the_session_timeline() -> None:
     ] == [(0, 2, 10), (2, 4, 20)]
     assert (stopped.start_sample, stopped.end_sample) == (10, 22)
     assert stopped.awaiting_physical_stop is True
+    assert segment.physical_segment_ids == ("pseg_a", "pseg_b")
+    assert stopped.physical_segment_ids == ("pseg_a", "pseg_b")
 
 
 def test_speaker_clustering_uses_safe_hdbscan_defaults() -> None:
@@ -864,6 +875,19 @@ async def test_speaker_filter_is_fail_closed_and_only_passes_allowed_speaker(
     )
     assert isinstance(decision, SpeakerFilterResult)
     assert decision.status == expected_status
+    assert len(decision.physical_segment_ids) == 1
+    assert decision.physical_segment_ids[0].startswith("pseg_")
+    if expected_status == "matched":
+        filtered_stop = next(
+            output.payload
+            for output in outputs
+            if output.name == "speech_stopped"
+        )
+        assert isinstance(filtered_stop, SpeechStopped)
+        assert (
+            filtered_stop.physical_segment_ids
+            == decision.physical_segment_ids
+        )
     assert any(
         output.name == "vad_progress"
         and isinstance(output.payload, VadProgress)

@@ -26,6 +26,7 @@ class AsrInferencer(ABC):
         turn_completed: bool
         language_code: str | None = None
         metadata: Mapping[str, str] = _EMPTY_METADATA
+        physical_segment_ids: tuple[str, ...] = ()
 
     @abstractmethod
     async def ready(self) -> None: ...
