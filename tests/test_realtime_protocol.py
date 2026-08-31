@@ -85,12 +85,30 @@ def test_standard_client_events_still_use_openai_models() -> None:
             "processed_audio_ms": 100,
         },
         {
+            "type": "x_aha.vad.physical_speech_started",
+            "event_id": "e",
+            "vad_turn_id": "vturn_1",
+            "physical_segment_id": "pseg_1",
+            "item_id": "i",
+            "audio_start_ms": 0,
+        },
+        {
             "type": "x_aha.vad.physical_speech_stopped",
             "event_id": "e",
+            "vad_turn_id": "vturn_1",
+            "physical_segment_id": "pseg_1",
             "item_id": "i",
             "audio_start_ms": 0,
             "audio_end_ms": 10,
-            "turn_completed": False,
+        },
+        {
+            "type": "x_aha.vad.turn_completed",
+            "event_id": "e",
+            "vad_turn_id": "vturn_1",
+            "item_id": "i",
+            "audio_start_ms": 0,
+            "audio_end_ms": 10,
+            "physical_segment_ids": ["pseg_1"],
         },
         {
             "type": "x_aha.input_audio_transcription.interim",
@@ -263,6 +281,21 @@ def test_aha_v1_events_forbid_unknown_fields() -> None:
                 "event_id": "e",
                 "processed_audio_ms": 100,
                 "typo": True,
+            }
+        )
+
+
+def test_aha_v1_rejects_legacy_physical_stop_turn_completed() -> None:
+    with pytest.raises(ValidationError):
+        AHA_REALTIME_SERVER_EVENT_ADAPTER.validate_python(
+            {
+                "type": "x_aha.vad.physical_speech_stopped",
+                "event_id": "e",
+                "vad_turn_id": "vturn_1",
+                "physical_segment_id": "pseg_1",
+                "audio_start_ms": 0,
+                "audio_end_ms": 10,
+                "turn_completed": False,
             }
         )
 

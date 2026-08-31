@@ -38,21 +38,25 @@ class SemanticVadSession:
         self._pending_audio = bytearray()
         self._pending_spans: list[TimelineSpan] = []
         self._pending_last_segment_start: int | None = None
+        self._pending_awaiting_physical_stop = False
 
     def _complete(self) -> list[SemanticEmission]:
         if not self._pending_spans or not self._pending_audio:
             self._pending_audio.clear()
             self._pending_spans.clear()
             self._pending_last_segment_start = None
+            self._pending_awaiting_physical_stop = False
             return []
         start = self._pending_spans[0].session_start_sample
         end = self._pending_spans[-1].session_end_sample
         last_segment_start = self._pending_last_segment_start
+        awaiting_physical_stop = self._pending_awaiting_physical_stop
         audio = bytes(self._pending_audio)
         spans = tuple(self._pending_spans)
         self._pending_audio.clear()
         self._pending_spans.clear()
         self._pending_last_segment_start = None
+        self._pending_awaiting_physical_stop = False
         return [
             (
                 "segments",
@@ -72,6 +76,7 @@ class SemanticVadSession:
                     end_sample=end,
                     sample_rate=self._sample_rate,
                     last_segment_start_sample=last_segment_start,
+                    awaiting_physical_stop=awaiting_physical_stop,
                 ),
             ),
         ]
@@ -101,6 +106,10 @@ class SemanticVadSession:
         )
         if spans:
             self._pending_last_segment_start = spans[0].session_start_sample
+        self._pending_awaiting_physical_stop = (
+            candidate.physical_segment_completed
+            and end_sample == len(candidate.audio) // 2
+        )
 
     async def accept(
         self,

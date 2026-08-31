@@ -40,6 +40,8 @@ class SegmentCandidate(NamedTuple):
     evaluate_turn: bool = True
     diarization: DiarizationContext | None = None
     timeline_spans: tuple[TimelineSpan, ...] = ()
+    physical_segment_id: str | None = None
+    physical_segment_completed: bool = False
 
 
 def candidate_timeline_spans(

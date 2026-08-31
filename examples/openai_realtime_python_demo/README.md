@@ -44,20 +44,21 @@ extra_query={"intent": "transcription", "x_aha": "v1"}
 不启用扩展时仍会传入 `intent=transcription`。模型不放在 WebSocket URL 中，而由随后
 发送的 `session.update.audio.input.transcription.model` 指定。
 
-当物理 VAD 已检测到一段语音结束、但语义 VAD 判断用户还没有说完时，
-服务端会发送以下扩展事件：
+主物理 VAD 会即时发送成对的开始和结束扩展事件；同一语义轮次内的多个物理段
+共享 `vad_turn_id`：
 
 ```json
 {
   "type": "x_aha.vad.physical_speech_stopped",
   "event_id": "event_xxx",
+  "vad_turn_id": "vturn_xxx",
+  "physical_segment_id": "pseg_xxx",
   "item_id": "item_xxx",
   "audio_start_ms": 1200,
-  "audio_end_ms": 2380,
-  "turn_completed": false
+  "audio_end_ms": 2380
 }
 ```
 
-后续语义轮次真正完成时仍发送标准
+后续语义轮次真正完成时先发送 `x_aha.vad.turn_completed`，再发送标准
 `input_audio_buffer.speech_stopped`。不使用 `--x-aha` 时，服务端只发送
 OpenAI Realtime 原生事件，因此原有客户端不需要修改。

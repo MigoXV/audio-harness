@@ -715,12 +715,22 @@ def test_realtime_x_aha_reports_pending_semantic_turn() -> None:
                     "audio": base64.b64encode(audio).decode("ascii"),
                 }
             )
-            events = [websocket.receive_json() for _ in range(9)]
+            events = []
+            while not any(
+                event["type"]
+                == "conversation.item.input_audio_transcription.completed"
+                for event in events
+            ):
+                events.append(websocket.receive_json())
 
     assert [event["type"] for event in events] == [
+        "x_aha.vad.physical_speech_started",
         "input_audio_buffer.speech_started",
-        "x_aha.vad.progress",
         "x_aha.vad.physical_speech_stopped",
+        "x_aha.vad.physical_speech_started",
+        "x_aha.vad.physical_speech_stopped",
+        "x_aha.vad.progress",
+        "x_aha.vad.turn_completed",
         "input_audio_buffer.speech_stopped",
         "input_audio_buffer.committed",
         "conversation.item.added",
@@ -728,18 +738,43 @@ def test_realtime_x_aha_reports_pending_semantic_turn() -> None:
         "conversation.item.input_audio_transcription.delta",
         "conversation.item.input_audio_transcription.completed",
     ]
-    progress = events[1]
+    progress = next(
+        event for event in events if event["type"] == "x_aha.vad.progress"
+    )
     assert progress["processed_audio_ms"] == 200
     assert "final" not in progress
-    extension = events[2]
-    assert extension["turn_completed"] is False
+    extension = next(
+        event
+        for event in events
+        if event["type"] == "x_aha.vad.physical_speech_stopped"
+    )
+    assert "turn_completed" not in extension
     assert extension["audio_start_ms"] == 0
     assert extension["audio_end_ms"] > 0
+    started = [
+        event
+        for event in events
+        if event["type"] == "x_aha.vad.physical_speech_started"
+    ]
+    stopped = [
+        event
+        for event in events
+        if event["type"] == "x_aha.vad.physical_speech_stopped"
+    ]
+    completed = next(
+        event for event in events if event["type"] == "x_aha.vad.turn_completed"
+    )
+    assert [event["physical_segment_id"] for event in started] == [
+        event["physical_segment_id"] for event in stopped
+    ]
+    assert completed["physical_segment_ids"] == [
+        event["physical_segment_id"] for event in started
+    ]
     assert {
         event["item_id"]
         for event in events
         if "item_id" in event
-    } == {events[0]["item_id"]}
+    } == {events[1]["item_id"]}
 
 
 def test_realtime_native_client_does_not_receive_x_aha_events() -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
+from dataclasses import replace
 import json
 from typing import Any
 
@@ -182,7 +183,7 @@ def snapshot(*, target: str = "http://dsh.test/root") -> AgentBackendSnapshot:
 
 
 @pytest.mark.asyncio
-async def test_capabilities_validate_http_and_websocket_contract(
+async def test_capabilities_validate_http_without_starting_event_streams(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TEST_DSH_AUTH", "Bearer hidden")
@@ -197,11 +198,7 @@ async def test_capabilities_validate_http_and_websocket_contract(
         assert result.wire_version == "0.0.1"
         assert result.presets == ("standard", "minimal")
         assert result.plugins[0].entry_id == "tool-bash"
-        assert {stream for stream, _ in ws.calls} == {"events.mux", "events.host"}
-        assert all(
-            kwargs["additional_headers"] == {"Authorization": "Bearer hidden"}
-            for _, kwargs in ws.calls
-        )
+        assert ws.calls == []
         plugin_call = next(call for call in http.calls if call[0] == "pluginInventory/list")
         assert plugin_call[1]["payload"] == {"args": {}}
         assert plugin_call[2]["authorization"] == "Bearer hidden"
@@ -286,6 +283,36 @@ async def test_rpc_surfaces_remote_error(monkeypatch: pytest.MonkeyPatch) -> Non
                 snapshot(), cwd="/workspace", agent_preset="nope"
             )
         assert exc.value.details == {"preset": "nope"}
+    finally:
+        await gateway.close()
+
+
+@pytest.mark.asyncio
+async def test_failed_session_open_stops_websocket_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TEST_DSH_AUTH", "secret")
+    attempts = 0
+
+    def connect(_url: str, **_kwargs: Any):
+        nonlocal attempts
+        attempts += 1
+        raise OSError("DSH offline")
+
+    gateway = DshWebGateway(
+        transport=FakeDshHttp().transport(),
+        connect_ws=connect,
+    )
+    try:
+        with pytest.raises(RuntimeError, match="连接 DSH WebSocket 超时"):
+            await gateway.open_session(
+                replace(snapshot(), connect_timeout_seconds=0.05),
+                cwd="/workspace",
+                agent_preset="standard",
+            )
+        attempts_after_failure = attempts
+        await asyncio.sleep(0.3)
+        assert attempts == attempts_after_failure
     finally:
         await gateway.close()
 
@@ -422,6 +449,28 @@ async def test_sessions_share_streams_route_events_and_answer_controls(
     finally:
         await first.close()
         await second.close()
+        await gateway.close()
+
+
+@pytest.mark.asyncio
+async def test_last_session_close_stops_event_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TEST_DSH_AUTH", "secret")
+    ws = FakeWebSocketHub()
+    gateway = DshWebGateway(
+        transport=FakeDshHttp().transport(),
+        connect_ws=ws.connect,
+    )
+    try:
+        session = await gateway.open_session(
+            snapshot(), cwd="/workspace", agent_preset="standard"
+        )
+        assert len(ws.calls) == 2
+        await session.close()
+        await asyncio.sleep(0.3)
+        assert len(ws.calls) == 2
+    finally:
         await gateway.close()
 
 

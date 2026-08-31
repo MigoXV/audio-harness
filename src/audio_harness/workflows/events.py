@@ -8,6 +8,7 @@ from typing import Any, Literal
 class SpeechStarted(NamedTuple):
     start_sample: int
     sample_rate: int
+    physical_segment_id: str | None = None
 
 
 class SpeechStopped(NamedTuple):
@@ -15,6 +16,8 @@ class SpeechStopped(NamedTuple):
     end_sample: int
     sample_rate: int
     last_segment_start_sample: int | None = None
+    physical_segment_id: str | None = None
+    awaiting_physical_stop: bool = False
 
 
 @dataclass(frozen=True)

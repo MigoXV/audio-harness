@@ -32,12 +32,30 @@ class AhaVadProgressEvent(AhaV1ServerEventBase):
     final: Literal[True] | None = None
 
 
+class AhaVadPhysicalSpeechStartedEvent(AhaV1ServerEventBase):
+    type: Literal["x_aha.vad.physical_speech_started"]
+    vad_turn_id: str
+    physical_segment_id: str
+    item_id: str | None = None
+    audio_start_ms: NonNegativeInt
+
+
 class AhaVadPhysicalSpeechStoppedEvent(AhaV1ServerEventBase):
     type: Literal["x_aha.vad.physical_speech_stopped"]
-    item_id: str
+    vad_turn_id: str
+    physical_segment_id: str
+    item_id: str | None = None
     audio_start_ms: NonNegativeInt
     audio_end_ms: NonNegativeInt
-    turn_completed: Literal[False]
+
+
+class AhaVadTurnCompletedEvent(AhaV1ServerEventBase):
+    type: Literal["x_aha.vad.turn_completed"]
+    vad_turn_id: str
+    item_id: str | None = None
+    audio_start_ms: NonNegativeInt
+    audio_end_ms: NonNegativeInt
+    physical_segment_ids: list[str]
 
 
 class AhaInputAudioTranscriptionInterimEvent(AhaV1ServerEventBase):
@@ -315,7 +333,9 @@ class AhaAgentBackendCancelEvent(AhaV1ClientEventBase):
 
 AhaV1ServerEvent: TypeAlias = (
     AhaVadProgressEvent
+    | AhaVadPhysicalSpeechStartedEvent
     | AhaVadPhysicalSpeechStoppedEvent
+    | AhaVadTurnCompletedEvent
     | AhaInputAudioTranscriptionInterimEvent
     | AhaInputAudioTranscriptionInterimClearedEvent
     | AhaVectorSearchCompletedEvent

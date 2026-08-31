@@ -109,6 +109,7 @@ AudioOutputPayload = (
 class AudioInferenceRequest:
     recognition: AsrInferencer.Options
     include_vad_events: bool = False
+    include_physical_vad_events: bool = False
     include_vad_progress: bool = False
     include_interim_transcripts: bool = False
     include_vector_search: bool = False
@@ -203,14 +204,14 @@ class _EdgeRouter:
             self._outgoing.setdefault(source_key, []).append(queue)
             self._incoming[(edge.target.node_id, edge.target.port)] = queue
             self._incoming_sources[queue] = source_key[0]
+        for source, names in (implicit_bindings or {}).items():
+            self._bindings.setdefault(source, []).extend(names)
         for binding in plan.definition.outputs:
             if binding.name not in active_outputs:
                 continue
             self._bindings.setdefault(
                 (binding.source.node_id, binding.source.port), []
             ).append(binding.name)
-        for source, names in (implicit_bindings or {}).items():
-            self._bindings.setdefault(source, []).extend(names)
 
     def has_consumers(self, node_id: str, port: str) -> bool:
         source = (node_id, port)
@@ -433,6 +434,15 @@ class AudioWorkflowRuntime:
             active_outputs.add("diarization_cluster")
         active_nodes = _output_ancestors(self._plan, active_outputs)
         implicit_bindings: dict[tuple[str, str], tuple[str, ...]] = {}
+        if request.include_physical_vad_events:
+            physical_vad = speech_started_physical_vad(self._plan)
+            if physical_vad is not None:
+                implicit_bindings[(physical_vad[0], "speech_started")] = (
+                    "physical_speech_started",
+                )
+                implicit_bindings[(physical_vad[0], "speech_stopped")] = (
+                    "physical_speech_stopped",
+                )
         if request.include_vad_progress:
             physical_vad = speech_started_physical_vad(self._plan)
             if (

@@ -61,7 +61,7 @@ Node 后端的上游时序固定如下：
 → input_audio_buffer.commit
 ```
 
-后端只在收到 `session.created` 后发送配置，并且只有收到 `session.updated` 后才接受浏览器音频。协议层请求兼容的 `server_vad`；语义断句仍由 Workflow 的 `semantic_vad` 节点实现。Workflow 的物理 VAD 可先报告 `x_aha.vad.physical_speech_stopped`，页面显示“仍在等待本轮语义结束”；直到语义 VAD 给出正式边界，才收到原生 `input_audio_buffer.speech_stopped` 并开始正式转写。停止发送或文件结束时，后端先补送 2 秒静音，让语义 VAD 有机会完成最后一段音频，再发送 `input_audio_buffer.commit` 排空整个 Workflow。最终聚类快照随后把说话人分离进度推进到 100%。
+后端只在收到 `session.created` 后发送配置，并且只有收到 `session.updated` 后才接受浏览器音频。协议层请求兼容的 `server_vad`；语义断句仍由 Workflow 的 `semantic_vad` 节点实现。Workflow 的主物理 VAD 即时报告成对的 `x_aha.vad.physical_speech_started/stopped`；同一语义轮次内的物理段共享 `vad_turn_id`。语义边界确定后先收到 `x_aha.vad.turn_completed`，再收到原生 `input_audio_buffer.speech_stopped` 并开始正式转写。停止发送或文件结束时，后端先补送 2 秒静音，让语义 VAD 有机会完成最后一段音频，再发送 `input_audio_buffer.commit` 排空整个 Workflow。最终聚类快照随后把说话人分离进度推进到 100%。
 
 ## 页面展示规则
 

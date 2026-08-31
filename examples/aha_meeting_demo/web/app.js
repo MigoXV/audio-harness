@@ -315,8 +315,14 @@ function connect() {
       streamAudio();
       return;
     }
+    if (event.type === "x_aha.vad.physical_speech_started") {
+      elements.status.textContent = "检测到物理语音，正在接收本段音频。";
+    }
     if (event.type === "x_aha.vad.physical_speech_stopped") {
-      elements.status.textContent = "检测到物理停顿，语义 VAD 仍在确认本轮边界。";
+      elements.status.textContent = "物理语音已停止，正在等待语义轮次结果。";
+    }
+    if (event.type === "x_aha.vad.turn_completed") {
+      elements.status.textContent = "语义轮次已确定，正在提交正式转写。";
     }
     if (event.type === "input_audio_buffer.speech_stopped") {
       elements.status.textContent = "语义轮次已结束，正在生成转写并更新说话人。";
