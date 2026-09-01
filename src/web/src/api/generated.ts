@@ -1533,7 +1533,7 @@ export interface components {
          * EngineApi
          * @enum {string}
          */
-        EngineApi: "ux_denoise" | "ux_speech" | "ux_vad" | "responses" | "qwen_tts_duplex" | "engine_feature" | "ux_speaker_diarization";
+        EngineApi: "ux_denoise" | "ux_speech" | "ux_vad" | "responses" | "qwen_tts_duplex" | "engine_feature" | "ux_speaker_diarization" | "dummy_diarize";
         /** EngineCreate */
         EngineCreate: {
             /** Slug */
@@ -1656,7 +1656,7 @@ export interface components {
          * EngineProtocol
          * @enum {string}
          */
-        EngineProtocol: "grpc" | "https";
+        EngineProtocol: "grpc" | "https" | "dummy";
         /** EngineRead */
         EngineRead: {
             /** Id */

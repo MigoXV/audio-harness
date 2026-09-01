@@ -107,6 +107,11 @@ Vector 初始化算法和维度；没有可用空间时使用 `voiceprints`、`e
 重叠时以后一个片段的起点切分。把节点 `postprocessing` 显式设为 `null` 可恢复原始
 时间戳增量和 RPC 结束后统一送入 ASR 的兼容行为。
 
+不配置外部说话人分离服务时，可注册 `dummy_diarize` / `dummy` 引擎资产（固定地址
+`dummy://diarize`）并绑定到说话人分离节点。它把每个推理批次完整标记为
+`speaker=0`，从而继续产生 `x_aha.input_audio_transcription.speaker.completed`，供只消费
+分角色转写事件的客户端取得单说话人主转写结果。
+
 说话人聚类节点默认启用
 `audio_harness.speaker_clustering.complete_link_merge` v1 后处理，用于减少同一个人被
 拆成多个全局 speaker ID。每次上游成功返回全量聚类快照后，节点按原始 speaker ID

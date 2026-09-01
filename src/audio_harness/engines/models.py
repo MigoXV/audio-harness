@@ -24,11 +24,13 @@ class EngineApi(str, Enum):
     QWEN_TTS_DUPLEX = "qwen_tts_duplex"
     ENGINE_FEATURE = "engine_feature"
     UX_SPEAKER_DIARIZATION = "ux_speaker_diarization"
+    DUMMY_DIARIZE = "dummy_diarize"
 
 
 class EngineProtocol(str, Enum):
     GRPC = "grpc"
     HTTPS = "https"
+    DUMMY = "dummy"
 
 
 class EngineStatus(str, Enum):

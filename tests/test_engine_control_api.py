@@ -128,7 +128,13 @@ def engine_payload(
         "kind": kind,
         "api": api,
         "protocol": protocol,
-        "target": "https://example.test/v1" if protocol == "https" else "test:1",
+        "target": (
+            "https://example.test/v1"
+            if protocol == "https"
+            else "dummy://diarize"
+            if protocol == "dummy"
+            else "test:1"
+        ),
         "connect_timeout_seconds": 1,
         "enabled": True,
         "status": "healthy",
@@ -306,6 +312,52 @@ async def test_diarization_engine_uses_dedicated_kind_and_api(
     assert response.status_code == 201
     assert response.json()["kind"] == "diarization"
     assert response.json()["api"] == "ux_speaker_diarization"
+
+
+@pytest.mark.asyncio
+async def test_dummy_diarization_engine_uses_local_protocol(
+    control_plane: ControlPlane,
+) -> None:
+    response = await control_plane.client.post(
+        "/api/v1/engines",
+        json=engine_payload(
+            "dummy-diarize",
+            kind="diarization",
+            api="dummy_diarize",
+            protocol="dummy",
+        ),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["target"] == "dummy://diarize"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("api", "protocol", "target"),
+    [
+        ("dummy_diarize", "grpc", "test:1"),
+        ("ux_speaker_diarization", "dummy", "dummy://diarize"),
+        ("dummy_diarize", "dummy", "dummy://other"),
+    ],
+)
+async def test_diarization_engine_rejects_invalid_dummy_shape(
+    control_plane: ControlPlane,
+    api: str,
+    protocol: str,
+    target: str,
+) -> None:
+    payload = engine_payload(
+        f"invalid-{api.replace('_', '-')}-{protocol}",
+        kind="diarization",
+        api=api,
+        protocol=protocol,
+    )
+    payload["target"] = target
+
+    response = await control_plane.client.post("/api/v1/engines", json=payload)
+
+    assert response.status_code == 409
 
 
 @pytest.mark.asyncio

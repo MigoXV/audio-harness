@@ -4763,7 +4763,8 @@
           "responses",
           "qwen_tts_duplex",
           "engine_feature",
-          "ux_speaker_diarization"
+          "ux_speaker_diarization",
+          "dummy_diarize"
         ],
         "title": "EngineApi"
       },
@@ -5251,7 +5252,8 @@
         "type": "string",
         "enum": [
           "grpc",
-          "https"
+          "https",
+          "dummy"
         ],
         "title": "EngineProtocol"
       },
