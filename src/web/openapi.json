@@ -478,6 +478,29 @@
         }
       }
     },
+    "/v1/models": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "summary": "List Models",
+        "operationId": "list_models_v1_models_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response List Models V1 Models Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/agent-backends": {
       "get": {
         "tags": [
@@ -2427,156 +2450,6 @@
                 }
               }
             }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/realtime-routes": {
-      "get": {
-        "tags": [
-          "realtime-routes"
-        ],
-        "summary": "List Realtime Routes",
-        "operationId": "list_realtime_routes_api_v1_realtime_routes_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/RealtimeRouteRead"
-                  },
-                  "type": "array",
-                  "title": "Response List Realtime Routes Api V1 Realtime Routes Get"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/realtime-routes/{model}": {
-      "get": {
-        "tags": [
-          "realtime-routes"
-        ],
-        "summary": "Get Realtime Route",
-        "operationId": "get_realtime_route_api_v1_realtime_routes__model__get",
-        "parameters": [
-          {
-            "name": "model",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Model"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RealtimeRouteRead"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [
-          "realtime-routes"
-        ],
-        "summary": "Upsert Realtime Route",
-        "operationId": "upsert_realtime_route_api_v1_realtime_routes__model__put",
-        "parameters": [
-          {
-            "name": "model",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Model"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RealtimeRouteUpsert"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RealtimeRouteRead"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "realtime-routes"
-        ],
-        "summary": "Delete Realtime Route",
-        "operationId": "delete_realtime_route_api_v1_realtime_routes__model__delete",
-        "parameters": [
-          {
-            "name": "model",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Model"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -5899,14 +5772,6 @@
         ],
         "title": "McpServerConfig"
       },
-      "ModelRouteVisibility": {
-        "type": "string",
-        "enum": [
-          "public",
-          "internal"
-        ],
-        "title": "ModelRouteVisibility"
-      },
       "NamedOutputBinding": {
         "properties": {
           "name": {
@@ -6288,84 +6153,6 @@
           "internal_routes"
         ],
         "title": "RealtimeOverviewRead"
-      },
-      "RealtimeRouteRead": {
-        "properties": {
-          "model": {
-            "type": "string",
-            "title": "Model"
-          },
-          "target_type": {
-            "$ref": "#/components/schemas/RealtimeRouteTargetType"
-          },
-          "target_id": {
-            "type": "string",
-            "title": "Target Id"
-          },
-          "visibility": {
-            "$ref": "#/components/schemas/ModelRouteVisibility"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Updated At"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "model",
-          "target_type",
-          "target_id",
-          "visibility",
-          "updated_at"
-        ],
-        "title": "RealtimeRouteRead"
-      },
-      "RealtimeRouteTargetType": {
-        "type": "string",
-        "enum": [
-          "audio_workflow",
-          "voice_agent"
-        ],
-        "title": "RealtimeRouteTargetType"
-      },
-      "RealtimeRouteUpsert": {
-        "properties": {
-          "model": {
-            "type": "string",
-            "maxLength": 100,
-            "minLength": 1,
-            "pattern": "^[a-z0-9][a-z0-9._-]*$",
-            "title": "Model"
-          },
-          "target_type": {
-            "$ref": "#/components/schemas/RealtimeRouteTargetType"
-          },
-          "target_id": {
-            "type": "string",
-            "maxLength": 100,
-            "minLength": 1,
-            "title": "Target Id"
-          },
-          "visibility": {
-            "$ref": "#/components/schemas/ModelRouteVisibility",
-            "default": "public"
-          },
-          "replace_existing": {
-            "type": "boolean",
-            "title": "Replace Existing",
-            "default": false
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "model",
-          "target_type",
-          "target_id"
-        ],
-        "title": "RealtimeRouteUpsert"
       },
       "ResponsesConfig": {
         "properties": {

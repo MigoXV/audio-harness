@@ -82,6 +82,12 @@ def create_workflow_router(
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1", tags=["workflows"])
 
+    async def ensure_slug_available(slug: str) -> None:
+        if any(item.slug == slug for item in await workflows.list()) or any(
+            item.slug == slug for item in await voice_agents.list()
+        ):
+            raise ValueError(f"Realtime model slug 已被其他资源使用: {slug}")
+
     @router.get("/audio-node-types", response_model=list[AudioNodeTypeRead])
     async def list_node_types() -> list[AudioNodeTypeRead]:
         return [
@@ -128,6 +134,7 @@ def create_workflow_router(
         status_code=status.HTTP_201_CREATED,
     )
     async def create_audio_workflow(payload: AudioWorkflowCreate) -> AudioWorkflowRead:
+        await ensure_slug_available(payload.slug)
         return workflow_summary(
             await workflows.create(
                 slug=payload.slug,
@@ -264,6 +271,7 @@ def create_workflow_router(
         status_code=status.HTTP_201_CREATED,
     )
     async def create_voice_agent(payload: VoiceAgentCreate) -> VoiceAgentRead:
+        await ensure_slug_available(payload.slug)
         value = await voice_agents.create(
             slug=payload.slug,
             name=payload.name,

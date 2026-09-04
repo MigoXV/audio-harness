@@ -19,7 +19,7 @@ from audio_harness.agent_backends.catalog import (
 from audio_harness.api.routers.agent_backends import create_agent_backend_router
 from audio_harness.api.routers.data_plane import create_data_plane_router
 from audio_harness.api.routers.engines import create_engine_router
-from audio_harness.api.routers.realtime_routes import create_realtime_route_router
+from audio_harness.api.routers.models import create_model_router
 from audio_harness.api.routers.runtime import (
     create_runtime_router,
     readiness_response,
@@ -38,11 +38,7 @@ from audio_harness.engines.catalog import (
     EngineVoiceDiscoveryError,
     EngineVoiceDiscoveryTimeoutError,
 )
-from audio_harness.realtime_routes.service import (
-    RealtimeRouteConflictError,
-    RealtimeRouteNotFoundError,
-    RealtimeRouteService,
-)
+from audio_harness.serving.model_catalog import RealtimeModelCatalog
 from audio_harness.serving.capacity import ServingCapacity
 from audio_harness.serving.capacity_settings import (
     CapacityRevisionConflictError,
@@ -108,7 +104,7 @@ def create_http_app(
     catalog: EngineCatalog,
     workflows: AudioWorkflowService,
     voice_agents: VoiceAgentService,
-    routes: RealtimeRouteService,
+    models: RealtimeModelCatalog,
     serving_status: ServingStatusService,
     workflow_settings: WorkflowSettingsStore,
     capacity_settings: CapacitySettingsStore,
@@ -136,7 +132,6 @@ def create_http_app(
     @app.exception_handler(AudioWorkflowNotFoundError)
     @app.exception_handler(AudioWorkflowRevisionNotFoundError)
     @app.exception_handler(VoiceAgentNotFoundError)
-    @app.exception_handler(RealtimeRouteNotFoundError)
     @app.exception_handler(VoiceAssetNotFoundError)
     @app.exception_handler(WebRtcCallNotFoundError)
     @app.exception_handler(VectorNotFoundError)
@@ -176,23 +171,6 @@ def create_http_app(
     @app.exception_handler(VectorConflictError)
     async def conflict_handler(_request: Request, exc: Exception) -> JSONResponse:
         return _error(409, "revision_conflict", str(exc))
-
-    @app.exception_handler(RealtimeRouteConflictError)
-    async def route_conflict_handler(
-        _request: Request,
-        exc: RealtimeRouteConflictError,
-    ) -> JSONResponse:
-        return _error(
-            409,
-            "realtime_route_conflict",
-            str(exc),
-            {
-                "model": exc.current.model,
-                "target_type": exc.current.target_type.value,
-                "target_id": exc.current.target_id,
-                "visibility": exc.current.visibility.value,
-            },
-        )
 
     @app.exception_handler(AudioGraphValidationError)
     async def graph_validation_handler(
@@ -241,12 +219,12 @@ def create_http_app(
         return _error(500, "service_error", str(exc))
 
     app.include_router(create_engine_router(catalog))
+    app.include_router(create_model_router(models))
     if agent_backends is not None:
         app.include_router(create_agent_backend_router(agent_backends))
     if vectors is not None and qdrant_config is not None:
         app.include_router(create_vector_router(vectors, qdrant_config))
     app.include_router(create_workflow_router(workflows, voice_agents))
-    app.include_router(create_realtime_route_router(routes))
     app.include_router(
         create_runtime_router(
             serving_status=serving_status,

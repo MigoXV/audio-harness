@@ -7,7 +7,6 @@ import type {
   AudioHarnessApi,
   AudioWorkflow,
   EngineAsset,
-  RealtimeRoute,
   VoiceAgent,
   VoiceAgentDefinition,
   VoiceAgentDraft,
@@ -25,6 +24,7 @@ const tabs = [["build", "构建"], ["access", "接入"], ["test", "测试"], ["h
 
 export function VoiceAgentDetailPage({ api, refreshVersion }: Props) {
   const { profileId = "", tab = "build" } = useParams();
+  const routes: { target_type: string; target_id: string; visibility: string; model: string }[] = [];
   const navigate = useNavigate();
   const [summary, setSummary] = useState<VoiceAgent | null>(null);
   const [draft, setDraft] = useState<VoiceAgentDraft | null>(null);
@@ -32,7 +32,6 @@ export function VoiceAgentDetailPage({ api, refreshVersion }: Props) {
   const [workflows, setWorkflows] = useState<AudioWorkflow[]>([]);
   const [engines, setEngines] = useState<EngineAsset[]>([]);
   const [backends, setBackends] = useState<AgentBackend[]>([]);
-  const [routes, setRoutes] = useState<RealtimeRoute[]>([]);
   const [history, setHistory] = useState<VoiceAgentRevision[]>([]);
   const [validation, setValidation] = useState<VoiceAgentValidation | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -43,14 +42,14 @@ export function VoiceAgentDetailPage({ api, refreshVersion }: Props) {
 
   const load = useCallback(async () => {
     try {
-      const [agents, nextDraft, nextWorkflows, engineList, backendList, nextRoutes, revisions] = await Promise.all([
+      const [agents, nextDraft, nextWorkflows, engineList, backendList, revisions] = await Promise.all([
         api.listVoiceAgents(), api.getVoiceAgentDraft(profileId), api.listAudioWorkflows(),
-        api.listEngines({ limit: 200 }), api.listAgentBackends ? api.listAgentBackends() : Promise.resolve([]), api.listRealtimeRoutes(), api.listVoiceAgentRevisions(profileId),
+        api.listEngines({ limit: 200 }), api.listAgentBackends ? api.listAgentBackends() : Promise.resolve([]), api.listVoiceAgentRevisions(profileId),
       ]);
       const found = agents.find((item) => item.id === profileId);
       if (!found) throw new Error("语音智能体不存在");
       setSummary(found); setDraft(nextDraft); setDefinition(nextDraft.definition); savedDefinition.current = structuredClone(nextDraft.definition); setWorkflows(nextWorkflows);
-      setEngines(engineList.items); setBackends(backendList); setRoutes(nextRoutes); setHistory(revisions); setDirty(false);
+      setEngines(engineList.items); setBackends(backendList); setHistory(revisions); setDirty(false);
       setValidation(await api.validateVoiceAgent(profileId)); setError(null);
     } catch (reason) { setError(errorMessage(reason, "语音智能体读取失败。")); }
   }, [api, profileId]);
@@ -150,7 +149,7 @@ export function VoiceAgentDetailPage({ api, refreshVersion }: Props) {
     /> : <div className={`workflow-detail-layout ${sidebarOpen ? "palette-open" : "palette-closed"}`}>
       <WorkbenchSidebar open={sidebarOpen} expandedTitle="智能体工具" collapsedTitle="智能体" ariaLabel="语音智能体侧栏" content={sidebarContent} footer={sidebarFooter} onOpenChange={setSidebarOpen} />
       <section className="workflow-detail-content">
-        {tab === "access" && <div className="workflow-access-content">{publishReview}<DeploymentPanel api={api} targetType="voice_agent" targetId={summary.id} slug={summary.slug} activeRevision={summary.active_revision} routes={routes} onChanged={load} /></div>}
+        {tab === "access" && <div className="workflow-access-content">{publishReview}<DeploymentPanel targetType="voice_agent" slug={summary.slug} activeRevision={summary.active_revision} /></div>}
         {tab === "test" && <div className="workflow-test-content">
           {summary.active_revision === null || !selectedModel ? <section className="panel test-prerequisite"><p className="eyebrow">REALTIME TEST</p><h2>{summary.active_revision === null ? "发布后开始测试" : "配置公开路由后开始测试"}</h2><p>{summary.active_revision === null ? "请先在接入页保存并发布活动版本。" : "测试只使用真实存在的公开 model。"}</p><button className="secondary-button" onClick={() => navigate(`/voice-agents/${profileId}/access`)}>前往接入配置</button></section> : <RealtimeTestPanel api={api} model={selectedModel} workflowKind="voice_agent" canTest blockedReason="" />}
         </div>}

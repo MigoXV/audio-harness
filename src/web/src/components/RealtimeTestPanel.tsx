@@ -852,8 +852,6 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
     transcriptAt.current = null;
     modelAt.current = null;
     try {
-      const route = await api.getRealtimeRoute(model);
-      if (route.visibility !== "public") throw new Error("当前 Realtime model 不是公开路由");
       const endpoint = realtimeEndpoint(protocol, workflowKind, model, ahaEnabled);
       if (protocol === "wss") await connectWss(endpoint);
       else await connectWebRtc(endpoint);

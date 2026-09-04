@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { errorMessage } from "../api/client";
-import type { AudioHarnessApi, AudioWorkflow, EngineAsset, RealtimeRoute, VoiceAgent } from "../api/types";
+import type { AudioHarnessApi, AudioWorkflow, EngineAsset, VoiceAgent } from "../api/types";
 
 interface Props { api: AudioHarnessApi; refreshVersion: number; }
 
@@ -11,17 +11,16 @@ export function VoiceAgentPage({ api, refreshVersion }: Props) {
   const [agents, setAgents] = useState<VoiceAgent[]>([]);
   const [workflows, setWorkflows] = useState<AudioWorkflow[]>([]);
   const [engines, setEngines] = useState<EngineAsset[]>([]);
-  const [routes, setRoutes] = useState<RealtimeRoute[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [nextAgents, nextWorkflows, engineList, nextRoutes] = await Promise.all([
-        api.listVoiceAgents(), api.listAudioWorkflows(), api.listEngines({ limit: 200 }), api.listRealtimeRoutes(),
+      const [nextAgents, nextWorkflows, engineList] = await Promise.all([
+        api.listVoiceAgents(), api.listAudioWorkflows(), api.listEngines({ limit: 200 }),
       ]);
-      setAgents(nextAgents); setWorkflows(nextWorkflows); setEngines(engineList.items); setRoutes(nextRoutes); setError(null);
+      setAgents(nextAgents); setWorkflows(nextWorkflows); setEngines(engineList.items); setError(null);
     } catch (reason) { setError(errorMessage(reason, "语音智能体读取失败。")); }
     finally { setLoading(false); }
   }, [api]);
@@ -32,6 +31,7 @@ export function VoiceAgentPage({ api, refreshVersion }: Props) {
     { label: "可用 Responses 引擎", ready: engines.some((item) => item.enabled && item.api === "responses"), action: "/engines" },
     { label: "可用 TTS 引擎", ready: engines.some((item) => item.enabled && item.api === "qwen_tts_duplex"), action: "/engines" },
   ], [engines, workflows]);
+  const routes: { target_type: string; target_id: string; model: string }[] = [];
   return <main className="workspace-page">
     <header className="page-heading"><div><p className="eyebrow">VOICE INTELLIGENCE</p><h1>语音智能体</h1><p>在固定拓扑画布中组合语音工作流、Responses、TTS 与可选 Agent Backend。</p></div><button className="primary-button" onClick={() => navigate("/voice-agents/new")}>新建语音智能体</button></header>
     {error && <div className="alert alert-error"><span>{error}</span><button className="text-button" onClick={() => setError(null)}>关闭</button></div>}

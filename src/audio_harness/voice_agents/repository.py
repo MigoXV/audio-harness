@@ -15,14 +15,12 @@ from audio_harness.database.mappers import asset_data
 from audio_harness.database.models import (
     EngineAsset,
     AgentBackendAsset,
-    RealtimeRoute,
     VoiceAgentActivation,
     VoiceAgentProfile,
     VoiceAgentRevision,
     utc_now,
 )
 from audio_harness.voice_agents.models import VoiceAgentDefinition
-from audio_harness.realtime_routes.models import RealtimeRouteTargetType
 
 
 class VoiceAgentRepositoryError(Exception):
@@ -349,16 +347,6 @@ class VoiceAgentRepository:
             profile = await session.get(VoiceAgentProfile, profile_id)
             if profile is None:
                 raise VoiceAgentNotFoundError(f"语音智能体不存在: {profile_id}")
-            route = await session.scalar(
-                select(RealtimeRoute.model).where(
-                    RealtimeRoute.target_type == RealtimeRouteTargetType.VOICE_AGENT,
-                    RealtimeRoute.target_id == profile_id,
-                )
-            )
-            if route is not None:
-                raise VoiceAgentConflictError(
-                    f"语音智能体仍被 Realtime Route {route} 引用"
-                )
             await session.execute(
                 delete(VoiceAgentActivation).where(
                     VoiceAgentActivation.voice_agent_id == profile_id
