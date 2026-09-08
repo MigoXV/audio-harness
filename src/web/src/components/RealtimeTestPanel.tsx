@@ -478,7 +478,7 @@ export function appendGroupedEvent(
   return [event, ...current].slice(0, 100);
 }
 
-export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedReason }: Props) {
+export function RealtimeTestPanel({ model, workflowKind, canTest, blockedReason }: Props) {
   const [protocol, setProtocol] = useState<"wss" | "webrtc">("wss");
   const [ahaEnabled, setAhaEnabled] = useState(workflowKind === "transcription");
   const [connection, setConnection] = useState<"idle" | "connecting" | "connected" | "error">("idle");
@@ -830,7 +830,7 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
     if (!canTest) return;
     stoppingRef.current = false;
     setConnection("connecting");
-    setNotice("正在检查资源、路由和麦克风");
+    setNotice("正在连接模型并检查麦克风");
     setEvents([]);
     setEventTotal(0);
     setStreamSummaries([]);
@@ -852,8 +852,6 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
     transcriptAt.current = null;
     modelAt.current = null;
     try {
-      const route = await api.getRealtimeRoute(model);
-      if (route.visibility !== "public") throw new Error("当前 Realtime model 不是公开路由");
       const endpoint = realtimeEndpoint(protocol, workflowKind, model, ahaEnabled);
       if (protocol === "wss") await connectWss(endpoint);
       else await connectWebRtc(endpoint);
@@ -882,7 +880,7 @@ export function RealtimeTestPanel({ api, model, workflowKind, canTest, blockedRe
         <div className="panel-heading"><div><h2>{workflowKind === "voice_agent" ? "端到端对话测试" : "实时转写测试"}</h2><p>{workflowKind === "voice_agent" ? "音频、转写和回复仅保留在当前浏览器内存。" : "验证 VAD、切段与 ASR 转写；不会调用 Responses 或 TTS。"}</p></div><span className={`connection-indicator connection-${connection}`}>{connection === "connected" ? "已连接" : connection === "connecting" ? "连接中" : connection === "error" ? "连接失败" : "未连接"}</span></div>
         <div className="test-connection-options"><div className="protocol-tabs"><button className={protocol === "wss" ? "active" : ""} disabled={connectionLocked} onClick={() => setProtocol("wss")}>WSS</button><button className={protocol === "webrtc" ? "active" : ""} disabled={connectionLocked} onClick={() => setProtocol("webrtc")}>WebRTC</button></div><label className="switch-control aha-extension-toggle"><input type="checkbox" checked={ahaEnabled} disabled={connectionLocked} onChange={(event) => setAhaEnabled(event.target.checked)} /><span>启用 AHA 扩展协议</span></label></div>
         <div className="test-status"><span className="pulse-dot" /><strong>{notice}</strong></div>
-        {!canTest && <div className="alert alert-warning">{blockedReason ?? "请先完成配置、发布资源并创建公开路由。"}</div>}
+        {!canTest && <div className="alert alert-warning">{blockedReason ?? "请先完成配置并发布资源。"}</div>}
         <div className="panel-actions"><button className="primary-button" disabled={!canTest || connection === "connecting" || connection === "connected"} title={!canTest ? blockedReason : undefined} onClick={() => void start()}>开始麦克风测试</button><button className="secondary-button" disabled={connection === "idle"} onClick={() => void stop()}>停止并清除</button></div>
         <audio ref={remoteAudioRef} autoPlay className="remote-audio" />
       </section>

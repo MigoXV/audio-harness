@@ -126,6 +126,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Models */
+        get: operations["list_models_v1_models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agent-backends": {
         parameters: {
             query?: never;
@@ -677,42 +694,6 @@ export interface paths {
         /** Restore Voice Agent Revision */
         post: operations["restore_voice_agent_revision_api_v1_voice_agents__profile_id__revisions__revision__restore_post"];
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/realtime-routes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Realtime Routes */
-        get: operations["list_realtime_routes_api_v1_realtime_routes_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/realtime-routes/{model}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Realtime Route */
-        get: operations["get_realtime_route_api_v1_realtime_routes__model__get"];
-        /** Upsert Realtime Route */
-        put: operations["upsert_realtime_route_api_v1_realtime_routes__model__put"];
-        post?: never;
-        /** Delete Realtime Route */
-        delete: operations["delete_realtime_route_api_v1_realtime_routes__model__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1533,7 +1514,7 @@ export interface components {
          * EngineApi
          * @enum {string}
          */
-        EngineApi: "ux_denoise" | "ux_speech" | "ux_vad" | "responses" | "qwen_tts_duplex" | "engine_feature" | "ux_speaker_diarization";
+        EngineApi: "ux_denoise" | "ux_speech" | "ux_vad" | "responses" | "qwen_tts_duplex" | "engine_feature" | "ux_speaker_diarization" | "dummy_diarize";
         /** EngineCreate */
         EngineCreate: {
             /** Slug */
@@ -1656,7 +1637,7 @@ export interface components {
          * EngineProtocol
          * @enum {string}
          */
-        EngineProtocol: "grpc" | "https";
+        EngineProtocol: "grpc" | "https" | "dummy";
         /** EngineRead */
         EngineRead: {
             /** Id */
@@ -1897,11 +1878,6 @@ export interface components {
                 [key: string]: string;
             };
         };
-        /**
-         * ModelRouteVisibility
-         * @enum {string}
-         */
-        ModelRouteVisibility: "public" | "internal";
         /** NamedOutputBinding */
         NamedOutputBinding: {
             /** Name */
@@ -2067,40 +2043,6 @@ export interface components {
             public_routes: number;
             /** Internal Routes */
             internal_routes: number;
-        };
-        /** RealtimeRouteRead */
-        RealtimeRouteRead: {
-            /** Model */
-            model: string;
-            target_type: components["schemas"]["RealtimeRouteTargetType"];
-            /** Target Id */
-            target_id: string;
-            visibility: components["schemas"]["ModelRouteVisibility"];
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-        };
-        /**
-         * RealtimeRouteTargetType
-         * @enum {string}
-         */
-        RealtimeRouteTargetType: "audio_workflow" | "voice_agent";
-        /** RealtimeRouteUpsert */
-        RealtimeRouteUpsert: {
-            /** Model */
-            model: string;
-            target_type: components["schemas"]["RealtimeRouteTargetType"];
-            /** Target Id */
-            target_id: string;
-            /** @default public */
-            visibility: components["schemas"]["ModelRouteVisibility"];
-            /**
-             * Replace Existing
-             * @default false
-             */
-            replace_existing: boolean;
         };
         /** ResponsesConfig */
         ResponsesConfig: {
@@ -3082,6 +3024,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_models_v1_models_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };
@@ -4452,121 +4416,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["VoiceAgentDraftRead"];
                 };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_realtime_routes_api_v1_realtime_routes_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RealtimeRouteRead"][];
-                };
-            };
-        };
-    };
-    get_realtime_route_api_v1_realtime_routes__model__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                model: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RealtimeRouteRead"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    upsert_realtime_route_api_v1_realtime_routes__model__put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                model: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RealtimeRouteUpsert"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RealtimeRouteRead"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_realtime_route_api_v1_realtime_routes__model__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                model: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             /** @description Validation Error */
             422: {

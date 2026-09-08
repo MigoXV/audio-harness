@@ -41,8 +41,6 @@ export type VoiceAgentDraft = Schemas["VoiceAgentDraftRead"];
 export type VoiceAgentDefinition = Schemas["VoiceAgentDefinition"];
 export type VoiceAgentRevision = Schemas["VoiceAgentRevisionRead"];
 export type VoiceAgentValidation = Schemas["VoiceAgentValidationRead"];
-export type RealtimeRoute = Schemas["RealtimeRouteRead"];
-export type RealtimeRouteUpsert = Schemas["RealtimeRouteUpsert"];
 export type RealtimeSessionKind = "transcription" | "voice_agent";
 
 export type AgentBackend = Schemas["AgentBackendRead"];
@@ -116,10 +114,6 @@ export interface AudioHarnessApi {
   publishVoiceAgent(profileId: string, expectedRevision: number): Promise<VoiceAgentRevision>;
   listVoiceAgentRevisions(profileId: string, signal?: AbortSignal): Promise<VoiceAgentRevision[]>;
   restoreVoiceAgentRevision(profileId: string, revision: number, expectedRevision: number): Promise<VoiceAgentDraft>;
-  listRealtimeRoutes(signal?: AbortSignal): Promise<RealtimeRoute[]>;
-  getRealtimeRoute(model: string, signal?: AbortSignal): Promise<RealtimeRoute>;
-  putRealtimeRoute(route: RealtimeRouteUpsert): Promise<RealtimeRoute>;
-  deleteRealtimeRoute(model: string): Promise<void>;
 
   listAgentBackends?(signal?: AbortSignal): Promise<AgentBackend[]>;
   getAgentBackend?(backendId: string, signal?: AbortSignal): Promise<AgentBackend>;

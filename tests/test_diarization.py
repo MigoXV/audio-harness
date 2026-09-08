@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from audio_harness.inferencers.diarization import (
     DiarizationInferencer,
     DiarizationPostprocessor,
+    DummyDiarizationInferencer,
 )
 from audio_harness.inferencers.embedding import EngineFeatureInferencer
 from audio_harness.engines.models import (
@@ -1126,6 +1127,20 @@ async def test_diarization_can_feed_asr_and_aggregate_the_source_turn() -> None:
     ]
     assert len(primary) == 1
     assert primary[0].transcript == "ok ok"
+
+
+@pytest.mark.asyncio
+async def test_dummy_diarization_feeds_one_speaker_transcript() -> None:
+    outputs, asr = await _run_speaker_chain(DummyDiarizationInferencer())
+    speaker_results = [
+        output.payload
+        for output in outputs
+        if output.name == "speaker_transcript"
+    ]
+
+    assert len(asr.calls) == 1
+    assert [result.phase for result in speaker_results] == ["completed"]
+    assert [result.speaker for result in speaker_results] == [0]
 
 
 @pytest.mark.asyncio

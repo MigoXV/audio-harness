@@ -13,7 +13,7 @@ from audio_harness.engines.health import EngineHealthMonitor
 from audio_harness.engines.catalog import EngineCatalog
 from audio_harness.engines.inferencer_factory import create_inferencer
 from audio_harness.engines.pool import InferencerPool
-from audio_harness.realtime_routes.service import RealtimeRouteService
+from audio_harness.serving.model_catalog import RealtimeModelCatalog
 from audio_harness.serving.capacity import ServingCapacity
 from audio_harness.serving.capacity_settings import CapacitySettingsStore
 from audio_harness.serving.realtime import RealtimeTranscriptionService
@@ -72,8 +72,7 @@ class AudioHarnessHost:
             inferencer_pool=self.inferencer_pool,
             agent_backends=self.agent_backends,
         )
-        self.realtime_routes = RealtimeRouteService(
-            self.database.session_factory,
+        self.realtime_models = RealtimeModelCatalog(
             audio_workflows=self.audio_workflows,
             voice_agents=self.voice_agents,
         )
@@ -83,7 +82,7 @@ class AudioHarnessHost:
         )
         self.serving_status = ServingStatusService(
             database=self.database,
-            routes=self.realtime_routes,
+            models=self.realtime_models,
         )
         self.capacity_settings = CapacitySettingsStore(
             self.database.session_factory
@@ -114,7 +113,7 @@ class AudioHarnessHost:
         self.realtime_service = RealtimeTranscriptionService(
             session_service=self.realtime_sessions,
             workflow_settings=self.workflow_settings,
-            routes=self.realtime_routes,
+            models=self.realtime_models,
             max_message_bytes=max_message_bytes,
             inferencer_pool=self.inferencer_pool,
             responses_limiter=self.capacity.responses,
@@ -130,7 +129,7 @@ class AudioHarnessHost:
             config=config.webrtc,
             session_service=self.webrtc_sessions,
             workflow_settings=self.workflow_settings,
-            routes=self.realtime_routes,
+            models=self.realtime_models,
             max_message_bytes=max_message_bytes,
             inferencer_pool=self.inferencer_pool,
             responses_limiter=self.capacity.responses,
@@ -147,7 +146,7 @@ class AudioHarnessHost:
             agent_backends=self.agent_backends,
             workflows=self.audio_workflows,
             voice_agents=self.voice_agents,
-            routes=self.realtime_routes,
+            models=self.realtime_models,
             serving_status=self.serving_status,
             workflow_settings=self.workflow_settings,
             capacity_settings=self.capacity_settings,
@@ -179,7 +178,6 @@ class AudioHarnessHost:
             await self.capacity.apply(initial_capacity)
             await self.audio_workflows.initialize()
             await self.voice_agents.initialize()
-            await self.realtime_routes.initialize()
             self.engine_health.start()
             self.agent_backend_health.start()
         except Exception:

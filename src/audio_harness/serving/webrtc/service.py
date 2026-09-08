@@ -24,10 +24,7 @@ from audio_harness.agent_backends.base import AgentBackendGateway
 from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
 from audio_harness.errors import CapacityExceededError
 from audio_harness.engines.pool import InferencerPool
-from audio_harness.realtime_routes.service import (
-    RealtimeRouteService,
-    RealtimeTarget,
-)
+from audio_harness.serving.model_catalog import RealtimeModelCatalog, RealtimeTarget
 from audio_harness.serving.realtime.session import (
     RealtimeTranscriptionSession,
     default_transcription_session,
@@ -430,7 +427,7 @@ class WebRtcCallService:
         config: WebRtcConfig,
         session_service: AudioWorkflowSessionService,
         workflow_settings: WorkflowSettingsStore,
-        routes: RealtimeRouteService,
+        models: RealtimeModelCatalog,
         max_message_bytes: int,
         inferencer_pool: InferencerPool | None = None,
         responses_limiter: ResizableConcurrencyLimiter | None = None,
@@ -443,7 +440,7 @@ class WebRtcCallService:
         self._config = config
         self._session_service = session_service
         self._workflow_settings = workflow_settings
-        self._routes = routes
+        self._models = models
         self._max_message_bytes = max_message_bytes
         self._inferencer_pool = inferencer_pool or session_service.inferencer_pool
         self._responses_limiter = responses_limiter
@@ -489,7 +486,7 @@ class WebRtcCallService:
             raise ValueError("sdp 不能为空")
         if len(offer_sdp.encode("utf-8")) > self._max_message_bytes:
             raise ValueError("sdp 超过 max_message_bytes")
-        target = self._routes.resolve(model)
+        target = await self._models.resolve(model)
         audio_workflow = (
             target.audio_workflow
             if isinstance(target, ActiveVoiceAgent)

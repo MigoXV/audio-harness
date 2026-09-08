@@ -15,7 +15,6 @@ import type {
   EngineListResponse,
   EngineValidation,
   EngineValidationResult,
-  RealtimeRoute,
   RuntimeOverview,
   RuntimeStatus,
   VoiceAgent,
@@ -120,10 +119,6 @@ export const apiClient: AudioHarnessApi = {
   publishVoiceAgent(id, expectedRevision) { return request<VoiceAgentRevision>(`/api/v1/voice-agents/${encodeURIComponent(id)}/publish`, { method: "POST", body: JSON.stringify({ expected_revision: expectedRevision }) }); },
   listVoiceAgentRevisions(id, signal) { return request<VoiceAgentRevision[]>(`/api/v1/voice-agents/${encodeURIComponent(id)}/revisions`, { signal }); },
   restoreVoiceAgentRevision(id, revision, expectedRevision) { return request<VoiceAgentDraft>(`/api/v1/voice-agents/${encodeURIComponent(id)}/revisions/${revision}/restore`, { method: "POST", body: JSON.stringify({ expected_revision: expectedRevision }) }); },
-  listRealtimeRoutes(signal) { return request<RealtimeRoute[]>("/api/v1/realtime-routes", { signal }); },
-  getRealtimeRoute(model, signal) { return request<RealtimeRoute>(`/api/v1/realtime-routes/${encodeURIComponent(model)}`, { signal }); },
-  putRealtimeRoute(route) { return request<RealtimeRoute>(`/api/v1/realtime-routes/${encodeURIComponent(route.model)}`, { method: "PUT", body: JSON.stringify(route) }); },
-  async deleteRealtimeRoute(model) { await request(`/api/v1/realtime-routes/${encodeURIComponent(model)}`, { method: "DELETE" }); },
 
   async listAgentBackends(signal) { return (await request<{ items: AgentBackend[] }>("/api/v1/agent-backends?limit=200", { signal })).items; },
   getAgentBackend(id, signal) { return request<AgentBackend>(`/api/v1/agent-backends/${encodeURIComponent(id)}`, { signal }); },

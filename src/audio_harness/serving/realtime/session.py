@@ -91,7 +91,7 @@ from audio_harness.sessions.audio_workflow import (
     AudioWorkflowSessionReservation,
     AudioWorkflowSessionService,
 )
-from audio_harness.realtime_routes.service import RealtimeTarget
+from audio_harness.serving.model_catalog import RealtimeTarget
 from audio_harness.voice_agents.service import ActiveVoiceAgent
 from audio_harness.voice_agents.speaker_context import (
     SpeakerContext,

@@ -54,9 +54,6 @@ async def test_host_start_does_not_prepare_inference_engines() -> None:
     host.voice_agents = SimpleNamespace(
         initialize=AsyncRecorder(events, "voice_agents.initialize"),
     )
-    host.realtime_routes = SimpleNamespace(
-        initialize=AsyncRecorder(events, "realtime_routes.initialize"),
-    )
     async def reject_prepare(*_args, **_kwargs) -> None:
         raise AssertionError("启动期间不应准备或探测推理引擎")
 
@@ -81,7 +78,6 @@ async def test_host_start_does_not_prepare_inference_engines() -> None:
         "capacity.apply",
         "audio_workflows.initialize",
         "voice_agents.initialize",
-        "realtime_routes.initialize",
         "engine_health.start",
         "agent_backend_health.start",
     ]

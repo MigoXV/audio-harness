@@ -12,7 +12,7 @@ Audio Harness 是一个面向实时语音推理的异步编排服务。它把推
 2. `AudioWorkflow` 只描述 PCM、VAD、语音片段和 ASR 转写之间的类型化 DAG。
 3. `VoiceAgentProfile` 在已发布的语音工作流之上绑定 Responses、TTS、工具和对话策略。
 4. `AgentBackendAsset` 描述一个远端智能体运行服务；首个适配器是 DSH Web v1。
-5. `RealtimeRoute` 把外部 `model` 名称指向一个已发布的语音工作流或语音智能体。
+5. `RealtimeModelCatalog` 将已发布的语音工作流和语音智能体直接作为 Realtime model 暴露，名称就是资源 Slug。
 
 ```text
 HTTP 控制面
@@ -21,7 +21,7 @@ HTTP 控制面
     ├── AudioWorkflowService         │
     ├── VoiceAgentService            ├── InferencerPool
     ├── AgentBackendCatalog          │       │
-    └── RealtimeRouteService         │       │
+    └── RealtimeModelCatalog         │       │
                                       │       └── 不可变引擎快照租约
 Realtime / WebRTC 数据面 ───────────┘
 ```
@@ -107,6 +107,11 @@ Vector 初始化算法和维度；没有可用空间时使用 `voiceprints`、`e
 重叠时以后一个片段的起点切分。把节点 `postprocessing` 显式设为 `null` 可恢复原始
 时间戳增量和 RPC 结束后统一送入 ASR 的兼容行为。
 
+不配置外部说话人分离服务时，可注册 `dummy_diarize` / `dummy` 引擎资产（固定地址
+`dummy://diarize`）并绑定到说话人分离节点。它把每个推理批次完整标记为
+`speaker=0`，从而继续产生 `x_aha.input_audio_transcription.speaker.completed`，供只消费
+分角色转写事件的客户端取得单说话人主转写结果。
+
 说话人聚类节点默认启用
 `audio_harness.speaker_clustering.complete_link_merge` v1 后处理，用于减少同一个人被
 拆成多个全局 speaker ID。每次上游成功返回全量聚类快照后，节点按原始 speaker ID
@@ -130,7 +135,6 @@ src/audio_harness/
 ├── errors.py           # 跨能力共享的应用异常
 ├── schemas/            # 跨协议的请求与响应数据契约
 ├── configs/            # 按用途拆分的进程配置
-├── realtime_routes/    # Realtime 模型路由控制面
 ├── workflows/          # AudioWorkflow 文档、编译器、运行时、仓储与发布服务
 ├── voice_agents/       # 语音智能体配置、仓储与发布服务
 ├── agent_backends/     # 通用智能体后端协议与 DSH Web 适配器
@@ -227,9 +231,9 @@ Qdrant 是 Collection、Named Vector、Point 和 payload 的唯一事实来源�
 5. 创建语音智能体空白草稿，在固定拓扑画布中配置语音工作流、Responses、TTS 和可选 Agent Backend。该画布用于表达与配置当前运行关系，暂不提供节点增删或连线编排。
 6. 发布语音智能体后显式创建公开 Realtime Route，再进入“测试”页发起连接。
 
-发布和接入是两个独立动作。发布只生成不可变活动版本，不会自动创建外部入口；Realtime model 冲突时接口返回 `409 realtime_route_conflict`，只有用户确认后才允许替换原目标。测试页会先读取路由并检查其可见性，避免把未部署资源误报为 WebSocket 故障。
+发布会生成不可变活动版本，并自动以资源 Slug 提供 Realtime model，无需额外创建或配置公开路由。接入页展示 model 与 WSS / WebRTC 地址；测试页在发布后直接使用该 Slug，可选择协议并开始麦克风测试。尚未发布时，测试页会引导前往接入页完成发布。
 
-`GET /api/v1/runtime/overview` 始终返回 `200`，用于控制台展示“待配置”和可操作诊断；`/health/ready` 是部署探针，只检查数据库与控制面是否可用。缺少公开 Realtime 路由不会阻止部署就绪。
+`GET /api/v1/runtime/overview` 始终返回 `200`，用于控制台展示“待配置”和可操作诊断；`/health/ready` 是部署探针，只检查数据库与控制面是否可用。尚无已发布的 Realtime model 不会阻止部署就绪。
 
 ## 接口文档
 

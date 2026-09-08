@@ -120,24 +120,29 @@ class EngineCatalog:
 
     @staticmethod
     def _validate_asset_shape(asset: EngineAssetData) -> None:
-        expected = {
+        expected_apis = {
             EngineKind.DENOISE: EngineApi.UX_DENOISE,
             EngineKind.ASR: EngineApi.UX_SPEECH,
             EngineKind.VAD: EngineApi.UX_VAD,
             EngineKind.LLM: EngineApi.RESPONSES,
             EngineKind.TTS: EngineApi.QWEN_TTS_DUPLEX,
             EngineKind.EMBEDDING: EngineApi.ENGINE_FEATURE,
-            EngineKind.DIARIZATION: EngineApi.UX_SPEAKER_DIARIZATION,
+            EngineKind.DIARIZATION: (
+                EngineApi.UX_SPEAKER_DIARIZATION,
+                EngineApi.DUMMY_DIARIZE,
+            ),
         }[asset.kind]
-        if asset.api is not expected:
+        if not isinstance(expected_apis, tuple):
+            expected_apis = (expected_apis,)
+        if asset.api not in expected_apis:
+            expected = " 或 ".join(api.value for api in expected_apis)
             raise CatalogConflictError(
-                f"{asset.kind.value} 资产必须使用 {expected.value} 接口"
+                f"{asset.kind.value} 资产必须使用 {expected} 接口"
             )
-        expected_protocol = (
-            EngineProtocol.HTTPS
-            if asset.api is EngineApi.RESPONSES
-            else EngineProtocol.GRPC
-        )
+        expected_protocol = {
+            EngineApi.RESPONSES: EngineProtocol.HTTPS,
+            EngineApi.DUMMY_DIARIZE: EngineProtocol.DUMMY,
+        }.get(asset.api, EngineProtocol.GRPC)
         if asset.protocol is not expected_protocol:
             raise CatalogConflictError(
                 f"{asset.api.value} 资产必须使用 "
@@ -151,6 +156,15 @@ class EngineCatalog:
             if not asset.target.startswith(("https://", "http://")):
                 raise CatalogConflictError(
                     "Responses target 必须是 HTTP(S) API base URL"
+                )
+        elif asset.api is EngineApi.DUMMY_DIARIZE:
+            if asset.target != "dummy://diarize":
+                raise CatalogConflictError(
+                    "dummy_diarize target 必须是 dummy://diarize"
+                )
+            if asset.credential_env is not None or asset.api_key is not None:
+                raise CatalogConflictError(
+                    "dummy_diarize 资产不能配置模型 API Key"
                 )
         elif asset.credential_env is not None or asset.api_key is not None:
             raise CatalogConflictError(

@@ -25,9 +25,9 @@ from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
 from audio_harness.agent_backends.base import AgentBackendGateway
 from audio_harness.errors import CapacityExceededError
 from audio_harness.engines.pool import InferencerPool
-from audio_harness.realtime_routes.service import (
-    RealtimeRouteNotFoundError,
-    RealtimeRouteService,
+from audio_harness.serving.model_catalog import (
+    RealtimeModelCatalog,
+    RealtimeModelNotFoundError,
     RealtimeTarget,
 )
 from audio_harness.serving.realtime.session import (
@@ -137,7 +137,7 @@ class _RealtimeConnection:
         max_message_bytes: int,
         diagnostics_enabled: bool,
         aha_version: str | None,
-        routes: RealtimeRouteService,
+        models: RealtimeModelCatalog,
         inferencer_pool: InferencerPool | None,
         responses_limiter: ResizableConcurrencyLimiter | None,
         tts_limiter: ResizableConcurrencyLimiter | None,
@@ -158,7 +158,7 @@ class _RealtimeConnection:
         self._workflow_settings = workflow_settings
         self._diagnostics_enabled = diagnostics_enabled
         self._aha_version = aha_version
-        self._routes = routes
+        self._models = models
         self._inferencer_pool = inferencer_pool
         self._responses_limiter = responses_limiter
         self._tts_limiter = tts_limiter
@@ -455,10 +455,10 @@ class _RealtimeConnection:
             return
 
         try:
-            target: RealtimeTarget = self._routes.resolve(model)
+            target: RealtimeTarget = await self._models.resolve(model)
             if isinstance(target, ActiveVoiceAgent):
                 raise ValueError("transcription intent 只能绑定语音转写工作流")
-        except RealtimeRouteNotFoundError as exc:
+        except RealtimeModelNotFoundError as exc:
             await self._send_error(
                 message=str(exc),
                 code="model_not_found",
@@ -588,7 +588,7 @@ class RealtimeTranscriptionService:
         *,
         session_service: AudioWorkflowSessionService,
         workflow_settings: WorkflowSettingsStore,
-        routes: RealtimeRouteService,
+        models: RealtimeModelCatalog,
         max_message_bytes: int,
         inferencer_pool: InferencerPool | None = None,
         responses_limiter: ResizableConcurrencyLimiter | None = None,
@@ -600,7 +600,7 @@ class RealtimeTranscriptionService:
     ) -> None:
         self.session_service = session_service
         self.workflow_settings = workflow_settings
-        self.routes = routes
+        self.models = models
         self.max_message_bytes = max_message_bytes
         self.inferencer_pool = inferencer_pool
         self.responses_limiter = responses_limiter
@@ -627,8 +627,8 @@ class RealtimeTranscriptionService:
                 await websocket.close(code=4400, reason="model is required")
                 return
             try:
-                target = self.routes.resolve(selected_model)
-            except RealtimeRouteNotFoundError:
+                target = await self.models.resolve(selected_model)
+            except RealtimeModelNotFoundError:
                 await websocket.close(code=4404, reason="Model not found")
                 return
             except RuntimeError:
@@ -652,7 +652,7 @@ class RealtimeTranscriptionService:
                 max_message_bytes=self.max_message_bytes,
                 diagnostics_enabled=diagnostics_enabled,
                 aha_version=aha_version,
-                routes=self.routes,
+                models=self.models,
                 inferencer_pool=self.inferencer_pool,
                 responses_limiter=self.responses_limiter,
                 tts_limiter=self.tts_limiter,

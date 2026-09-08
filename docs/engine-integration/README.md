@@ -11,6 +11,7 @@
 | `ux_vad` | `grpc` | `ux_vad.UxVoiceActivityDetector` | Physical/Semantic VAD |
 | `engine_feature` | `grpc` | `pb.Engine` 的 Feature/StreamingClustering | Embedding/Clustering 节点 |
 | `ux_speaker_diarization` | `grpc` | `ux_sd.UxSpeakerDiarization` | Diarization 节点 |
+| `dummy_diarize` | `dummy` | 内置：整批标记为 `speaker=0` | Diarization 节点 |
 | `qwen_tts_duplex` | `grpc` | `qwen_tts.service.v1.TtsService` | Voice Agent TTS |
 | `responses` | `https` | OpenAI-compatible Models + Responses | Voice Agent LLM |
 
@@ -22,6 +23,7 @@
 - `connect_timeout_seconds` 只约束 channel ready/模型列表连接，必须大于 0。
 - `request_timeout_seconds` 可空；ASR/VAD/Diarization/Embedding 使用它作为 RPC deadline。Duplex TTS 整轮不设置普通 request deadline，取消由上层 response 生命周期传播。
 - Responses target 使用 HTTP(S) base URL；详见 [Responses](responses.md)。
+- `dummy_diarize` 固定使用 `dummy://diarize`，不建立网络连接。
 - gRPC 错误 `DEADLINE_EXCEEDED` 映射为 Engine deadline，其他 AioRpcError 映射为 unavailable。
 
 ## 探测

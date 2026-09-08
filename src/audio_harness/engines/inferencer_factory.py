@@ -9,7 +9,10 @@ from audio_harness.inferencers.responses.http import ResponsesInferencer
 from audio_harness.inferencers.tts.grpc import QwenDuplexTtsInferencer
 from audio_harness.inferencers.vad.grpc import UxVadInferencer
 from audio_harness.inferencers.embedding import GrpcEngineFeatureInferencer
-from audio_harness.inferencers.diarization import UxSpeakerDiarizationInferencer
+from audio_harness.inferencers.diarization import (
+    DummyDiarizationInferencer,
+    UxSpeakerDiarizationInferencer,
+)
 from audio_harness.inferencers.denoise import UxDenoiseInferencer
 
 
@@ -18,6 +21,11 @@ def create_inferencer(
     *,
     max_message_bytes: int,
 ) -> Inferencer:
+    if (
+        snapshot.protocol is EngineProtocol.DUMMY
+        and snapshot.api is EngineApi.DUMMY_DIARIZE
+    ):
+        return DummyDiarizationInferencer()
     if (
         snapshot.protocol is EngineProtocol.HTTPS
         and snapshot.api is EngineApi.RESPONSES

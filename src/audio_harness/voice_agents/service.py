@@ -187,6 +187,9 @@ class VoiceAgentService:
     def current_or_none(self, profile_id: str) -> ActiveVoiceAgent | None:
         return self._active.get(profile_id)
 
+    def active_agents(self) -> tuple[str, ...]:
+        return tuple(sorted(self._active))
+
     async def list(self) -> tuple[VoiceAgentSummary, ...]:
         return await self.repository.list()
 

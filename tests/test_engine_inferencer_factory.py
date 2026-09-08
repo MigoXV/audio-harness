@@ -17,6 +17,7 @@ from audio_harness.inferencers.diarization.base import DiarizationInferencer
 from audio_harness.inferencers.diarization.grpc import (
     UxSpeakerDiarizationInferencer,
 )
+from audio_harness.inferencers.diarization import DummyDiarizationInferencer
 from audio_harness.inferencers.denoise import DenoiseInferencer, UxDenoiseInferencer
 from audio_harness.inferencers.embedding import (
     EngineFeatureInferencer,
@@ -48,6 +49,11 @@ def snapshot(api: EngineApi, protocol: EngineProtocol) -> EngineSnapshot:
             EngineApi.UX_SPEAKER_DIARIZATION,
             EngineProtocol.GRPC,
             UxSpeakerDiarizationInferencer,
+        ),
+        (
+            EngineApi.DUMMY_DIARIZE,
+            EngineProtocol.DUMMY,
+            DummyDiarizationInferencer,
         ),
         (
             EngineApi.ENGINE_FEATURE,
@@ -108,6 +114,8 @@ def test_grpc_engine_feature_inferencer_implements_unified_capability() -> None:
     [
         (EngineApi.UX_SPEECH, EngineProtocol.HTTPS),
         (EngineApi.RESPONSES, EngineProtocol.GRPC),
+        (EngineApi.DUMMY_DIARIZE, EngineProtocol.GRPC),
+        (EngineApi.UX_SPEAKER_DIARIZATION, EngineProtocol.DUMMY),
     ],
 )
 def test_create_inferencer_rejects_unsupported_api_protocol_pair(

@@ -4,8 +4,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from audio_harness.database.session import Database
-from audio_harness.realtime_routes.models import ModelRouteVisibility
-from audio_harness.realtime_routes.service import RealtimeRouteService
+from audio_harness.serving.model_catalog import RealtimeModelCatalog
 
 
 ComponentState = Literal[
@@ -50,10 +49,10 @@ class ServingStatusService:
         self,
         *,
         database: Database,
-        routes: RealtimeRouteService,
+        models: RealtimeModelCatalog,
     ) -> None:
         self._database = database
-        self._routes = routes
+        self._models = models
 
     async def snapshot(self) -> RuntimeOverview:
         issues: list[RuntimeIssue] = []
@@ -72,26 +71,8 @@ class ServingStatusService:
         else:
             control_plane = "ready"
 
-        public_routes = 0
+        public_routes = len(await self._models.list_models())
         internal_routes = 0
-        for route in self._routes.list():
-            try:
-                self._routes.resolve(route.model, allow_internal=True)
-            except RuntimeError:
-                issues.append(
-                    RuntimeIssue(
-                        code="realtime_route_target_inactive",
-                        severity="warning",
-                        scope="realtime",
-                        message=f"Realtime 路由 {route.model} 的目标未发布",
-                        resource_id=route.target_id,
-                    )
-                )
-                continue
-            if route.visibility is ModelRouteVisibility.PUBLIC:
-                public_routes += 1
-            else:
-                internal_routes += 1
 
         if public_routes:
             realtime_state: ComponentState = "ready"
@@ -99,10 +80,10 @@ class ServingStatusService:
             realtime_state = "needs_configuration"
             issues.append(
                 RuntimeIssue(
-                    code="realtime_route_unconfigured",
+                    code="realtime_model_unconfigured",
                     severity="warning",
                     scope="realtime",
-                    message="尚未配置公开 Realtime 模型路由",
+                    message="尚未发布可公开访问的 Realtime 模型",
                 )
             )
 

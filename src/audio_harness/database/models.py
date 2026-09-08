@@ -28,10 +28,6 @@ from audio_harness.agent_backends.models import (
     AgentBackendProtocol,
     AgentBackendStatus,
 )
-from audio_harness.realtime_routes.models import (
-    ModelRouteVisibility,
-    RealtimeRouteTargetType,
-)
 
 
 def utc_now() -> datetime:
@@ -317,28 +313,6 @@ class VoiceAgentActivation(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
-    )
-
-
-class RealtimeRoute(Base):
-    __tablename__ = "realtime_routes"
-
-    model: Mapped[str] = mapped_column(String(100), primary_key=True)
-    target_type: Mapped[RealtimeRouteTargetType] = mapped_column(
-        enum_type(RealtimeRouteTargetType)
-    )
-    target_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
-    visibility: Mapped[ModelRouteVisibility] = mapped_column(
-        enum_type(ModelRouteVisibility)
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=utc_now,
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=utc_now,
-        onupdate=utc_now,
     )
 
 

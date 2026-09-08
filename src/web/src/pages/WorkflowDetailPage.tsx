@@ -10,7 +10,6 @@ import type {
   AudioWorkflowRevision,
   AudioWorkflowValidation,
   EngineAsset,
-  RealtimeRoute,
   VectorSpace,
 } from "../api/types";
 import { AudioGraphEditor } from "../components/AudioGraphEditor";
@@ -31,7 +30,6 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
   const [nodeTypes, setNodeTypes] = useState<AudioNodeType[]>([]);
   const [engines, setEngines] = useState<EngineAsset[]>([]);
   const [vectorSpaces, setVectorSpaces] = useState<VectorSpace[]>([]);
-  const [routes, setRoutes] = useState<RealtimeRoute[]>([]);
   const [validation, setValidation] = useState<AudioWorkflowValidation>({ valid: false, diagnostics: [], topological_order: [] });
   const [revisions, setRevisions] = useState<AudioWorkflowRevision[]>([]);
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -45,15 +43,14 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [items, draft, types, engineList, history, nextRoutes, nextVectorSpaces] = await Promise.all([
+      const [items, draft, types, engineList, history, nextVectorSpaces] = await Promise.all([
         api.listAudioWorkflows(), api.getAudioWorkflowDraft(workflowId), api.listAudioNodeTypes(),
-        api.listEngines({ limit: 200 }), api.listAudioWorkflowRevisions(workflowId), api.listRealtimeRoutes(),
+        api.listEngines({ limit: 200 }), api.listAudioWorkflowRevisions(workflowId),
         typeof api.listVectorSpaces === "function" ? api.listVectorSpaces() : Promise.resolve([]),
       ]);
       const summary = items.find((item) => item.id === workflowId);
       if (!summary) throw new Error("语音工作流不存在");
       setWorkflow(summary); setDocument(draft.document); savedDocument.current = structuredClone(draft.document); setNodeTypes(types); setEngines(engineList.items); setRevisions(history);
-      setRoutes(nextRoutes);
       setVectorSpaces(nextVectorSpaces);
       setDraftRevision(draft.revision); setSaveState("idle");
       setValidation(await api.validateAudioWorkflow(workflowId));
@@ -125,8 +122,6 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
 
   if (loading) return <main className="workspace-page"><div className="empty-state">正在加载工作流…</div></main>;
   if (!workflow || !document) return <main className="workspace-page"><div className="alert alert-error">{error ?? "工作流不存在"}</div></main>;
-  const publicRoutes = routes.filter((route) => route.target_type === "audio_workflow" && route.target_id === workflow.id && route.visibility === "public");
-  const selectedModel = publicRoutes[0]?.model ?? "";
   const saveLabel = ({ idle: "草稿已同步", dirty: "有未保存修改", saving: "正在保存…", saved: "草稿已同步", error: "保存失败", conflict: "版本冲突" } as const)[saveState];
   const hasUnsavedChanges = ["dirty", "saving", "error", "conflict"].includes(saveState);
   const sidebarContent = <>
@@ -143,7 +138,7 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
     <div className={`builder-save-state save-${saveState}`}><i /><div><strong>{saveLabel}</strong><small>草稿 r{draftRevision}</small></div></div>
     <button className="secondary-button" disabled={saveState !== "dirty" && saveState !== "error"} onClick={() => void saveDraft()}>{saveState === "saving" ? "正在保存…" : "保存草稿"}</button>
   </div>;
-  const publishReview = <section className="panel publish-review"><div className="panel-heading"><div><p className="eyebrow">ACTIVE VERSION</p><h2>发布当前草稿</h2><p>先编译并发布当前草稿，再配置 gRPC 或 Realtime 对外入口；失败不会替换当前活动版本。</p></div><span className={`status-chip ${workflow.active_revision ? "status-published_healthy" : "status-unpublished"}`}>{workflow.active_revision ? `当前活动 v${workflow.active_revision}` : "尚无活动版本"}</span></div><div className="draft-version-line">草稿修订 r{draftRevision}</div>{validation.diagnostics.length ? <div className="diagnostic-list">{validation.diagnostics.map((item, index) => <div key={`${item.code}-${index}`}><strong>{item.message}</strong><small>{item.code}</small></div>)}</div> : <div className="success-block">结构校验通过，共 {document.nodes.length} 个节点、{document.edges.length} 条内部连线。</div>}<div className="panel-actions"><button className="primary-button large-button" disabled={Boolean(publishBlocked)} onClick={() => void publish()}>编译并发布</button>{publishBlocked && <span className="blocking-reason">{publishBlocked}</span>}</div></section>;
+  const publishReview = <section className="panel publish-review"><div className="panel-heading"><div><p className="eyebrow">ACTIVE VERSION</p><h2>发布当前草稿</h2><p>编译并发布后，即可使用资源 Slug 接入 Realtime 或开始测试；发布失败不会替换当前活动版本。</p></div><span className={`status-chip ${workflow.active_revision ? "status-published_healthy" : "status-unpublished"}`}>{workflow.active_revision ? `当前活动 v${workflow.active_revision}` : "尚无活动版本"}</span></div><div className="draft-version-line">草稿修订 r{draftRevision}</div>{validation.diagnostics.length ? <div className="diagnostic-list">{validation.diagnostics.map((item, index) => <div key={`${item.code}-${index}`}><strong>{item.message}</strong><small>{item.code}</small></div>)}</div> : <div className="success-block">结构校验通过，共 {document.nodes.length} 个节点、{document.edges.length} 条内部连线。</div>}<div className="panel-actions"><button className="primary-button large-button" disabled={Boolean(publishBlocked)} onClick={() => void publish()}>编译并发布</button>{publishBlocked && <span className="blocking-reason">{publishBlocked}</span>}</div></section>;
 
   return <main className="workspace-page workflow-detail-page workflow-sidebar-page">
     <UnsavedChangesGuard when={hasUnsavedChanges} saving={saveState === "saving"} onSave={saveDraft} onDiscard={discardChanges} />
@@ -162,9 +157,9 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
     /> : <div className={`workflow-detail-layout ${sidebarOpen ? "palette-open" : "palette-closed"}`}>
       <WorkbenchSidebar open={sidebarOpen} expandedTitle="工作流工具" collapsedTitle="工作流" ariaLabel="工作流侧栏" content={sidebarContent} footer={sidebarFooter} onOpenChange={setSidebarOpen} />
       <section className="workflow-detail-content">
-        {tab === "access" && <div className="workflow-access-content">{publishReview}<DeploymentPanel api={api} targetType="audio_workflow" targetId={workflow.id} slug={workflow.slug} activeRevision={workflow.active_revision} routes={routes} onChanged={load} /></div>}
+        {tab === "access" && <div className="workflow-access-content">{publishReview}<DeploymentPanel targetType="audio_workflow" slug={workflow.slug} activeRevision={workflow.active_revision} /></div>}
         {tab === "test" && <div className="workflow-test-content">
-          {workflow.active_revision === null || !selectedModel ? <section className="panel test-prerequisite"><p className="eyebrow">REALTIME TEST</p><h2>{workflow.active_revision === null ? "发布后开始测试" : "配置公开路由后开始测试"}</h2><p>{workflow.active_revision === null ? "请先在接入页编译并发布活动版本。" : "测试只使用真实存在的公开 model，不会默认把工作流 slug 当成可用路由。"}</p><button className="secondary-button" onClick={() => navigate(`/audio-workflows/${workflowId}/access`)}>前往接入配置</button></section> : <RealtimeTestPanel api={api} model={selectedModel} workflowKind="transcription" canTest blockedReason="" />}
+          {workflow.active_revision === null ? <section className="panel test-prerequisite"><p className="eyebrow">REALTIME TEST</p><h2>发布后开始测试</h2><p>请先在接入页编译并发布活动版本，发布后即可使用资源 Slug 开始测试。</p><button className="secondary-button" onClick={() => navigate(`/audio-workflows/${encodeURIComponent(workflowId)}/access`)}>前往接入配置</button></section> : <RealtimeTestPanel api={api} model={workflow.slug} workflowKind="transcription" canTest blockedReason="" />}
         </div>}
         {tab === "history" && <section className="panel"><div className="panel-heading"><div><h2>不可变发布历史</h2><p>恢复只会创建新草稿，不会热改活动会话。</p></div></div>{revisions.length === 0 ? <div className="empty-state">尚无发布记录</div> : <div className="revision-list">{revisions.map((item) => <div className="revision-row" key={item.revision}><div><strong>v{item.revision}</strong><small>{item.document.nodes.length} 个节点</small></div><span>{Object.keys(item.engine_revisions).length} 个引擎快照</span><button className="secondary-button" onClick={() => void restore(item.revision)}>恢复为草稿</button></div>)}</div>}</section>}
       </section>

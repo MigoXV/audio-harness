@@ -15,14 +15,12 @@ from audio_harness.database.models import (
     AudioWorkflowActivation,
     AudioWorkflowRevision,
     EngineAsset,
-    RealtimeRoute,
     VoiceAgentProfile,
     VoiceAgentRevision,
     utc_now,
 )
 from audio_harness.database.mappers import asset_data
 from audio_harness.workflows.models import AudioWorkflowDocument, default_audio_workflow
-from audio_harness.realtime_routes.models import RealtimeRouteTargetType
 
 
 class AudioWorkflowRepositoryError(Exception):
@@ -352,15 +350,6 @@ class AudioWorkflowRepository:
             if workflow is None:
                 raise AudioWorkflowNotFoundError(f"语音工作流不存在: {workflow_id}")
             references: list[str] = []
-            route = await session.scalar(
-                select(RealtimeRoute.model).where(
-                    RealtimeRoute.target_type
-                    == RealtimeRouteTargetType.AUDIO_WORKFLOW,
-                    RealtimeRoute.target_id == workflow_id,
-                )
-            )
-            if route is not None:
-                references.append(f"Realtime Route {route}")
             profiles = (
                 await session.execute(select(VoiceAgentProfile))
             ).scalars().all()
@@ -394,7 +383,7 @@ class AudioWorkflowRepository:
             try:
                 await session.commit()
             except IntegrityError as exc:
-                raise AudioWorkflowConflictError("语音工作流仍被语音智能体或路由引用") from exc
+                raise AudioWorkflowConflictError("语音工作流仍被语音智能体引用") from exc
 
     @staticmethod
     def _summary(
