@@ -24,7 +24,6 @@ const tabs = [["build", "构建"], ["access", "接入"], ["test", "测试"], ["h
 
 export function VoiceAgentDetailPage({ api, refreshVersion }: Props) {
   const { profileId = "", tab = "build" } = useParams();
-  const routes: { target_type: string; target_id: string; visibility: string; model: string }[] = [];
   const navigate = useNavigate();
   const [summary, setSummary] = useState<VoiceAgent | null>(null);
   const [draft, setDraft] = useState<VoiceAgentDraft | null>(null);
@@ -109,8 +108,6 @@ export function VoiceAgentDetailPage({ api, refreshVersion }: Props) {
   };
 
   if (!summary || !draft || !definition) return <main className="workspace-page"><div className={error ? "alert alert-error" : "empty-state"}>{error ?? "正在读取语音智能体…"}</div></main>;
-  const publicRoutes = routes.filter((route) => route.target_type === "voice_agent" && route.target_id === profileId && route.visibility === "public");
-  const selectedModel = publicRoutes[0]?.model ?? "";
   const saveLabel = busy ? "正在处理…" : dirty ? "有未保存修改" : "草稿已同步";
   const sidebarContent = <>
     <section className="builder-workflow-summary">
@@ -151,7 +148,7 @@ export function VoiceAgentDetailPage({ api, refreshVersion }: Props) {
       <section className="workflow-detail-content">
         {tab === "access" && <div className="workflow-access-content">{publishReview}<DeploymentPanel targetType="voice_agent" slug={summary.slug} activeRevision={summary.active_revision} /></div>}
         {tab === "test" && <div className="workflow-test-content">
-          {summary.active_revision === null || !selectedModel ? <section className="panel test-prerequisite"><p className="eyebrow">REALTIME TEST</p><h2>{summary.active_revision === null ? "发布后开始测试" : "配置公开路由后开始测试"}</h2><p>{summary.active_revision === null ? "请先在接入页保存并发布活动版本。" : "测试只使用真实存在的公开 model。"}</p><button className="secondary-button" onClick={() => navigate(`/voice-agents/${profileId}/access`)}>前往接入配置</button></section> : <RealtimeTestPanel api={api} model={selectedModel} workflowKind="voice_agent" canTest blockedReason="" />}
+          {summary.active_revision === null ? <section className="panel test-prerequisite"><p className="eyebrow">REALTIME TEST</p><h2>发布后开始测试</h2><p>请先在接入页保存并发布活动版本，发布后即可使用资源 Slug 开始测试。</p><button className="secondary-button" onClick={() => navigate(`/voice-agents/${encodeURIComponent(profileId)}/access`)}>前往接入配置</button></section> : <RealtimeTestPanel api={api} model={summary.slug} workflowKind="voice_agent" canTest blockedReason="" />}
         </div>}
         {tab === "history" && <section className="panel"><div className="panel-heading"><div><h2>不可变发布历史</h2><p>恢复只创建新草稿，不改变活动会话。</p></div></div>{history.length === 0 ? <div className="empty-state">尚无发布记录</div> : <div className="revision-list">{history.map((item) => <div className="revision-row" key={item.revision}><div><strong>v{item.revision}</strong><small>语音工作流 v{item.audio_workflow_revision}</small></div><span>Responses / TTS{item.agent_backend_revision ? ` / Backend r${item.agent_backend_revision}` : ""} 已钉住</span><button className="secondary-button" onClick={() => void restore(item.revision)}>恢复为草稿</button></div>)}</div>}</section>}
       </section>

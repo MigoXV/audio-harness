@@ -89,7 +89,6 @@ function fakeApi() {
     listVoiceAgentRevisions: vi.fn().mockResolvedValue([]),
     restoreVoiceAgentRevision: vi.fn(),
     createVoiceAgent,
-    listRealtimeRoutes: vi.fn().mockResolvedValue([{ model: "voice-helper", target_type: "voice_agent", target_id: "agent-1", visibility: "public", created_at: "2026-08-09T00:00:00Z", updated_at: "2026-08-09T00:00:00Z" }]),
     getVectorInfrastructure: vi.fn().mockResolvedValue({ configured: true, ready: true, grpc_target: "qdrant:6334", http_url: "http://qdrant:6333" }),
     listVectorSpaces: vi.fn().mockResolvedValue([{ collection_name: "voiceprints", vectors: [{ name: "eres2netv2", size: 192, distance: "cosine" }], template: "voiceprint" }]),
     createVectorSpace: vi.fn().mockResolvedValue({ collection_name: "voiceprints", vectors: [{ name: "eres2netv2", size: 192, distance: "cosine" }], template: "voiceprint" }),
@@ -469,8 +468,24 @@ describe("typed audio workflow control plane", () => {
     expect(screen.getByRole("navigation", { name: "工作流页面" })).toBeVisible();
 
     fireEvent.click(screen.getByRole("link", { name: /测试/ }));
-    expect(await screen.findByRole("heading", { name: "配置公开路由后开始测试" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "实时转写测试" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "开始麦克风测试" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "编译并发布" })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["/audio-workflows/wf-1/test", "listAudioWorkflows"],
+    ["/voice-agents/agent-1/test", "listVoiceAgents"],
+  ] as const)("requires publication before testing %s", async (path, listMethod) => {
+    const { api } = fakeApi();
+    const items = await api[listMethod]();
+    vi.mocked(api[listMethod]).mockResolvedValue(items.map((item) => ({ ...item, active_revision: null })));
+    renderApp(api, path);
+    expect(await screen.findByRole("heading", { name: "发布后开始测试" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "开始麦克风测试" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "前往接入配置" }));
+    expect(await screen.findByText("尚不能接入")).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "已公开接入" })).not.toBeInTheDocument();
   });
 
   it("redirects the legacy workflow publish route to access", async () => {
