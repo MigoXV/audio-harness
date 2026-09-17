@@ -54,6 +54,7 @@ async def test_host_start_does_not_prepare_inference_engines() -> None:
     host.voice_agents = SimpleNamespace(
         initialize=AsyncRecorder(events, "voice_agents.initialize"),
     )
+
     async def reject_prepare(*_args, **_kwargs) -> None:
         raise AssertionError("启动期间不应准备或探测推理引擎")
 
@@ -67,6 +68,10 @@ async def test_host_start_does_not_prepare_inference_engines() -> None:
     host.agent_backend_health = SimpleNamespace(
         start=Recorder(events, "agent_backend_health.start"),
     )
+    host.grpc_server = SimpleNamespace(
+        start=AsyncRecorder(events, "grpc.start"),
+        stop=AsyncRecorder(events, "grpc.stop"),
+    )
     host._closed = False
 
     await host.start()
@@ -78,6 +83,7 @@ async def test_host_start_does_not_prepare_inference_engines() -> None:
         "capacity.apply",
         "audio_workflows.initialize",
         "voice_agents.initialize",
+        "grpc.start",
         "engine_health.start",
         "agent_backend_health.start",
     ]

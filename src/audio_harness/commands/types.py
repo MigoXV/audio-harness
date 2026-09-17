@@ -5,14 +5,13 @@ from typing import Annotated
 
 import typer
 
-
 MaxMessageBytesOption = Annotated[
     int,
     typer.Option(
         "--max-message-bytes",
         envvar="MAX_MESSAGE_BYTES",
         min=1,
-        help="WebSocket、WebRTC 与下游 gRPC 单消息字节上限。",
+        help="WebSocket、WebRTC、aha-grpc 与下游 gRPC 单消息字节上限。",
     ),
 ]
 HttpHostOption = Annotated[
@@ -30,10 +29,7 @@ HttpPortOption = Annotated[
         envvar="HTTP_PORT",
         min=0,
         max=65535,
-        help=(
-            "覆盖 HTTP/WS/WebRTC 信令监听端口；"
-            "设为 0 时自动选择空闲端口。"
-        ),
+        help=("覆盖 HTTP/WS/WebRTC 信令监听端口；" "设为 0 时自动选择空闲端口。"),
     ),
 ]
 TlsCertFileOption = Annotated[
@@ -46,7 +42,7 @@ TlsCertFileOption = Annotated[
         dir_okay=False,
         readable=True,
         resolve_path=True,
-        help="HTTP/WS TLS 证书。",
+        help="HTTP/WS 与 aha-grpc 共用的 TLS 证书。",
     ),
 ]
 TlsKeyFileOption = Annotated[
@@ -59,7 +55,7 @@ TlsKeyFileOption = Annotated[
         dir_okay=False,
         readable=True,
         resolve_path=True,
-        help="HTTP/WS TLS 私钥。",
+        help="HTTP/WS 与 aha-grpc 共用的 TLS 私钥。",
     ),
 ]
 WebRtcIceServersJsonOption = Annotated[
@@ -94,5 +90,20 @@ LogLevelOption = Annotated[
         "--log-level",
         envvar="LOG_LEVEL",
         help="日志级别。",
+    ),
+]
+
+GrpcHostOption = Annotated[
+    str | None,
+    typer.Option("--grpc-host", envvar="AHA_GRPC_HOST", help="aha-grpc TLS 监听地址。"),
+]
+GrpcPortOption = Annotated[
+    int | None,
+    typer.Option(
+        "--grpc-port",
+        envvar="AHA_GRPC_PORT",
+        min=0,
+        max=65535,
+        help="aha-grpc TLS 端口；0 自动选择空闲端口。",
     ),
 ]

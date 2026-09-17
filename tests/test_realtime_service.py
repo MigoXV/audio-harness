@@ -162,7 +162,7 @@ def build_app(
     service = RealtimeTranscriptionService(
         session_service=sessions,
         workflow_settings=settings,
-        routes=StaticRouteService(workflow),
+        models=StaticRouteService(workflow),
         max_message_bytes=1024 * 1024,
         inferencer_pool=inferencer_pool,
     )

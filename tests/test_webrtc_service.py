@@ -173,7 +173,7 @@ def _build_service(
             config=WebRtcConfig(),
             session_service=sessions,
             workflow_settings=settings,
-            routes=StaticRouteService(target or workflow),
+            models=StaticRouteService(target or workflow),
             max_message_bytes=max_message_bytes,
             inferencer_pool=inferencer_pool,
         ),

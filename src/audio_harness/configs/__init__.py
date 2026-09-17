@@ -8,6 +8,7 @@ from audio_harness.configs.app import (
 from audio_harness.configs.base import StrictModel
 from audio_harness.configs.engine import EngineEndpoint
 from audio_harness.configs.serving import (
+    AhaGrpcConfig,
     CapacityConfig,
     HttpConfig,
     LimitsConfig,
@@ -22,6 +23,7 @@ from audio_harness.configs.workflow import WorkflowConfig, WorkflowRuntimeConfig
 
 __all__ = [
     "AppConfig",
+    "AhaGrpcConfig",
     "CapacityConfig",
     "DatabaseConfig",
     "EngineEndpoint",

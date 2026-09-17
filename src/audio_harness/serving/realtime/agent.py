@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
-import binascii
 import copy
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
@@ -117,6 +115,10 @@ class _ResponseOutput:
     item: dict[str, Any] | None = None
 
 
+class ClientInputClosedError(RuntimeError):
+    """A response requires client input after the input stream has ended."""
+
+
 class RealtimeAgentRuntime:
     """Responses + 双向流式 TTS 的单会话 Agent 编排器。"""
 
@@ -185,6 +187,7 @@ class RealtimeAgentRuntime:
             tuple[asyncio.Future[bool], bool],
         ] = {}
         self._closed = False
+        self._input_finished = False
         self._voice_locked = False
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._special_response_lock = asyncio.Lock()
@@ -414,7 +417,7 @@ class RealtimeAgentRuntime:
     @staticmethod
     def _audio_format_payload(value: Any) -> dict[str, Any]:
         return (
-            value.model_dump(mode="json", exclude_none=True)
+            value.model_dump(mode="python", exclude_none=True)
             if hasattr(value, "model_dump")
             else dict(value)
         )
@@ -445,7 +448,7 @@ class RealtimeAgentRuntime:
         if value is None:
             return None
         payload = (
-            value.model_dump(mode="json", exclude_none=True)
+            value.model_dump(mode="python", exclude_none=True)
             if hasattr(value, "model_dump")
             else dict(value)
         )
@@ -463,11 +466,9 @@ class RealtimeAgentRuntime:
             len(self._conversation) >= self._response_config.history_max_items
             and self.options.truncation == "disabled"
         ):
-            raise ValueError(
-                "会话历史超过工作流上限，且 truncation 已禁用"
-            )
+            raise ValueError("会话历史超过工作流上限，且 truncation 已禁用")
         payload = (
-            item.model_dump(mode="json", exclude_none=True)
+            item.model_dump(mode="python", exclude_none=True)
             if hasattr(item, "model_dump")
             else copy.deepcopy(item)
         )
@@ -485,15 +486,9 @@ class RealtimeAgentRuntime:
         for part in item.get("content") or []:
             if part.get("type") != "input_audio" or not part.get("audio"):
                 continue
-            try:
-                wire_audio = base64.b64decode(part["audio"], validate=True)
-            except (binascii.Error, ValueError) as exc:
-                raise ValueError(
-                    "input_audio.audio 必须是合法的 base64"
-                ) from exc
-            if len(wire_audio) % 2:
-                raise ValueError("input_audio.audio 必须是 PCM S16LE")
-            part["audio"] = base64.b64encode(wire_audio).decode("ascii")
+            pcm = part["audio"]
+            if not isinstance(pcm, bytes) or len(pcm) % 2:
+                raise ValueError("input_audio.audio 必须是 PCM S16LE bytes")
 
     def retrieve_conversation_item(self, item_id: str) -> dict[str, Any]:
         return self._conversation.retrieve(item_id)
@@ -562,7 +557,7 @@ class RealtimeAgentRuntime:
             raise ValueError("Realtime Agent 会话已经关闭")
         payload = (
             response.model_dump(
-                mode="json",
+                mode="python",
                 exclude_none=True,
                 exclude_unset=True,
             )
@@ -591,7 +586,7 @@ class RealtimeAgentRuntime:
         normalized: list[dict[str, Any]] = []
         for item in items:
             payload = (
-                item.model_dump(mode="json", exclude_none=True)
+                item.model_dump(mode="python", exclude_none=True)
                 if hasattr(item, "model_dump")
                 else copy.deepcopy(item)
             )
@@ -935,6 +930,45 @@ class RealtimeAgentRuntime:
                     }
                 )
 
+    async def finish_input(self) -> None:
+        """Drain started responses; client-dependent work cannot survive EOF."""
+        self._input_finished = True
+        pending = [
+            future
+            for future, _ in (
+                *self._pending_client_tools.values(),
+                *self._pending_approvals.values(),
+            )
+            if not future.done()
+        ]
+        if pending:
+            await self._send_event(
+                {
+                    "type": "error",
+                    "event_id": f"event_{uuid4().hex}",
+                    "error": {
+                        "type": "invalid_request_error",
+                        "code": "client_input_closed",
+                        "message": "请求流已结束，无法继续接收客户端工具结果或审批",
+                    },
+                }
+            )
+            for future in pending:
+                future.set_exception(
+                    ClientInputClosedError("请求流已结束，无法继续接收客户端输入")
+                )
+        while True:
+            if self._backend is not None:
+                await self._backend.finish_input()
+            tasks = [
+                task
+                for task in (*self._response_tasks.values(), *self._background_tasks)
+                if not task.done()
+            ]
+            if not tasks:
+                break
+            await asyncio.gather(*tasks, return_exceptions=True)
+
     async def close(self) -> None:
         async with self._response_lock:
             if self._closed:
@@ -1150,7 +1184,11 @@ class RealtimeAgentRuntime:
                     "event_id": f"event_{uuid4().hex}",
                     "error": {
                         "type": "server_error",
-                        "code": "agent_response_failed",
+                        "code": (
+                            "client_input_closed"
+                            if isinstance(exc, ClientInputClosedError)
+                            else "agent_response_failed"
+                        ),
                         "message": str(exc),
                     },
                 }
@@ -1473,16 +1511,18 @@ class RealtimeAgentRuntime:
                 )
             elif decision.action == "answer":
                 pending = self._backend.latest_pending()
-                if pending is None or pending.kind != "question" or decision.answers is None:
+                if (
+                    pending is None
+                    or pending.kind != "question"
+                    or decision.answers is None
+                ):
                     raise ValueError("当前没有匹配的后台问题")
                 handled = await self._backend.submit_question(
                     pending.request_id,
-                    [answer.model_dump(mode="json") for answer in decision.answers],
+                    [answer.model_dump(mode="python") for answer in decision.answers],
                 )
                 confirmation = confirmation or (
-                    "答案已经发给后台智能体。"
-                    if handled
-                    else "这个问题已经处理过了。"
+                    "答案已经发给后台智能体。" if handled else "这个问题已经处理过了。"
                 )
         except Exception as exc:
             confirmation = f"后台操作没有执行成功：{str(exc)[:500]}"
@@ -1814,9 +1854,7 @@ class RealtimeAgentRuntime:
             "instructions": instructions,
             "input": list(history),
             "max_output_tokens": options.max_output_tokens,
-            "reasoning": {
-                "effort": options.reasoning_effort
-            },
+            "reasoning": {"effort": options.reasoning_effort},
         }
         if tools:
             kwargs["tools"] = tools
@@ -1856,13 +1894,11 @@ class RealtimeAgentRuntime:
                             name=item.name,
                             arguments=item.arguments,
                             item_id=item.id or f"item_{uuid4().hex}",
-                            output_index=(
-                                function_output_index + len(calls)
-                            ),
+                            output_index=(function_output_index + len(calls)),
                         )
                         calls.append(call)
                         history.append(
-                            item.model_dump(mode="json", exclude_none=True)
+                            item.model_dump(mode="python", exclude_none=True)
                             if hasattr(item, "model_dump")
                             else {
                                 "type": "function_call",
@@ -1882,7 +1918,7 @@ class RealtimeAgentRuntime:
                         "model_dump",
                     ):
                         history.append(
-                            item.model_dump(mode="json", exclude_none=True)
+                            item.model_dump(mode="python", exclude_none=True)
                         )
                 elif event_type in {
                     "response.failed",
@@ -1895,9 +1931,7 @@ class RealtimeAgentRuntime:
                         None,
                     )
                     message = getattr(detail, "message", None) or str(detail)
-                    raise RuntimeError(
-                        f"Responses API 流式响应失败: {message}"
-                    )
+                    raise RuntimeError(f"Responses API 流式响应失败: {message}")
         finally:
             close = getattr(stream, "close", None)
             if close is not None:
@@ -1922,6 +1956,10 @@ class RealtimeAgentRuntime:
                     if not isinstance(arguments, dict):
                         raise ValueError("工具参数必须是 JSON 对象")
                     if call.name in client_tool_names:
+                        if self._input_finished:
+                            raise ClientInputClosedError(
+                                "请求流已结束，无法继续接收客户端输入"
+                            )
                         future = asyncio.get_running_loop().create_future()
                         self._pending_client_tools[call.call_id] = (
                             future,
@@ -1947,6 +1985,10 @@ class RealtimeAgentRuntime:
                     mcp_tool = mcp.tool(call.name)
                     if mcp_tool is not None:
                         if mcp_tool.approval_required():
+                            if self._input_finished:
+                                raise ClientInputClosedError(
+                                    "请求流已结束，无法继续接收客户端输入"
+                                )
                             request_id = f"approval_{uuid4().hex}"
                             future = asyncio.get_running_loop().create_future()
                             self._pending_approvals[request_id] = (
@@ -2004,6 +2046,7 @@ class RealtimeAgentRuntime:
                     )
                 except asyncio.CancelledError:
                     raise
+
         tasks = [
             asyncio.create_task(
                 execute(call),
@@ -2044,10 +2087,10 @@ class RealtimeAgentRuntime:
             if self._voice_resolver is not None
             else voice
         )
-        wss_sample_rate: int | None = None
-        wss_resampler: soxr.ResampleStream | None = None
+        event_sample_rate: int | None = None
+        event_resampler: soxr.ResampleStream | None = None
 
-        async def send_wss_audio(pcm: bytes) -> None:
+        async def send_event_audio(pcm: bytes) -> None:
             if not pcm:
                 return
             self._voice_locked = True
@@ -2059,7 +2102,7 @@ class RealtimeAgentRuntime:
                     "item_id": output_item_id,
                     "output_index": 0,
                     "content_index": 0,
-                    "delta": base64.b64encode(pcm).decode("ascii"),
+                    "delta": pcm,
                 }
             )
 
@@ -2073,32 +2116,40 @@ class RealtimeAgentRuntime:
                 self._voice_locked = True
                 await self._send_audio(chunk.pcm_s16le, chunk.sample_rate, epoch)
             else:
-                if wss_sample_rate is None:
-                    wss_sample_rate = chunk.sample_rate
+                if event_sample_rate is None:
+                    event_sample_rate = chunk.sample_rate
                     if chunk.sample_rate != _REALTIME_OUTPUT_SAMPLE_RATE:
-                        wss_resampler = soxr.ResampleStream(
+                        event_resampler = soxr.ResampleStream(
                             chunk.sample_rate,
                             _REALTIME_OUTPUT_SAMPLE_RATE,
                             1,
                             dtype="int16",
                             quality="HQ",
                         )
-                elif chunk.sample_rate != wss_sample_rate:
+                elif chunk.sample_rate != event_sample_rate:
                     raise RuntimeError("TTS 在同一响应中改变了采样率")
                 pcm = chunk.pcm_s16le
-                if wss_resampler is not None:
+                if event_resampler is not None:
                     samples = np.frombuffer(pcm, dtype="<i2")
-                    pcm = wss_resampler.resample_chunk(
-                        samples,
-                        last=False,
-                    ).astype("<i2", copy=False).tobytes()
-                await send_wss_audio(pcm)
-        if wss_resampler is not None:
-            tail = wss_resampler.resample_chunk(
-                np.empty(0, dtype=np.int16),
-                last=True,
-            ).astype("<i2", copy=False).tobytes()
-            await send_wss_audio(tail)
+                    pcm = (
+                        event_resampler.resample_chunk(
+                            samples,
+                            last=False,
+                        )
+                        .astype("<i2", copy=False)
+                        .tobytes()
+                    )
+                await send_event_audio(pcm)
+        if event_resampler is not None:
+            tail = (
+                event_resampler.resample_chunk(
+                    np.empty(0, dtype=np.int16),
+                    last=True,
+                )
+                .astype("<i2", copy=False)
+                .tobytes()
+            )
+            await send_event_audio(tail)
         if self._finish_audio is not None:
             await self._finish_audio(epoch)
 

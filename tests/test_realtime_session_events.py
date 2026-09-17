@@ -33,7 +33,12 @@ from tests.test_agent_runtime import (
 from tests.graph_fakes import static_audio_workflow
 
 
-_CLIENT_EVENTS = TypeAdapter(RealtimeClientEvent)
+from audio_harness.serving.realtime.json_codec import (
+    decode_client_event,
+    encode_server_event,
+)
+
+_CLIENT_EVENTS = SimpleNamespace(validate_python=decode_client_event)
 _SERVER_EVENTS = TypeAdapter(RealtimeServerEvent)
 
 
@@ -112,7 +117,7 @@ class _AgentRoute:
     def __init__(self, target) -> None:
         self.target = target
 
-    def resolve(self, model: str):
+    async def resolve(self, model: str):
         if model != "voice-agent":
             raise RuntimeError("not found")
         return self.target
@@ -157,7 +162,7 @@ async def test_voice_agent_wss_handshake_emits_only_official_session_created() -
     service = RealtimeTranscriptionService(
         session_service=object(),  # type: ignore[arg-type]
         workflow_settings=_Settings(),  # type: ignore[arg-type]
-        routes=_AgentRoute(_profile()),  # type: ignore[arg-type]
+        models=_AgentRoute(_profile()),  # type: ignore[arg-type]
         max_message_bytes=1024,
         inferencer_pool=FakePool(),  # type: ignore[arg-type]
     )
@@ -190,11 +195,7 @@ async def test_speaker_filter_workflow_session_update_succeeds() -> None:
                 "event_id": "update-filtered",
                 "session": {
                     "type": "transcription",
-                    "audio": {
-                        "input": {
-                            "transcription": {"model": "voice-agent"}
-                        }
-                    },
+                    "audio": {"input": {"transcription": {"model": "voice-agent"}}},
                 },
             }
         ]
@@ -202,7 +203,7 @@ async def test_speaker_filter_workflow_session_update_succeeds() -> None:
     service = RealtimeTranscriptionService(
         session_service=object(),  # type: ignore[arg-type]
         workflow_settings=_Settings(),  # type: ignore[arg-type]
-        routes=_AgentRoute(workflow),  # type: ignore[arg-type]
+        models=_AgentRoute(workflow),  # type: ignore[arg-type]
         max_message_bytes=1024,
     )
 
@@ -223,7 +224,7 @@ async def test_dynamic_session_initialization_failure_is_protocol_error(
         raise RuntimeError("invalid workflow")
 
     monkeypatch.setattr(
-        realtime_connection._RealtimeConnection,
+        realtime_connection.RealtimeConnection,
         "_new_session",
         fail_session,
     )
@@ -234,11 +235,7 @@ async def test_dynamic_session_initialization_failure_is_protocol_error(
                 "event_id": "update-invalid",
                 "session": {
                     "type": "transcription",
-                    "audio": {
-                        "input": {
-                            "transcription": {"model": "voice-agent"}
-                        }
-                    },
+                    "audio": {"input": {"transcription": {"model": "voice-agent"}}},
                 },
             }
         ]
@@ -246,7 +243,7 @@ async def test_dynamic_session_initialization_failure_is_protocol_error(
     service = RealtimeTranscriptionService(
         session_service=object(),  # type: ignore[arg-type]
         workflow_settings=_Settings(),  # type: ignore[arg-type]
-        routes=_AgentRoute(_profile().audio_workflow),  # type: ignore[arg-type]
+        models=_AgentRoute(_profile().audio_workflow),  # type: ignore[arg-type]
         max_message_bytes=1024,
     )
 
@@ -271,7 +268,7 @@ async def test_fixed_model_initialization_failure_closes_cleanly(
         raise RuntimeError("invalid workflow")
 
     monkeypatch.setattr(
-        realtime_connection._RealtimeConnection,
+        realtime_connection.RealtimeConnection,
         "_new_session",
         fail_session,
     )
@@ -279,7 +276,7 @@ async def test_fixed_model_initialization_failure_closes_cleanly(
     service = RealtimeTranscriptionService(
         session_service=object(),  # type: ignore[arg-type]
         workflow_settings=_Settings(),  # type: ignore[arg-type]
-        routes=_AgentRoute(_profile()),  # type: ignore[arg-type]
+        models=_AgentRoute(_profile()),  # type: ignore[arg-type]
         max_message_bytes=1024,
     )
 
@@ -301,7 +298,7 @@ async def test_realtime_model_rejects_plain_audio_workflow_before_accept() -> No
     service = RealtimeTranscriptionService(
         session_service=object(),  # type: ignore[arg-type]
         workflow_settings=_Settings(),  # type: ignore[arg-type]
-        routes=_AgentRoute(profile.audio_workflow),  # type: ignore[arg-type]
+        models=_AgentRoute(profile.audio_workflow),  # type: ignore[arg-type]
         max_message_bytes=1024,
     )
 
@@ -327,11 +324,7 @@ async def test_voice_agent_supports_complete_sdk_client_event_surface() -> None:
     pool.responses = blocking
 
     async def send_event(event) -> None:
-        emitted.append(
-            event.model_dump(mode="json", exclude_none=True)
-            if hasattr(event, "model_dump")
-            else event
-        )
+        emitted.append(encode_server_event(event))
 
     async def append_audio(event) -> None:
         appended_audio.append(event.audio)
@@ -345,13 +338,10 @@ async def test_voice_agent_supports_complete_sdk_client_event_surface() -> None:
         audio_event_handler=append_audio,
         inferencer_pool=pool,  # type: ignore[arg-type]
         tool_registry=ToolRegistry(),
-        transport="websocket",
     )
 
     async def send(payload: dict) -> None:
-        await session.handle_client_event(
-            _CLIENT_EVENTS.validate_python(payload)
-        )
+        await session.handle_client_event(_CLIENT_EVENTS.validate_python(payload))
 
     await session.start()
     await send(
@@ -421,9 +411,7 @@ async def test_voice_agent_supports_complete_sdk_client_event_surface() -> None:
     )
     await send({"type": "input_audio_buffer.clear", "event_id": "clear"})
     await send({"type": "input_audio_buffer.commit", "event_id": "commit"})
-    await send(
-        {"type": "output_audio_buffer.clear", "event_id": "output-clear"}
-    )
+    await send({"type": "output_audio_buffer.clear", "event_id": "output-clear"})
     await send(
         {
             "type": "response.create",
@@ -435,9 +423,7 @@ async def test_voice_agent_supports_complete_sdk_client_event_surface() -> None:
                     {
                         "type": "message",
                         "role": "user",
-                        "content": [
-                            {"type": "input_text", "text": "oob"}
-                        ],
+                        "content": [{"type": "input_text", "text": "oob"}],
                     }
                 ],
             },
@@ -465,11 +451,8 @@ async def test_voice_agent_supports_complete_sdk_client_event_surface() -> None:
     )
     await session.close()
 
-    assert appended_audio == [encoded]
-    assert {
-        event["type"]
-        for event in emitted
-    } >= {
+    assert appended_audio == [base64.b64decode(encoded)]
+    assert {event["type"] for event in emitted} >= {
         "session.created",
         "session.updated",
         "conversation.item.added",
@@ -482,27 +465,16 @@ async def test_voice_agent_supports_complete_sdk_client_event_surface() -> None:
         "response.done",
         "error",
     }
-    errors = {
-        event["error"]["code"]
-        for event in emitted
-        if event["type"] == "error"
-    }
+    errors = {event["error"]["code"] for event in emitted if event["type"] == "error"}
     assert errors == {"input_audio_buffer_commit_empty", "invalid_value"}
     created_session = next(
-        event["session"]
-        for event in emitted
-        if event["type"] == "session.created"
+        event["session"] for event in emitted if event["type"] == "session.created"
     )
     updated_session = next(
-        event["session"]
-        for event in emitted
-        if event["type"] == "session.updated"
+        event["session"] for event in emitted if event["type"] == "session.updated"
     )
     assert updated_session["id"] == created_session["id"]
-    assert all(
-        not event["type"].startswith("audio_harness.")
-        for event in emitted
-    )
+    assert all(not event["type"].startswith("audio_harness.") for event in emitted)
     assert all(_SERVER_EVENTS.validate_python(event) for event in emitted)
 
 
@@ -515,11 +487,7 @@ async def test_speech_started_interrupt_emits_turn_detected_reason() -> None:
     pool.responses = blocking
 
     async def send_event(event) -> None:
-        emitted.append(
-            event.model_dump(mode="json", exclude_none=True)
-            if hasattr(event, "model_dump")
-            else event
-        )
+        emitted.append(encode_server_event(event))
 
     async def clear_audio(epoch: int) -> None:
         cleared.append(epoch)
@@ -555,9 +523,7 @@ async def test_speech_started_interrupt_emits_turn_detected_reason() -> None:
     )
     await session.close()
 
-    done = next(
-        event for event in emitted if event["type"] == "response.done"
-    )
+    done = next(event for event in emitted if event["type"] == "response.done")
     assert done["response"]["status"] == "cancelled"
     assert done["response"]["status_details"] == {
         "type": "cancelled",
@@ -573,11 +539,7 @@ async def test_voice_agent_x_aha_emits_immediate_physical_events() -> None:
     emitted: list[dict] = []
 
     async def send_event(event) -> None:
-        emitted.append(
-            event.model_dump(mode="json", exclude_none=True)
-            if hasattr(event, "model_dump")
-            else event
-        )
+        emitted.append(encode_server_event(event))
 
     session = RealtimeTranscriptionSession(
         send_event=send_event,
@@ -650,11 +612,7 @@ async def test_x_aha_vector_search_events_are_emitted_before_item_exists() -> No
     emitted: list[dict] = []
 
     async def send_event(event) -> None:
-        emitted.append(
-            event.model_dump(mode="json", exclude_none=True)
-            if hasattr(event, "model_dump")
-            else event
-        )
+        emitted.append(encode_server_event(event))
 
     session = RealtimeTranscriptionSession(
         send_event=send_event,
@@ -725,11 +683,7 @@ async def test_x_aha_turn_progress_starts_item_after_semantic_rollover() -> None
     emitted: list[dict] = []
 
     async def send_event(event) -> None:
-        emitted.append(
-            event.model_dump(mode="json", exclude_none=True)
-            if hasattr(event, "model_dump")
-            else event
-        )
+        emitted.append(encode_server_event(event))
 
     session = RealtimeTranscriptionSession(
         send_event=send_event,
@@ -784,11 +738,7 @@ async def test_x_aha_maps_multiple_physical_segments_to_one_vad_turn() -> None:
     emitted: list[dict] = []
 
     async def send_event(event) -> None:
-        emitted.append(
-            event.model_dump(mode="json", exclude_none=True)
-            if hasattr(event, "model_dump")
-            else event
-        )
+        emitted.append(encode_server_event(event))
 
     session = RealtimeTranscriptionSession(
         send_event=send_event,
@@ -888,11 +838,7 @@ async def test_x_aha_buffers_semantic_stop_until_physical_stop() -> None:
     emitted: list[dict] = []
 
     async def send_event(event) -> None:
-        emitted.append(
-            event.model_dump(mode="json", exclude_none=True)
-            if hasattr(event, "model_dump")
-            else event
-        )
+        emitted.append(encode_server_event(event))
 
     session = RealtimeTranscriptionSession(
         send_event=send_event,
@@ -943,9 +889,7 @@ async def test_x_aha_buffers_semantic_stop_until_physical_stop() -> None:
     await session.close()
 
     ordered_types = [event["type"] for event in emitted]
-    physical_stop_index = ordered_types.index(
-        "x_aha.vad.physical_speech_stopped"
-    )
+    physical_stop_index = ordered_types.index("x_aha.vad.physical_speech_stopped")
     assert ordered_types[physical_stop_index : physical_stop_index + 3] == [
         "x_aha.vad.physical_speech_stopped",
         "x_aha.vad.turn_completed",
@@ -961,11 +905,7 @@ async def test_x_aha_assigns_late_next_segment_after_previous_resolution(
     emitted: list[dict] = []
 
     async def send_event(event) -> None:
-        emitted.append(
-            event.model_dump(mode="json", exclude_none=True)
-            if hasattr(event, "model_dump")
-            else event
-        )
+        emitted.append(encode_server_event(event))
 
     session = RealtimeTranscriptionSession(
         send_event=send_event,
@@ -1017,9 +957,7 @@ async def test_x_aha_assigns_late_next_segment_after_previous_resolution(
         for event in emitted
         if event["type"] == "x_aha.vad.physical_speech_started"
     ]
-    assert [event["physical_segment_id"] for event in physical_starts] == [
-        "pseg_a"
-    ]
+    assert [event["physical_segment_id"] for event in physical_starts] == ["pseg_a"]
 
     await session._handle_workflow_event(
         "speech_stopped",
@@ -1087,11 +1025,7 @@ async def test_x_aha_rejected_turn_still_pairs_late_physical_stop() -> None:
     emitted: list[dict] = []
 
     async def send_event(event) -> None:
-        emitted.append(
-            event.model_dump(mode="json", exclude_none=True)
-            if hasattr(event, "model_dump")
-            else event
-        )
+        emitted.append(encode_server_event(event))
 
     session = RealtimeTranscriptionSession(
         send_event=send_event,
@@ -1129,10 +1063,7 @@ async def test_x_aha_rejected_turn_still_pairs_late_physical_stop() -> None:
         "physical_speech_started",
         next_started,
     )
-    assert all(
-        event.get("physical_segment_id") != "pseg_next"
-        for event in emitted
-    )
+    assert all(event.get("physical_segment_id") != "pseg_next" for event in emitted)
     await session._handle_workflow_event(
         "speaker_filter",
         SpeakerFilterResult(
@@ -1152,9 +1083,7 @@ async def test_x_aha_rejected_turn_still_pairs_late_physical_stop() -> None:
         if event["type"] == "x_aha.vad.physical_speech_stopped"
     )
     assert physical_stopped["vad_turn_id"] == rejected_turn_id
-    assert all(
-        event["type"] != "x_aha.vad.turn_completed" for event in emitted
-    )
+    assert all(event["type"] != "x_aha.vad.turn_completed" for event in emitted)
     assert emitted[-1]["vad_turn_id"] != rejected_turn_id
 
 
@@ -1165,11 +1094,7 @@ async def test_x_aha_duplicate_and_unknown_physical_stops_are_nonfatal(
     emitted: list[dict] = []
 
     async def send_event(event) -> None:
-        emitted.append(
-            event.model_dump(mode="json", exclude_none=True)
-            if hasattr(event, "model_dump")
-            else event
-        )
+        emitted.append(encode_server_event(event))
 
     session = RealtimeTranscriptionSession(
         send_event=send_event,
@@ -1225,10 +1150,7 @@ async def test_x_aha_duplicate_and_unknown_physical_stops_are_nonfatal(
     await session.close()
 
     assert "sequence=77 physical_segment_id=pseg_unknown" in caplog.text
-    assert all(
-        event.get("physical_segment_id") != "pseg_unknown"
-        for event in emitted
-    )
+    assert all(event.get("physical_segment_id") != "pseg_unknown" for event in emitted)
 
 
 @pytest.mark.asyncio
@@ -1236,11 +1158,7 @@ async def test_semantic_vad_promotes_the_unconsumed_physical_start() -> None:
     emitted: list[dict] = []
 
     async def send_event(event) -> None:
-        emitted.append(
-            event.model_dump(mode="json", exclude_none=True)
-            if hasattr(event, "model_dump")
-            else event
-        )
+        emitted.append(encode_server_event(event))
 
     session = RealtimeTranscriptionSession(
         send_event=send_event,
@@ -1330,11 +1248,7 @@ async def test_speech_stopped_starts_item_when_start_event_is_missing() -> None:
     emitted: list[dict] = []
 
     async def send_event(event) -> None:
-        emitted.append(
-            event.model_dump(mode="json", exclude_none=True)
-            if hasattr(event, "model_dump")
-            else event
-        )
+        emitted.append(encode_server_event(event))
 
     session = RealtimeTranscriptionSession(
         send_event=send_event,
@@ -1365,9 +1279,7 @@ async def test_speech_stopped_starts_item_when_start_event_is_missing() -> None:
         "conversation.item.added",
         "conversation.item.done",
     ]
-    item_ids = {
-        event["item_id"] for event in emitted if "item_id" in event
-    }
+    item_ids = {event["item_id"] for event in emitted if "item_id" in event}
     assert len(item_ids) == 1
     assert emitted[1]["audio_start_ms"] == 1_000
     assert all(_SERVER_EVENTS.validate_python(event) for event in emitted)
@@ -1378,11 +1290,7 @@ async def test_x_aha_interim_transcript_is_cumulative_and_cleared_by_primary() -
     emitted: list[dict] = []
 
     async def send_event(event) -> None:
-        emitted.append(
-            event.model_dump(mode="json", exclude_none=True)
-            if hasattr(event, "model_dump")
-            else event
-        )
+        emitted.append(encode_server_event(event))
 
     session = RealtimeTranscriptionSession(
         send_event=send_event,
@@ -1447,14 +1355,12 @@ async def test_x_aha_interim_transcript_is_cumulative_and_cleared_by_primary() -
     cleared_index = next(
         index
         for index, event in enumerate(emitted)
-        if event["type"]
-        == "x_aha.input_audio_transcription.interim_cleared"
+        if event["type"] == "x_aha.input_audio_transcription.interim_cleared"
     )
     delta_index = next(
         index
         for index, event in enumerate(emitted)
-        if event["type"]
-        == "conversation.item.input_audio_transcription.delta"
+        if event["type"] == "conversation.item.input_audio_transcription.delta"
     )
     assert cleared_index < delta_index
     assert emitted[cleared_index]["reason"] == "primary_transcript_started"
@@ -1468,11 +1374,7 @@ async def test_oob_client_tool_output_does_not_enter_default_conversation() -> N
     pool.responses = ClientToolThenTextResponses()
 
     async def send_event(event) -> None:
-        emitted.append(
-            event.model_dump(mode="json", exclude_none=True)
-            if hasattr(event, "model_dump")
-            else event
-        )
+        emitted.append(encode_server_event(event))
 
     session = RealtimeTranscriptionSession(
         send_event=send_event,
@@ -1531,8 +1433,7 @@ async def test_oob_client_tool_output_does_not_enter_default_conversation() -> N
 
     assert session._agent._history == []
     assert all(
-        event.get("item", {}).get("id") != "item_oob_tool_result"
-        for event in emitted
+        event.get("item", {}).get("id") != "item_oob_tool_result" for event in emitted
     )
     assert all(_SERVER_EVENTS.validate_python(event) for event in emitted)
 
@@ -1546,11 +1447,7 @@ async def test_webrtc_output_audio_clear_executes_and_emits_official_event() -> 
     pool.responses = blocking
 
     async def send_event(event) -> None:
-        emitted.append(
-            event.model_dump(mode="json", exclude_none=True)
-            if hasattr(event, "model_dump")
-            else event
-        )
+        emitted.append(encode_server_event(event))
 
     async def send_audio(_pcm: bytes, _rate: int, _epoch: int) -> None:
         return None
@@ -1568,7 +1465,6 @@ async def test_webrtc_output_audio_clear_executes_and_emits_official_event() -> 
         send_audio=send_audio,
         clear_audio=clear_audio,
         tool_registry=ToolRegistry(),
-        transport="webrtc",
     )
     await session.handle_client_event(
         _CLIENT_EVENTS.validate_python(
@@ -1581,9 +1477,7 @@ async def test_webrtc_output_audio_clear_executes_and_emits_official_event() -> 
                         {
                             "type": "message",
                             "role": "user",
-                            "content": [
-                                {"type": "input_text", "text": "hello"}
-                            ],
+                            "content": [{"type": "input_text", "text": "hello"}],
                         }
                     ],
                 },
@@ -1615,9 +1509,7 @@ async def test_webrtc_output_audio_clear_executes_and_emits_official_event() -> 
 
     assert cleared
     cleared_event = next(
-        event
-        for event in emitted
-        if event["type"] == "output_audio_buffer.cleared"
+        event for event in emitted if event["type"] == "output_audio_buffer.cleared"
     )
     assert cleared_event["response_id"] == response_id
     assert _SERVER_EVENTS.validate_python(cleared_event)

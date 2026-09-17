@@ -62,6 +62,10 @@ async def run_server(config: AppConfig) -> None:
         http_server.serve(),
         name="audio-harness-http",
     )
+    grpc_task = asyncio.create_task(
+        server.grpc_server.wait_for_termination(),
+        name="audio-harness-grpc",
+    )
     stop_task = asyncio.create_task(
         stop_event.wait(),
         name="audio-harness-shutdown-waiter",
@@ -73,9 +77,13 @@ async def run_server(config: AppConfig) -> None:
     )
     try:
         done, _pending = await asyncio.wait(
-            {http_task, stop_task},
+            {http_task, grpc_task, stop_task},
             return_when=asyncio.FIRST_COMPLETED,
         )
+        if grpc_task in done:
+            await grpc_task
+            if not stop_event.is_set():
+                raise RuntimeError("aha-grpc 服务意外停止")
         if http_task in done:
             await http_task
             if not stop_event.is_set():
@@ -86,3 +94,4 @@ async def run_server(config: AppConfig) -> None:
         await asyncio.gather(stop_task, return_exceptions=True)
         await asyncio.gather(http_task, return_exceptions=True)
         await server.stop()
+        await asyncio.gather(grpc_task, return_exceptions=True)

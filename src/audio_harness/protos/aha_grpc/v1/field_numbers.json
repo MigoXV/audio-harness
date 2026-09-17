@@ -1,0 +1,3739 @@
+{
+  "ClientAhaAgentBackendApprovalResponseEvent": {
+    "approval_id": 4,
+    "approved": 5,
+    "event_id": 1,
+    "request_id": 3,
+    "type": 2
+  },
+  "ClientAhaAgentBackendApprovalResponseEventEventIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaAgentBackendCancelEvent": {
+    "event_id": 1,
+    "type": 2
+  },
+  "ClientAhaAgentBackendCancelEventEventIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaAgentBackendQuestionAnswer": {
+    "custom": 3,
+    "id": 1,
+    "selected": 2
+  },
+  "ClientAhaAgentBackendQuestionAnswerCustomValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaAgentBackendQuestionAnswerSelectedList": {
+    "values": 1
+  },
+  "ClientAhaAgentBackendQuestionResponseEvent": {
+    "answers": 4,
+    "event_id": 1,
+    "request_id": 3,
+    "type": 2
+  },
+  "ClientAhaAgentBackendQuestionResponseEventAnswersList": {
+    "values": 1
+  },
+  "ClientAhaAgentBackendQuestionResponseEventEventIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaAudioPCM": {
+    "additional_properties": 3,
+    "rate": 1,
+    "type": 2
+  },
+  "ClientAhaAudioPCMRateValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaAudioPCMTypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaRealtimeAudioConfig": {
+    "additional_properties": 3,
+    "input": 1,
+    "output": 2
+  },
+  "ClientAhaRealtimeAudioConfigInput": {
+    "additional_properties": 5,
+    "format": 1,
+    "noise_reduction": 2,
+    "transcription": 3,
+    "turn_detection": 4
+  },
+  "ClientAhaRealtimeAudioConfigInputFormatValue": {
+    "null": 4,
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3
+  },
+  "ClientAhaRealtimeAudioConfigInputNoiseReductionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaRealtimeAudioConfigInputTranscriptionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaRealtimeAudioConfigInputTurnDetectionValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ClientAhaRealtimeAudioConfigInputValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaRealtimeAudioConfigOutputValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaRealtimeSessionCreateRequest": {
+    "additional_properties": 15,
+    "audio": 2,
+    "include": 3,
+    "instructions": 4,
+    "max_output_tokens": 5,
+    "model": 6,
+    "output_modalities": 7,
+    "parallel_tool_calls": 8,
+    "prompt": 9,
+    "reasoning": 10,
+    "tool_choice": 11,
+    "tools": 12,
+    "tracing": 13,
+    "truncation": 14,
+    "type": 1
+  },
+  "ClientAhaRealtimeSessionCreateRequestAudioValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaRealtimeSessionCreateRequestIncludeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaRealtimeSessionCreateRequestIncludeValueValue1List": {
+    "values": 1
+  },
+  "ClientAhaRealtimeSessionCreateRequestInstructionsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaRealtimeSessionCreateRequestMaxOutputTokensValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ClientAhaRealtimeSessionCreateRequestModelValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ClientAhaRealtimeSessionCreateRequestOutputModalitiesValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaRealtimeSessionCreateRequestOutputModalitiesValueValue1List": {
+    "values": 1
+  },
+  "ClientAhaRealtimeSessionCreateRequestParallelToolCallsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaRealtimeSessionCreateRequestPromptValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaRealtimeSessionCreateRequestReasoningValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaRealtimeSessionCreateRequestToolChoiceValue": {
+    "null": 4,
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3
+  },
+  "ClientAhaRealtimeSessionCreateRequestToolsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaRealtimeSessionCreateRequestToolsValueValue1List": {
+    "values": 1
+  },
+  "ClientAhaRealtimeSessionCreateRequestToolsValueValue1ListItemValue": {
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ClientAhaRealtimeSessionCreateRequestTracingValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ClientAhaRealtimeSessionCreateRequestTruncationValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ClientAhaRealtimeTranscriptionSessionAudio": {
+    "additional_properties": 2,
+    "input": 1
+  },
+  "ClientAhaRealtimeTranscriptionSessionAudioInput": {
+    "additional_properties": 5,
+    "format": 1,
+    "noise_reduction": 2,
+    "transcription": 3,
+    "turn_detection": 4
+  },
+  "ClientAhaRealtimeTranscriptionSessionAudioInputFormatValue": {
+    "null": 4,
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3
+  },
+  "ClientAhaRealtimeTranscriptionSessionAudioInputNoiseReductionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaRealtimeTranscriptionSessionAudioInputTranscriptionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaRealtimeTranscriptionSessionAudioInputTurnDetectionValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ClientAhaRealtimeTranscriptionSessionAudioInputValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaRealtimeTranscriptionSessionCreateRequest": {
+    "additional_properties": 4,
+    "audio": 2,
+    "include": 3,
+    "type": 1
+  },
+  "ClientAhaRealtimeTranscriptionSessionCreateRequestAudioValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaRealtimeTranscriptionSessionCreateRequestIncludeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaRealtimeTranscriptionSessionCreateRequestIncludeValueValue1List": {
+    "values": 1
+  },
+  "ClientAhaSessionUpdateEvent": {
+    "additional_properties": 4,
+    "event_id": 3,
+    "session": 1,
+    "type": 2
+  },
+  "ClientAhaSessionUpdateEventEventIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAhaSessionUpdateEventSessionValue": {
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ClientAllowedToolsMcpToolFilter": {
+    "additional_properties": 3,
+    "read_only": 1,
+    "tool_names": 2
+  },
+  "ClientAllowedToolsMcpToolFilterReadOnlyValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAllowedToolsMcpToolFilterToolNamesValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAllowedToolsMcpToolFilterToolNamesValueValue1List": {
+    "values": 1
+  },
+  "ClientAudioPCM": {
+    "additional_properties": 3,
+    "rate": 1,
+    "type": 2
+  },
+  "ClientAudioPCMA": {
+    "additional_properties": 2,
+    "type": 1
+  },
+  "ClientAudioPCMATypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAudioPCMRateValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAudioPCMTypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAudioPCMU": {
+    "additional_properties": 2,
+    "type": 1
+  },
+  "ClientAudioPCMUTypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAudioTranscription": {
+    "additional_properties": 7,
+    "delay": 1,
+    "keywords": 2,
+    "language": 3,
+    "languages": 4,
+    "model": 5,
+    "prompt": 6
+  },
+  "ClientAudioTranscriptionDelayValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAudioTranscriptionKeywordsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAudioTranscriptionKeywordsValueValue1List": {
+    "values": 1
+  },
+  "ClientAudioTranscriptionLanguageValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAudioTranscriptionLanguagesValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientAudioTranscriptionLanguagesValueValue1List": {
+    "values": 1
+  },
+  "ClientAudioTranscriptionModelValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ClientAudioTranscriptionPromptValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientConversationItemCreateEvent": {
+    "additional_properties": 5,
+    "event_id": 3,
+    "item": 1,
+    "previous_item_id": 4,
+    "type": 2
+  },
+  "ClientConversationItemCreateEventEventIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientConversationItemCreateEventItemValue": {
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3,
+    "value_4": 4,
+    "value_5": 5,
+    "value_6": 6,
+    "value_7": 7,
+    "value_8": 8,
+    "value_9": 9
+  },
+  "ClientConversationItemCreateEventPreviousItemIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientConversationItemDeleteEvent": {
+    "additional_properties": 4,
+    "event_id": 3,
+    "item_id": 1,
+    "type": 2
+  },
+  "ClientConversationItemDeleteEventEventIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientConversationItemRetrieveEvent": {
+    "additional_properties": 4,
+    "event_id": 3,
+    "item_id": 1,
+    "type": 2
+  },
+  "ClientConversationItemRetrieveEventEventIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientConversationItemTruncateEvent": {
+    "additional_properties": 6,
+    "audio_end_ms": 1,
+    "content_index": 2,
+    "event_id": 5,
+    "item_id": 3,
+    "type": 4
+  },
+  "ClientConversationItemTruncateEventEventIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientEvent": {
+    "conversation_item_create": 1,
+    "conversation_item_delete": 2,
+    "conversation_item_retrieve": 3,
+    "conversation_item_truncate": 4,
+    "input_audio_buffer_append": 5,
+    "input_audio_buffer_clear": 6,
+    "input_audio_buffer_commit": 7,
+    "output_audio_buffer_clear": 8,
+    "response_cancel": 9,
+    "response_create": 10,
+    "session_update": 11,
+    "x_aha_agent_backend_approval_respond": 12,
+    "x_aha_agent_backend_cancel": 13,
+    "x_aha_agent_backend_question_respond": 14
+  },
+  "ClientInputAudioBufferAppendEvent": {
+    "additional_properties": 4,
+    "audio": 1,
+    "event_id": 3,
+    "type": 2
+  },
+  "ClientInputAudioBufferAppendEventEventIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientInputAudioBufferClearEvent": {
+    "additional_properties": 3,
+    "event_id": 2,
+    "type": 1
+  },
+  "ClientInputAudioBufferClearEventEventIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientInputAudioBufferCommitEvent": {
+    "additional_properties": 3,
+    "event_id": 2,
+    "type": 1
+  },
+  "ClientInputAudioBufferCommitEventEventIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientMcp": {
+    "additional_properties": 13,
+    "allowed_callers": 3,
+    "allowed_tools": 4,
+    "authorization": 5,
+    "connector_id": 6,
+    "defer_loading": 7,
+    "headers": 8,
+    "require_approval": 9,
+    "server_description": 10,
+    "server_label": 1,
+    "server_url": 11,
+    "tunnel_id": 12,
+    "type": 2
+  },
+  "ClientMcpAllowedCallersValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientMcpAllowedCallersValueValue1List": {
+    "values": 1
+  },
+  "ClientMcpAllowedToolsMcpToolFilter": {
+    "additional_properties": 3,
+    "read_only": 1,
+    "tool_names": 2
+  },
+  "ClientMcpAllowedToolsMcpToolFilterReadOnlyValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientMcpAllowedToolsMcpToolFilterToolNamesValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientMcpAllowedToolsMcpToolFilterToolNamesValueValue1List": {
+    "values": 1
+  },
+  "ClientMcpAllowedToolsValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ClientMcpAllowedToolsValueValue1List": {
+    "values": 1
+  },
+  "ClientMcpAuthorizationValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientMcpConnectorIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientMcpDeferLoadingValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientMcpHeadersValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientMcpHeadersValueValue1Map": {
+    "values": 1
+  },
+  "ClientMcpRequireApprovalMcpToolApprovalFilter": {
+    "additional_properties": 3,
+    "always": 1,
+    "never": 2
+  },
+  "ClientMcpRequireApprovalMcpToolApprovalFilterAlways": {
+    "additional_properties": 3,
+    "read_only": 1,
+    "tool_names": 2
+  },
+  "ClientMcpRequireApprovalMcpToolApprovalFilterAlwaysReadOnlyValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientMcpRequireApprovalMcpToolApprovalFilterAlwaysToolNamesValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientMcpRequireApprovalMcpToolApprovalFilterAlwaysToolNamesValueValue1List": {
+    "values": 1
+  },
+  "ClientMcpRequireApprovalMcpToolApprovalFilterAlwaysValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientMcpRequireApprovalMcpToolApprovalFilterNever": {
+    "additional_properties": 3,
+    "read_only": 1,
+    "tool_names": 2
+  },
+  "ClientMcpRequireApprovalMcpToolApprovalFilterNeverReadOnlyValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientMcpRequireApprovalMcpToolApprovalFilterNeverToolNamesValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientMcpRequireApprovalMcpToolApprovalFilterNeverToolNamesValueValue1List": {
+    "values": 1
+  },
+  "ClientMcpRequireApprovalMcpToolApprovalFilterNeverValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientMcpRequireApprovalValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ClientMcpServerDescriptionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientMcpServerUrlValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientMcpTunnelIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientNoiseReduction": {
+    "additional_properties": 2,
+    "type": 1
+  },
+  "ClientNoiseReductionTypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientOutput": {
+    "additional_properties": 3,
+    "format": 1,
+    "voice": 2
+  },
+  "ClientOutputAudioBufferClearEvent": {
+    "additional_properties": 3,
+    "event_id": 2,
+    "type": 1
+  },
+  "ClientOutputAudioBufferClearEventEventIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientOutputFormatValue": {
+    "null": 4,
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3
+  },
+  "ClientOutputVoiceID": {
+    "additional_properties": 2,
+    "id": 1
+  },
+  "ClientOutputVoiceValue": {
+    "null": 4,
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3
+  },
+  "ClientPromptCacheBreakpoint": {
+    "additional_properties": 2,
+    "mode": 1
+  },
+  "ClientRealtimeAudioConfigOutput": {
+    "additional_properties": 4,
+    "format": 1,
+    "speed": 2,
+    "voice": 3
+  },
+  "ClientRealtimeAudioConfigOutputFormatValue": {
+    "null": 4,
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3
+  },
+  "ClientRealtimeAudioConfigOutputSpeedValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeAudioConfigOutputVoiceValue": {
+    "null": 4,
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3
+  },
+  "ClientRealtimeConversationItemAssistantMessage": {
+    "additional_properties": 7,
+    "content": 1,
+    "id": 4,
+    "object": 5,
+    "role": 2,
+    "status": 6,
+    "type": 3
+  },
+  "ClientRealtimeConversationItemAssistantMessageContentList": {
+    "values": 1
+  },
+  "ClientRealtimeConversationItemAssistantMessageIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeConversationItemAssistantMessageObjectValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeConversationItemAssistantMessageStatusValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeConversationItemFunctionCall": {
+    "additional_properties": 8,
+    "arguments": 1,
+    "call_id": 5,
+    "id": 4,
+    "name": 2,
+    "object": 6,
+    "status": 7,
+    "type": 3
+  },
+  "ClientRealtimeConversationItemFunctionCallCallIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeConversationItemFunctionCallIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeConversationItemFunctionCallObjectValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeConversationItemFunctionCallOutput": {
+    "additional_properties": 7,
+    "call_id": 1,
+    "id": 4,
+    "object": 5,
+    "output": 2,
+    "status": 6,
+    "type": 3
+  },
+  "ClientRealtimeConversationItemFunctionCallOutputIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeConversationItemFunctionCallOutputObjectValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeConversationItemFunctionCallOutputStatusValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeConversationItemFunctionCallStatusValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeConversationItemSystemMessage": {
+    "additional_properties": 7,
+    "content": 1,
+    "id": 4,
+    "object": 5,
+    "role": 2,
+    "status": 6,
+    "type": 3
+  },
+  "ClientRealtimeConversationItemSystemMessageContentList": {
+    "values": 1
+  },
+  "ClientRealtimeConversationItemSystemMessageIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeConversationItemSystemMessageObjectValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeConversationItemSystemMessageStatusValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeConversationItemUserMessage": {
+    "additional_properties": 7,
+    "content": 1,
+    "id": 4,
+    "object": 5,
+    "role": 2,
+    "status": 6,
+    "type": 3
+  },
+  "ClientRealtimeConversationItemUserMessageContentList": {
+    "values": 1
+  },
+  "ClientRealtimeConversationItemUserMessageIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeConversationItemUserMessageObjectValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeConversationItemUserMessageStatusValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeFunctionTool": {
+    "additional_properties": 5,
+    "description": 1,
+    "name": 2,
+    "parameters": 3,
+    "type": 4
+  },
+  "ClientRealtimeFunctionToolDescriptionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeFunctionToolNameValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeFunctionToolParametersValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeFunctionToolTypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeMcpApprovalRequest": {
+    "additional_properties": 6,
+    "arguments": 2,
+    "id": 1,
+    "name": 3,
+    "server_label": 4,
+    "type": 5
+  },
+  "ClientRealtimeMcpApprovalResponse": {
+    "additional_properties": 6,
+    "approval_request_id": 2,
+    "approve": 3,
+    "id": 1,
+    "reason": 5,
+    "type": 4
+  },
+  "ClientRealtimeMcpApprovalResponseReasonValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeMcpListTools": {
+    "additional_properties": 5,
+    "id": 4,
+    "server_label": 1,
+    "tools": 2,
+    "type": 3
+  },
+  "ClientRealtimeMcpListToolsIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeMcpListToolsToolsList": {
+    "values": 1
+  },
+  "ClientRealtimeMcpProtocolError": {
+    "additional_properties": 4,
+    "code": 1,
+    "message": 2,
+    "type": 3
+  },
+  "ClientRealtimeMcpToolCall": {
+    "additional_properties": 9,
+    "approval_request_id": 6,
+    "arguments": 2,
+    "error": 7,
+    "id": 1,
+    "name": 3,
+    "output": 8,
+    "server_label": 4,
+    "type": 5
+  },
+  "ClientRealtimeMcpToolCallApprovalRequestIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeMcpToolCallErrorValue": {
+    "null": 4,
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3
+  },
+  "ClientRealtimeMcpToolCallOutputValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeMcpToolExecutionError": {
+    "additional_properties": 3,
+    "message": 1,
+    "type": 2
+  },
+  "ClientRealtimeMcphttpError": {
+    "additional_properties": 4,
+    "code": 1,
+    "message": 2,
+    "type": 3
+  },
+  "ClientRealtimeReasoning": {
+    "additional_properties": 2,
+    "effort": 1
+  },
+  "ClientRealtimeReasoningEffortValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeResponseCreateAudioOutput": {
+    "additional_properties": 2,
+    "output": 1
+  },
+  "ClientRealtimeResponseCreateAudioOutputOutputValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeResponseCreateMcpTool": {
+    "additional_properties": 13,
+    "allowed_callers": 3,
+    "allowed_tools": 4,
+    "authorization": 5,
+    "connector_id": 6,
+    "defer_loading": 7,
+    "headers": 8,
+    "require_approval": 9,
+    "server_description": 10,
+    "server_label": 1,
+    "server_url": 11,
+    "tunnel_id": 12,
+    "type": 2
+  },
+  "ClientRealtimeResponseCreateMcpToolAllowedCallersValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeResponseCreateMcpToolAllowedCallersValueValue1List": {
+    "values": 1
+  },
+  "ClientRealtimeResponseCreateMcpToolAllowedToolsValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ClientRealtimeResponseCreateMcpToolAllowedToolsValueValue1List": {
+    "values": 1
+  },
+  "ClientRealtimeResponseCreateMcpToolAuthorizationValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeResponseCreateMcpToolConnectorIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeResponseCreateMcpToolDeferLoadingValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeResponseCreateMcpToolHeadersValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeResponseCreateMcpToolHeadersValueValue1Map": {
+    "values": 1
+  },
+  "ClientRealtimeResponseCreateMcpToolRequireApprovalValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ClientRealtimeResponseCreateMcpToolServerDescriptionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeResponseCreateMcpToolServerUrlValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeResponseCreateMcpToolTunnelIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeResponseCreateParams": {
+    "additional_properties": 13,
+    "audio": 1,
+    "conversation": 2,
+    "input": 3,
+    "instructions": 4,
+    "max_output_tokens": 5,
+    "metadata": 6,
+    "output_modalities": 7,
+    "parallel_tool_calls": 8,
+    "prompt": 9,
+    "reasoning": 10,
+    "tool_choice": 11,
+    "tools": 12
+  },
+  "ClientRealtimeResponseCreateParamsAudioValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeResponseCreateParamsConversationValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ClientRealtimeResponseCreateParamsInputValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeResponseCreateParamsInputValueValue1List": {
+    "values": 1
+  },
+  "ClientRealtimeResponseCreateParamsInputValueValue1ListItemValue": {
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3,
+    "value_4": 4,
+    "value_5": 5,
+    "value_6": 6,
+    "value_7": 7,
+    "value_8": 8,
+    "value_9": 9
+  },
+  "ClientRealtimeResponseCreateParamsInstructionsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeResponseCreateParamsMaxOutputTokensValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ClientRealtimeResponseCreateParamsMetadataValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeResponseCreateParamsMetadataValueValue1Map": {
+    "values": 1
+  },
+  "ClientRealtimeResponseCreateParamsOutputModalitiesValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeResponseCreateParamsOutputModalitiesValueValue1List": {
+    "values": 1
+  },
+  "ClientRealtimeResponseCreateParamsParallelToolCallsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeResponseCreateParamsPromptValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeResponseCreateParamsReasoningValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeResponseCreateParamsToolChoiceValue": {
+    "null": 4,
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3
+  },
+  "ClientRealtimeResponseCreateParamsToolsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRealtimeResponseCreateParamsToolsValueValue1List": {
+    "values": 1
+  },
+  "ClientRealtimeResponseCreateParamsToolsValueValue1ListItemValue": {
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ClientRealtimeTruncationRetentionRatio": {
+    "additional_properties": 4,
+    "retention_ratio": 1,
+    "token_limits": 3,
+    "type": 2
+  },
+  "ClientRealtimeTruncationRetentionRatioTokenLimitsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRequireApprovalMcpToolApprovalFilter": {
+    "additional_properties": 3,
+    "always": 1,
+    "never": 2
+  },
+  "ClientRequireApprovalMcpToolApprovalFilterAlways": {
+    "additional_properties": 3,
+    "read_only": 1,
+    "tool_names": 2
+  },
+  "ClientRequireApprovalMcpToolApprovalFilterAlwaysReadOnlyValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRequireApprovalMcpToolApprovalFilterAlwaysToolNamesValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRequireApprovalMcpToolApprovalFilterAlwaysToolNamesValueValue1List": {
+    "values": 1
+  },
+  "ClientRequireApprovalMcpToolApprovalFilterAlwaysValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRequireApprovalMcpToolApprovalFilterNever": {
+    "additional_properties": 3,
+    "read_only": 1,
+    "tool_names": 2
+  },
+  "ClientRequireApprovalMcpToolApprovalFilterNeverReadOnlyValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRequireApprovalMcpToolApprovalFilterNeverToolNamesValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientRequireApprovalMcpToolApprovalFilterNeverToolNamesValueValue1List": {
+    "values": 1
+  },
+  "ClientRequireApprovalMcpToolApprovalFilterNeverValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientResponseCancelEvent": {
+    "additional_properties": 4,
+    "event_id": 2,
+    "response_id": 3,
+    "type": 1
+  },
+  "ClientResponseCancelEventEventIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientResponseCancelEventResponseIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientResponseCreateEvent": {
+    "additional_properties": 4,
+    "event_id": 2,
+    "response": 3,
+    "type": 1
+  },
+  "ClientResponseCreateEventEventIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientResponseCreateEventResponseValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientResponseInputFile": {
+    "additional_properties": 8,
+    "detail": 2,
+    "file_data": 3,
+    "file_id": 4,
+    "file_url": 5,
+    "filename": 6,
+    "prompt_cache_breakpoint": 7,
+    "type": 1
+  },
+  "ClientResponseInputFileDetailValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientResponseInputFileFileDataValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientResponseInputFileFileIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientResponseInputFileFileUrlValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientResponseInputFileFilenameValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientResponseInputFilePromptCacheBreakpointValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientResponseInputImage": {
+    "additional_properties": 6,
+    "detail": 1,
+    "file_id": 3,
+    "image_url": 4,
+    "prompt_cache_breakpoint": 5,
+    "type": 2
+  },
+  "ClientResponseInputImageFileIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientResponseInputImageImageUrlValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientResponseInputImagePromptCacheBreakpointValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientResponseInputText": {
+    "additional_properties": 4,
+    "prompt_cache_breakpoint": 3,
+    "text": 1,
+    "type": 2
+  },
+  "ClientResponseInputTextPromptCacheBreakpointValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientResponsePrompt": {
+    "additional_properties": 4,
+    "id": 1,
+    "variables": 2,
+    "version": 3
+  },
+  "ClientResponsePromptVariablesValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientResponsePromptVariablesValueValue1Map": {
+    "values": 1
+  },
+  "ClientResponsePromptVariablesValueValue1MapItemValue": {
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3,
+    "value_4": 4
+  },
+  "ClientResponsePromptVersionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientSemanticVad": {
+    "additional_properties": 5,
+    "create_response": 2,
+    "eagerness": 3,
+    "interrupt_response": 4,
+    "type": 1
+  },
+  "ClientSemanticVadCreateResponseValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientSemanticVadEagernessValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientSemanticVadInterruptResponseValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientServerVad": {
+    "additional_properties": 8,
+    "create_response": 2,
+    "idle_timeout_ms": 3,
+    "interrupt_response": 4,
+    "prefix_padding_ms": 5,
+    "silence_duration_ms": 6,
+    "threshold": 7,
+    "type": 1
+  },
+  "ClientServerVadCreateResponseValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientServerVadIdleTimeoutMsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientServerVadInterruptResponseValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientServerVadPrefixPaddingMsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientServerVadSilenceDurationMsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientServerVadThresholdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientTokenLimits": {
+    "additional_properties": 2,
+    "post_instructions": 1
+  },
+  "ClientTokenLimitsPostInstructionsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientTool": {
+    "additional_properties": 5,
+    "annotations": 3,
+    "description": 4,
+    "input_schema": 1,
+    "name": 2
+  },
+  "ClientToolAnnotationsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientToolChoiceFunction": {
+    "additional_properties": 3,
+    "name": 1,
+    "type": 2
+  },
+  "ClientToolChoiceMcp": {
+    "additional_properties": 4,
+    "name": 3,
+    "server_label": 1,
+    "type": 2
+  },
+  "ClientToolChoiceMcpNameValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientToolDescriptionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientTracingConfiguration": {
+    "additional_properties": 4,
+    "group_id": 1,
+    "metadata": 2,
+    "workflow_name": 3
+  },
+  "ClientTracingConfigurationGroupIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientTracingConfigurationMetadataValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientTracingConfigurationWorkflowNameValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientVoiceID": {
+    "additional_properties": 2,
+    "id": 1
+  },
+  "ClientopenaiTypesRealtimeRealtimeConversationItemAssistantMessageContent": {
+    "additional_properties": 5,
+    "audio": 1,
+    "text": 2,
+    "transcript": 3,
+    "type": 4
+  },
+  "ClientopenaiTypesRealtimeRealtimeConversationItemAssistantMessageContentAudioValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientopenaiTypesRealtimeRealtimeConversationItemAssistantMessageContentTextValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientopenaiTypesRealtimeRealtimeConversationItemAssistantMessageContentTranscriptValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientopenaiTypesRealtimeRealtimeConversationItemAssistantMessageContentTypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientopenaiTypesRealtimeRealtimeConversationItemSystemMessageContent": {
+    "additional_properties": 3,
+    "text": 1,
+    "type": 2
+  },
+  "ClientopenaiTypesRealtimeRealtimeConversationItemSystemMessageContentTextValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientopenaiTypesRealtimeRealtimeConversationItemSystemMessageContentTypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientopenaiTypesRealtimeRealtimeConversationItemUserMessageContent": {
+    "additional_properties": 7,
+    "audio": 1,
+    "detail": 2,
+    "image_url": 3,
+    "text": 4,
+    "transcript": 5,
+    "type": 6
+  },
+  "ClientopenaiTypesRealtimeRealtimeConversationItemUserMessageContentAudioValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientopenaiTypesRealtimeRealtimeConversationItemUserMessageContentDetailValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientopenaiTypesRealtimeRealtimeConversationItemUserMessageContentImageUrlValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientopenaiTypesRealtimeRealtimeConversationItemUserMessageContentTextValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientopenaiTypesRealtimeRealtimeConversationItemUserMessageContentTranscriptValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ClientopenaiTypesRealtimeRealtimeConversationItemUserMessageContentTypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAgentBackendApprovalEvent": {
+    "approval_id": 6,
+    "backend_id": 3,
+    "backend_session_id": 4,
+    "call_id": 8,
+    "event_id": 1,
+    "outcome": 10,
+    "reason": 9,
+    "request_id": 5,
+    "resolution": 11,
+    "tool_name": 7,
+    "type": 2
+  },
+  "ServerAhaAgentBackendApprovalEventCallIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAgentBackendApprovalEventOutcomeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAgentBackendApprovalEventReasonValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAgentBackendApprovalEventResolutionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAgentBackendApprovalEventToolNameValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAgentBackendQuestionEvent": {
+    "backend_id": 3,
+    "backend_session_id": 4,
+    "event_id": 1,
+    "outcome": 7,
+    "questions": 6,
+    "request_id": 5,
+    "resolution": 8,
+    "type": 2
+  },
+  "ServerAhaAgentBackendQuestionEventOutcomeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAgentBackendQuestionEventQuestionsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAgentBackendQuestionEventQuestionsValueValue1List": {
+    "values": 1
+  },
+  "ServerAhaAgentBackendQuestionEventQuestionsValueValue1ListItemMap": {
+    "values": 1
+  },
+  "ServerAhaAgentBackendQuestionEventResolutionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAgentBackendSessionEvent": {
+    "backend_id": 3,
+    "backend_session_id": 4,
+    "event_id": 1,
+    "status": 5,
+    "type": 2
+  },
+  "ServerAhaAgentBackendTerminalEvent": {
+    "backend_id": 3,
+    "backend_session_id": 4,
+    "code": 5,
+    "event_id": 1,
+    "message": 6,
+    "type": 2
+  },
+  "ServerAhaAgentBackendTerminalEventBackendSessionIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAgentBackendTextDeltaEvent": {
+    "backend_id": 3,
+    "backend_session_id": 4,
+    "delta": 6,
+    "event_id": 1,
+    "seq": 5,
+    "type": 2
+  },
+  "ServerAhaAgentBackendTextDeltaEventSeqValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAgentBackendToolEvent": {
+    "arguments": 8,
+    "backend_id": 3,
+    "backend_session_id": 4,
+    "call_id": 6,
+    "error": 10,
+    "event_id": 1,
+    "name": 7,
+    "result": 9,
+    "seq": 5,
+    "type": 2
+  },
+  "ServerAhaAgentBackendToolEventArgumentsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAgentBackendToolEventCallIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAgentBackendToolEventErrorValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAgentBackendToolEventNameValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAgentBackendToolEventResultValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAgentBackendToolEventSeqValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAgentBackendTurnEvent": {
+    "backend_id": 3,
+    "backend_session_id": 4,
+    "event_id": 1,
+    "reason": 7,
+    "seq": 5,
+    "turn": 6,
+    "type": 2
+  },
+  "ServerAhaAgentBackendTurnEventReasonValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAgentBackendTurnEventSeqValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAgentBackendTurnEventTurnValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAudioPCM": {
+    "additional_properties": 3,
+    "rate": 1,
+    "type": 2
+  },
+  "ServerAhaAudioPCMRateValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaAudioPCMTypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaDiarizationClusterAssignment": {
+    "local_speaker_id": 2,
+    "segment_id": 1,
+    "speaker_id": 3
+  },
+  "ServerAhaDiarizationClusterCompletedEvent": {
+    "assignments": 8,
+    "event_id": 1,
+    "final": 4,
+    "full_snapshot": 7,
+    "processed_audio_ms": 5,
+    "replaces_revision": 3,
+    "revision": 2,
+    "type": 6
+  },
+  "ServerAhaDiarizationClusterCompletedEventAssignmentsList": {
+    "values": 1
+  },
+  "ServerAhaDiarizationClusterCompletedEventFinalValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaDiarizationClusterCompletedEventProcessedAudioMsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaDiarizationClusterCompletedEventReplacesRevisionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaDiarizationClusterFailedEvent": {
+    "error": 7,
+    "event_id": 1,
+    "final": 4,
+    "processed_audio_ms": 5,
+    "replaces_revision": 3,
+    "revision": 2,
+    "type": 6
+  },
+  "ServerAhaDiarizationClusterFailedEventFinalValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaDiarizationClusterFailedEventProcessedAudioMsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaDiarizationClusterFailedEventReplacesRevisionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaDiarizationLocalCompletedEvent": {
+    "batch_audio_end_ms": 4,
+    "batch_audio_start_ms": 3,
+    "batch_id": 2,
+    "event_id": 1,
+    "latency_ms": 8,
+    "segments": 7,
+    "sequence": 6,
+    "speech_duration_ms": 5,
+    "type": 9
+  },
+  "ServerAhaDiarizationLocalCompletedEventSegmentsList": {
+    "values": 1
+  },
+  "ServerAhaDiarizationLocalCompletedEventSequenceValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaDiarizationLocalDeltaEvent": {
+    "batch_audio_end_ms": 4,
+    "batch_audio_start_ms": 3,
+    "batch_id": 2,
+    "event_id": 1,
+    "latency_ms": 8,
+    "segments": 7,
+    "sequence": 6,
+    "speech_duration_ms": 5,
+    "type": 9
+  },
+  "ServerAhaDiarizationLocalDeltaEventSegmentsList": {
+    "values": 1
+  },
+  "ServerAhaDiarizationLocalDeltaEventSequenceValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaDiarizationLocalFailedEvent": {
+    "batch_audio_end_ms": 4,
+    "batch_audio_start_ms": 3,
+    "batch_id": 2,
+    "error": 10,
+    "event_id": 1,
+    "latency_ms": 8,
+    "segments": 7,
+    "sequence": 6,
+    "speech_duration_ms": 5,
+    "type": 9
+  },
+  "ServerAhaDiarizationLocalFailedEventSegmentsList": {
+    "values": 1
+  },
+  "ServerAhaDiarizationLocalFailedEventSequenceValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaDiarizationSegment": {
+    "audio_end_ms": 3,
+    "audio_start_ms": 2,
+    "local_speaker_id": 5,
+    "segment_id": 1,
+    "speaker": 4
+  },
+  "ServerAhaError": {
+    "code": 1,
+    "message": 2
+  },
+  "ServerAhaInputAudioTranscriptionInterimClearedEvent": {
+    "event_id": 1,
+    "item_id": 3,
+    "reason": 4,
+    "type": 2
+  },
+  "ServerAhaInputAudioTranscriptionInterimEvent": {
+    "audio_end_ms": 8,
+    "audio_start_ms": 7,
+    "content_index": 4,
+    "event_id": 1,
+    "item_id": 3,
+    "revision": 5,
+    "transcript": 6,
+    "type": 2
+  },
+  "ServerAhaRealtimeAudioConfig": {
+    "additional_properties": 3,
+    "input": 1,
+    "output": 2
+  },
+  "ServerAhaRealtimeAudioConfigInput": {
+    "additional_properties": 5,
+    "format": 1,
+    "noise_reduction": 2,
+    "transcription": 3,
+    "turn_detection": 4
+  },
+  "ServerAhaRealtimeAudioConfigInputFormatValue": {
+    "null": 4,
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3
+  },
+  "ServerAhaRealtimeAudioConfigInputNoiseReductionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaRealtimeAudioConfigInputTranscriptionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaRealtimeAudioConfigInputTurnDetectionValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ServerAhaRealtimeAudioConfigInputValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaRealtimeAudioConfigOutputValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaRealtimeSessionCreateRequest": {
+    "additional_properties": 15,
+    "audio": 2,
+    "include": 3,
+    "instructions": 4,
+    "max_output_tokens": 5,
+    "model": 6,
+    "output_modalities": 7,
+    "parallel_tool_calls": 8,
+    "prompt": 9,
+    "reasoning": 10,
+    "tool_choice": 11,
+    "tools": 12,
+    "tracing": 13,
+    "truncation": 14,
+    "type": 1
+  },
+  "ServerAhaRealtimeSessionCreateRequestAudioValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaRealtimeSessionCreateRequestIncludeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaRealtimeSessionCreateRequestIncludeValueValue1List": {
+    "values": 1
+  },
+  "ServerAhaRealtimeSessionCreateRequestInstructionsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaRealtimeSessionCreateRequestMaxOutputTokensValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ServerAhaRealtimeSessionCreateRequestModelValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ServerAhaRealtimeSessionCreateRequestOutputModalitiesValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaRealtimeSessionCreateRequestOutputModalitiesValueValue1List": {
+    "values": 1
+  },
+  "ServerAhaRealtimeSessionCreateRequestParallelToolCallsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaRealtimeSessionCreateRequestPromptValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaRealtimeSessionCreateRequestReasoningValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaRealtimeSessionCreateRequestToolChoiceValue": {
+    "null": 4,
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3
+  },
+  "ServerAhaRealtimeSessionCreateRequestToolsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaRealtimeSessionCreateRequestToolsValueValue1List": {
+    "values": 1
+  },
+  "ServerAhaRealtimeSessionCreateRequestToolsValueValue1ListItemValue": {
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ServerAhaRealtimeSessionCreateRequestTracingValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ServerAhaRealtimeSessionCreateRequestTruncationValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ServerAhaRealtimeTranscriptionSessionAudio": {
+    "additional_properties": 2,
+    "input": 1
+  },
+  "ServerAhaRealtimeTranscriptionSessionAudioInput": {
+    "additional_properties": 5,
+    "format": 1,
+    "noise_reduction": 2,
+    "transcription": 3,
+    "turn_detection": 4
+  },
+  "ServerAhaRealtimeTranscriptionSessionAudioInputFormatValue": {
+    "null": 4,
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3
+  },
+  "ServerAhaRealtimeTranscriptionSessionAudioInputNoiseReductionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaRealtimeTranscriptionSessionAudioInputTranscriptionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaRealtimeTranscriptionSessionAudioInputTurnDetectionValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ServerAhaRealtimeTranscriptionSessionAudioInputValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaRealtimeTranscriptionSessionCreateRequest": {
+    "additional_properties": 4,
+    "audio": 2,
+    "include": 3,
+    "type": 1
+  },
+  "ServerAhaRealtimeTranscriptionSessionCreateRequestAudioValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaRealtimeTranscriptionSessionCreateRequestIncludeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaRealtimeTranscriptionSessionCreateRequestIncludeValueValue1List": {
+    "values": 1
+  },
+  "ServerAhaSessionCreatedEvent": {
+    "additional_properties": 4,
+    "event_id": 1,
+    "session": 2,
+    "type": 3
+  },
+  "ServerAhaSessionCreatedEventSessionValue": {
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ServerAhaSessionUpdatedEvent": {
+    "additional_properties": 4,
+    "event_id": 1,
+    "session": 2,
+    "type": 3
+  },
+  "ServerAhaSessionUpdatedEventSessionValue": {
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ServerAhaSpeakerFilterFailedEvent": {
+    "audio_end_ms": 3,
+    "audio_start_ms": 2,
+    "error": 5,
+    "event_id": 1,
+    "type": 4
+  },
+  "ServerAhaSpeakerFilterMatchedEvent": {
+    "audio_end_ms": 3,
+    "audio_start_ms": 2,
+    "event_id": 1,
+    "score": 6,
+    "speaker_id": 5,
+    "type": 4
+  },
+  "ServerAhaSpeakerFilterRejectedEvent": {
+    "audio_end_ms": 3,
+    "audio_start_ms": 2,
+    "event_id": 1,
+    "reason": 5,
+    "type": 4
+  },
+  "ServerAhaSpeakerTranscriptionCompletedEvent": {
+    "audio_end_ms": 9,
+    "audio_start_ms": 8,
+    "batch_id": 5,
+    "event_id": 1,
+    "item_id": 2,
+    "item_source_id": 3,
+    "language": 10,
+    "local_speaker_id": 6,
+    "segment_id": 4,
+    "speaker": 7,
+    "transcript": 12,
+    "type": 11
+  },
+  "ServerAhaSpeakerTranscriptionCompletedEventLanguageValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaSpeakerTranscriptionCompletedEventLocalSpeakerIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaSpeakerTranscriptionCompletedEventSpeakerValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaSpeakerTranscriptionDeltaEvent": {
+    "audio_end_ms": 9,
+    "audio_start_ms": 8,
+    "batch_id": 5,
+    "delta": 12,
+    "event_id": 1,
+    "item_id": 2,
+    "item_source_id": 3,
+    "language": 10,
+    "local_speaker_id": 6,
+    "segment_id": 4,
+    "speaker": 7,
+    "type": 11
+  },
+  "ServerAhaSpeakerTranscriptionDeltaEventLanguageValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaSpeakerTranscriptionDeltaEventLocalSpeakerIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaSpeakerTranscriptionDeltaEventSpeakerValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaSpeakerTranscriptionFailedEvent": {
+    "audio_end_ms": 9,
+    "audio_start_ms": 8,
+    "batch_id": 5,
+    "error": 12,
+    "event_id": 1,
+    "item_id": 2,
+    "item_source_id": 3,
+    "language": 10,
+    "local_speaker_id": 6,
+    "segment_id": 4,
+    "speaker": 7,
+    "type": 11
+  },
+  "ServerAhaSpeakerTranscriptionFailedEventLanguageValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaSpeakerTranscriptionFailedEventLocalSpeakerIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaSpeakerTranscriptionFailedEventSpeakerValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaVadPhysicalSpeechStartedEvent": {
+    "audio_start_ms": 6,
+    "event_id": 1,
+    "item_id": 5,
+    "physical_segment_id": 4,
+    "type": 2,
+    "vad_turn_id": 3
+  },
+  "ServerAhaVadPhysicalSpeechStartedEventItemIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaVadPhysicalSpeechStoppedEvent": {
+    "audio_end_ms": 7,
+    "audio_start_ms": 6,
+    "event_id": 1,
+    "item_id": 5,
+    "physical_segment_id": 4,
+    "type": 2,
+    "vad_turn_id": 3
+  },
+  "ServerAhaVadPhysicalSpeechStoppedEventItemIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaVadProgressEvent": {
+    "event_id": 1,
+    "final": 4,
+    "processed_audio_ms": 3,
+    "type": 2
+  },
+  "ServerAhaVadProgressEventFinalValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaVadTurnCompletedEvent": {
+    "audio_end_ms": 6,
+    "audio_start_ms": 5,
+    "event_id": 1,
+    "item_id": 4,
+    "physical_segment_ids": 7,
+    "type": 2,
+    "vad_turn_id": 3
+  },
+  "ServerAhaVadTurnCompletedEventItemIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaVadTurnCompletedEventPhysicalSegmentIdsList": {
+    "values": 1
+  },
+  "ServerAhaVectorObservation": {
+    "payload": 2,
+    "point_id": 1
+  },
+  "ServerAhaVectorObservationPayloadMap": {
+    "values": 1
+  },
+  "ServerAhaVectorSearchCompletedEvent": {
+    "audio_end_ms": 4,
+    "audio_start_ms": 3,
+    "collection_name": 5,
+    "embedding": 10,
+    "event_id": 1,
+    "groups": 8,
+    "item_id": 2,
+    "latency_ms": 9,
+    "type": 7,
+    "vector_name": 6
+  },
+  "ServerAhaVectorSearchCompletedEventEmbeddingValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaVectorSearchCompletedEventEmbeddingValueValue1List": {
+    "values": 1
+  },
+  "ServerAhaVectorSearchCompletedEventGroupsList": {
+    "values": 1
+  },
+  "ServerAhaVectorSearchCompletedEventItemIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaVectorSearchFailedEvent": {
+    "audio_end_ms": 4,
+    "audio_start_ms": 3,
+    "collection_name": 5,
+    "error": 8,
+    "event_id": 1,
+    "item_id": 2,
+    "type": 7,
+    "vector_name": 6
+  },
+  "ServerAhaVectorSearchFailedEventItemIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAhaVectorSearchGroup": {
+    "observation": 3,
+    "score": 2,
+    "speaker_id": 1
+  },
+  "ServerAudio": {
+    "additional_properties": 2,
+    "output": 1
+  },
+  "ServerAudioOutput": {
+    "additional_properties": 3,
+    "format": 1,
+    "voice": 2
+  },
+  "ServerAudioOutputFormatValue": {
+    "null": 4,
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3
+  },
+  "ServerAudioOutputValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAudioOutputVoiceValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ServerAudioPCM": {
+    "additional_properties": 3,
+    "rate": 1,
+    "type": 2
+  },
+  "ServerAudioPCMA": {
+    "additional_properties": 2,
+    "type": 1
+  },
+  "ServerAudioPCMATypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAudioPCMRateValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAudioPCMTypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAudioPCMU": {
+    "additional_properties": 2,
+    "type": 1
+  },
+  "ServerAudioPCMUTypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAudioTranscription": {
+    "additional_properties": 7,
+    "delay": 1,
+    "keywords": 2,
+    "language": 3,
+    "languages": 4,
+    "model": 5,
+    "prompt": 6
+  },
+  "ServerAudioTranscriptionDelayValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAudioTranscriptionKeywordsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAudioTranscriptionKeywordsValueValue1List": {
+    "values": 1
+  },
+  "ServerAudioTranscriptionLanguageValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAudioTranscriptionLanguagesValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerAudioTranscriptionLanguagesValueValue1List": {
+    "values": 1
+  },
+  "ServerAudioTranscriptionModelValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ServerAudioTranscriptionPromptValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerCachedTokensDetails": {
+    "additional_properties": 4,
+    "audio_tokens": 1,
+    "image_tokens": 2,
+    "text_tokens": 3
+  },
+  "ServerCachedTokensDetailsAudioTokensValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerCachedTokensDetailsImageTokensValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerCachedTokensDetailsTextTokensValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerConversation": {
+    "additional_properties": 3,
+    "id": 1,
+    "object": 2
+  },
+  "ServerConversationCreatedEvent": {
+    "additional_properties": 4,
+    "conversation": 1,
+    "event_id": 2,
+    "type": 3
+  },
+  "ServerConversationIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerConversationItemAdded": {
+    "additional_properties": 5,
+    "event_id": 1,
+    "item": 2,
+    "previous_item_id": 4,
+    "type": 3
+  },
+  "ServerConversationItemAddedItemValue": {
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3,
+    "value_4": 4,
+    "value_5": 5,
+    "value_6": 6,
+    "value_7": 7,
+    "value_8": 8,
+    "value_9": 9
+  },
+  "ServerConversationItemAddedPreviousItemIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerConversationItemCreatedEvent": {
+    "additional_properties": 5,
+    "event_id": 1,
+    "item": 2,
+    "previous_item_id": 4,
+    "type": 3
+  },
+  "ServerConversationItemCreatedEventItemValue": {
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3,
+    "value_4": 4,
+    "value_5": 5,
+    "value_6": 6,
+    "value_7": 7,
+    "value_8": 8,
+    "value_9": 9
+  },
+  "ServerConversationItemCreatedEventPreviousItemIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerConversationItemDeletedEvent": {
+    "additional_properties": 4,
+    "event_id": 1,
+    "item_id": 2,
+    "type": 3
+  },
+  "ServerConversationItemDone": {
+    "additional_properties": 5,
+    "event_id": 1,
+    "item": 2,
+    "previous_item_id": 4,
+    "type": 3
+  },
+  "ServerConversationItemDoneItemValue": {
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3,
+    "value_4": 4,
+    "value_5": 5,
+    "value_6": 6,
+    "value_7": 7,
+    "value_8": 8,
+    "value_9": 9
+  },
+  "ServerConversationItemDonePreviousItemIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerConversationItemInputAudioTranscriptionCompletedEvent": {
+    "additional_properties": 9,
+    "content_index": 1,
+    "event_id": 2,
+    "item_id": 3,
+    "languages": 7,
+    "logprobs": 8,
+    "transcript": 4,
+    "type": 5,
+    "usage": 6
+  },
+  "ServerConversationItemInputAudioTranscriptionCompletedEventLanguagesValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerConversationItemInputAudioTranscriptionCompletedEventLanguagesValueValue1List": {
+    "values": 1
+  },
+  "ServerConversationItemInputAudioTranscriptionCompletedEventLogprobsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerConversationItemInputAudioTranscriptionCompletedEventLogprobsValueValue1List": {
+    "values": 1
+  },
+  "ServerConversationItemInputAudioTranscriptionCompletedEventUsageValue": {
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ServerConversationItemInputAudioTranscriptionDeltaEvent": {
+    "additional_properties": 7,
+    "content_index": 4,
+    "delta": 5,
+    "event_id": 1,
+    "item_id": 2,
+    "logprobs": 6,
+    "type": 3
+  },
+  "ServerConversationItemInputAudioTranscriptionDeltaEventContentIndexValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerConversationItemInputAudioTranscriptionDeltaEventDeltaValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerConversationItemInputAudioTranscriptionDeltaEventLogprobsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerConversationItemInputAudioTranscriptionDeltaEventLogprobsValueValue1List": {
+    "values": 1
+  },
+  "ServerConversationItemInputAudioTranscriptionFailedEvent": {
+    "additional_properties": 6,
+    "content_index": 1,
+    "error": 2,
+    "event_id": 3,
+    "item_id": 4,
+    "type": 5
+  },
+  "ServerConversationItemInputAudioTranscriptionSegment": {
+    "additional_properties": 10,
+    "content_index": 2,
+    "end": 3,
+    "event_id": 4,
+    "id": 1,
+    "item_id": 5,
+    "speaker": 6,
+    "start": 7,
+    "text": 8,
+    "type": 9
+  },
+  "ServerConversationItemRetrieved": {
+    "additional_properties": 4,
+    "event_id": 1,
+    "item": 2,
+    "type": 3
+  },
+  "ServerConversationItemRetrievedItemValue": {
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3,
+    "value_4": 4,
+    "value_5": 5,
+    "value_6": 6,
+    "value_7": 7,
+    "value_8": 8,
+    "value_9": 9
+  },
+  "ServerConversationItemTruncatedEvent": {
+    "additional_properties": 6,
+    "audio_end_ms": 1,
+    "content_index": 2,
+    "event_id": 3,
+    "item_id": 4,
+    "type": 5
+  },
+  "ServerConversationObjectValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerEvent": {
+    "conversation_created": 1,
+    "conversation_item_added": 2,
+    "conversation_item_created": 3,
+    "conversation_item_deleted": 4,
+    "conversation_item_done": 5,
+    "conversation_item_input_audio_transcription_completed": 6,
+    "conversation_item_input_audio_transcription_delta": 7,
+    "conversation_item_input_audio_transcription_failed": 8,
+    "conversation_item_input_audio_transcription_segment": 9,
+    "conversation_item_retrieved": 10,
+    "conversation_item_truncated": 11,
+    "error": 12,
+    "input_audio_buffer_cleared": 13,
+    "input_audio_buffer_committed": 14,
+    "input_audio_buffer_dtmf_event_received": 15,
+    "input_audio_buffer_speech_started": 16,
+    "input_audio_buffer_speech_stopped": 17,
+    "input_audio_buffer_timeout_triggered": 18,
+    "mcp_list_tools_completed": 19,
+    "mcp_list_tools_failed": 20,
+    "mcp_list_tools_in_progress": 21,
+    "output_audio_buffer_cleared": 22,
+    "output_audio_buffer_started": 23,
+    "output_audio_buffer_stopped": 24,
+    "rate_limits_updated": 25,
+    "response_content_part_added": 26,
+    "response_content_part_done": 27,
+    "response_created": 28,
+    "response_done": 29,
+    "response_function_call_arguments_delta": 30,
+    "response_function_call_arguments_done": 31,
+    "response_mcp_call_arguments_delta": 35,
+    "response_mcp_call_arguments_done": 36,
+    "response_mcp_call_completed": 32,
+    "response_mcp_call_failed": 33,
+    "response_mcp_call_in_progress": 34,
+    "response_output_audio_delta": 37,
+    "response_output_audio_done": 38,
+    "response_output_audio_transcript_delta": 39,
+    "response_output_audio_transcript_done": 40,
+    "response_output_item_added": 41,
+    "response_output_item_done": 42,
+    "response_output_text_delta": 43,
+    "response_output_text_done": 44,
+    "session_created": 45,
+    "session_updated": 46,
+    "x_aha_agent_backend_approval_requested": 47,
+    "x_aha_agent_backend_approval_resolved": 48,
+    "x_aha_agent_backend_cancelled": 49,
+    "x_aha_agent_backend_failed": 50,
+    "x_aha_agent_backend_question_requested": 51,
+    "x_aha_agent_backend_question_resolved": 52,
+    "x_aha_agent_backend_session": 53,
+    "x_aha_agent_backend_text_delta": 54,
+    "x_aha_agent_backend_tool_completed": 55,
+    "x_aha_agent_backend_tool_started": 56,
+    "x_aha_agent_backend_turn_completed": 57,
+    "x_aha_agent_backend_turn_started": 58,
+    "x_aha_diarization_cluster_completed": 59,
+    "x_aha_diarization_cluster_failed": 60,
+    "x_aha_diarization_local_completed": 61,
+    "x_aha_diarization_local_delta": 62,
+    "x_aha_diarization_local_failed": 63,
+    "x_aha_input_audio_transcription_interim": 64,
+    "x_aha_input_audio_transcription_interim_cleared": 65,
+    "x_aha_input_audio_transcription_speaker_completed": 66,
+    "x_aha_input_audio_transcription_speaker_delta": 67,
+    "x_aha_input_audio_transcription_speaker_failed": 68,
+    "x_aha_speaker_filter_failed": 69,
+    "x_aha_speaker_filter_matched": 70,
+    "x_aha_speaker_filter_rejected": 71,
+    "x_aha_vad_physical_speech_started": 72,
+    "x_aha_vad_physical_speech_stopped": 73,
+    "x_aha_vad_progress": 74,
+    "x_aha_vad_turn_completed": 75,
+    "x_aha_vector_search_completed": 76,
+    "x_aha_vector_search_failed": 77
+  },
+  "ServerInputAudioBufferClearedEvent": {
+    "additional_properties": 3,
+    "event_id": 1,
+    "type": 2
+  },
+  "ServerInputAudioBufferCommittedEvent": {
+    "additional_properties": 5,
+    "event_id": 1,
+    "item_id": 2,
+    "previous_item_id": 4,
+    "type": 3
+  },
+  "ServerInputAudioBufferCommittedEventPreviousItemIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerInputAudioBufferDtmfEventReceivedEvent": {
+    "additional_properties": 4,
+    "event": 1,
+    "received_at": 2,
+    "type": 3
+  },
+  "ServerInputAudioBufferSpeechStartedEvent": {
+    "additional_properties": 5,
+    "audio_start_ms": 1,
+    "event_id": 2,
+    "item_id": 3,
+    "type": 4
+  },
+  "ServerInputAudioBufferSpeechStoppedEvent": {
+    "additional_properties": 5,
+    "audio_end_ms": 1,
+    "event_id": 2,
+    "item_id": 3,
+    "type": 4
+  },
+  "ServerInputAudioBufferTimeoutTriggered": {
+    "additional_properties": 6,
+    "audio_end_ms": 1,
+    "audio_start_ms": 2,
+    "event_id": 3,
+    "item_id": 4,
+    "type": 5
+  },
+  "ServerLogProbProperties": {
+    "additional_properties": 4,
+    "bytes": 2,
+    "logprob": 3,
+    "token": 1
+  },
+  "ServerLogProbPropertiesBytesList": {
+    "values": 1
+  },
+  "ServerMcp": {
+    "additional_properties": 13,
+    "allowed_callers": 3,
+    "allowed_tools": 4,
+    "authorization": 5,
+    "connector_id": 6,
+    "defer_loading": 7,
+    "headers": 8,
+    "require_approval": 9,
+    "server_description": 10,
+    "server_label": 1,
+    "server_url": 11,
+    "tunnel_id": 12,
+    "type": 2
+  },
+  "ServerMcpAllowedCallersValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerMcpAllowedCallersValueValue1List": {
+    "values": 1
+  },
+  "ServerMcpAllowedToolsMcpToolFilter": {
+    "additional_properties": 3,
+    "read_only": 1,
+    "tool_names": 2
+  },
+  "ServerMcpAllowedToolsMcpToolFilterReadOnlyValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerMcpAllowedToolsMcpToolFilterToolNamesValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerMcpAllowedToolsMcpToolFilterToolNamesValueValue1List": {
+    "values": 1
+  },
+  "ServerMcpAllowedToolsValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ServerMcpAllowedToolsValueValue1List": {
+    "values": 1
+  },
+  "ServerMcpAuthorizationValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerMcpConnectorIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerMcpDeferLoadingValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerMcpHeadersValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerMcpHeadersValueValue1Map": {
+    "values": 1
+  },
+  "ServerMcpListToolsCompleted": {
+    "additional_properties": 4,
+    "event_id": 1,
+    "item_id": 2,
+    "type": 3
+  },
+  "ServerMcpListToolsFailed": {
+    "additional_properties": 4,
+    "event_id": 1,
+    "item_id": 2,
+    "type": 3
+  },
+  "ServerMcpListToolsInProgress": {
+    "additional_properties": 4,
+    "event_id": 1,
+    "item_id": 2,
+    "type": 3
+  },
+  "ServerMcpRequireApprovalMcpToolApprovalFilter": {
+    "additional_properties": 3,
+    "always": 1,
+    "never": 2
+  },
+  "ServerMcpRequireApprovalMcpToolApprovalFilterAlways": {
+    "additional_properties": 3,
+    "read_only": 1,
+    "tool_names": 2
+  },
+  "ServerMcpRequireApprovalMcpToolApprovalFilterAlwaysReadOnlyValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerMcpRequireApprovalMcpToolApprovalFilterAlwaysToolNamesValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerMcpRequireApprovalMcpToolApprovalFilterAlwaysToolNamesValueValue1List": {
+    "values": 1
+  },
+  "ServerMcpRequireApprovalMcpToolApprovalFilterAlwaysValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerMcpRequireApprovalMcpToolApprovalFilterNever": {
+    "additional_properties": 3,
+    "read_only": 1,
+    "tool_names": 2
+  },
+  "ServerMcpRequireApprovalMcpToolApprovalFilterNeverReadOnlyValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerMcpRequireApprovalMcpToolApprovalFilterNeverToolNamesValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerMcpRequireApprovalMcpToolApprovalFilterNeverToolNamesValueValue1List": {
+    "values": 1
+  },
+  "ServerMcpRequireApprovalMcpToolApprovalFilterNeverValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerMcpRequireApprovalValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ServerMcpServerDescriptionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerMcpServerUrlValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerMcpTunnelIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerNoiseReduction": {
+    "additional_properties": 2,
+    "type": 1
+  },
+  "ServerNoiseReductionTypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerOutputAudioBufferCleared": {
+    "additional_properties": 4,
+    "event_id": 1,
+    "response_id": 2,
+    "type": 3
+  },
+  "ServerOutputAudioBufferStarted": {
+    "additional_properties": 4,
+    "event_id": 1,
+    "response_id": 2,
+    "type": 3
+  },
+  "ServerOutputAudioBufferStopped": {
+    "additional_properties": 4,
+    "event_id": 1,
+    "response_id": 2,
+    "type": 3
+  },
+  "ServerPromptCacheBreakpoint": {
+    "additional_properties": 2,
+    "mode": 1
+  },
+  "ServerRateLimit": {
+    "additional_properties": 5,
+    "limit": 1,
+    "name": 2,
+    "remaining": 3,
+    "reset_seconds": 4
+  },
+  "ServerRateLimitLimitValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRateLimitNameValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRateLimitRemainingValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRateLimitResetSecondsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRateLimitsUpdatedEvent": {
+    "additional_properties": 4,
+    "event_id": 1,
+    "rate_limits": 2,
+    "type": 3
+  },
+  "ServerRateLimitsUpdatedEventRateLimitsList": {
+    "values": 1
+  },
+  "ServerRealtimeAudioConfigOutput": {
+    "additional_properties": 4,
+    "format": 1,
+    "speed": 2,
+    "voice": 3
+  },
+  "ServerRealtimeAudioConfigOutputFormatValue": {
+    "null": 4,
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3
+  },
+  "ServerRealtimeAudioConfigOutputSpeedValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeAudioConfigOutputVoiceValue": {
+    "null": 4,
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3
+  },
+  "ServerRealtimeConversationItemAssistantMessage": {
+    "additional_properties": 7,
+    "content": 1,
+    "id": 4,
+    "object": 5,
+    "role": 2,
+    "status": 6,
+    "type": 3
+  },
+  "ServerRealtimeConversationItemAssistantMessageContentList": {
+    "values": 1
+  },
+  "ServerRealtimeConversationItemAssistantMessageIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeConversationItemAssistantMessageObjectValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeConversationItemAssistantMessageStatusValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeConversationItemFunctionCall": {
+    "additional_properties": 8,
+    "arguments": 1,
+    "call_id": 5,
+    "id": 4,
+    "name": 2,
+    "object": 6,
+    "status": 7,
+    "type": 3
+  },
+  "ServerRealtimeConversationItemFunctionCallCallIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeConversationItemFunctionCallIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeConversationItemFunctionCallObjectValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeConversationItemFunctionCallOutput": {
+    "additional_properties": 7,
+    "call_id": 1,
+    "id": 4,
+    "object": 5,
+    "output": 2,
+    "status": 6,
+    "type": 3
+  },
+  "ServerRealtimeConversationItemFunctionCallOutputIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeConversationItemFunctionCallOutputObjectValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeConversationItemFunctionCallOutputStatusValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeConversationItemFunctionCallStatusValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeConversationItemSystemMessage": {
+    "additional_properties": 7,
+    "content": 1,
+    "id": 4,
+    "object": 5,
+    "role": 2,
+    "status": 6,
+    "type": 3
+  },
+  "ServerRealtimeConversationItemSystemMessageContentList": {
+    "values": 1
+  },
+  "ServerRealtimeConversationItemSystemMessageIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeConversationItemSystemMessageObjectValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeConversationItemSystemMessageStatusValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeConversationItemUserMessage": {
+    "additional_properties": 7,
+    "content": 1,
+    "id": 4,
+    "object": 5,
+    "role": 2,
+    "status": 6,
+    "type": 3
+  },
+  "ServerRealtimeConversationItemUserMessageContentList": {
+    "values": 1
+  },
+  "ServerRealtimeConversationItemUserMessageIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeConversationItemUserMessageObjectValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeConversationItemUserMessageStatusValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeError": {
+    "additional_properties": 6,
+    "code": 3,
+    "event_id": 4,
+    "message": 1,
+    "param": 5,
+    "type": 2
+  },
+  "ServerRealtimeErrorCodeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeErrorEvent": {
+    "additional_properties": 4,
+    "error": 1,
+    "event_id": 2,
+    "type": 3
+  },
+  "ServerRealtimeErrorEventIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeErrorParamValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeFunctionTool": {
+    "additional_properties": 5,
+    "description": 1,
+    "name": 2,
+    "parameters": 3,
+    "type": 4
+  },
+  "ServerRealtimeFunctionToolDescriptionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeFunctionToolNameValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeFunctionToolParametersValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeFunctionToolTypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeMcpApprovalRequest": {
+    "additional_properties": 6,
+    "arguments": 2,
+    "id": 1,
+    "name": 3,
+    "server_label": 4,
+    "type": 5
+  },
+  "ServerRealtimeMcpApprovalResponse": {
+    "additional_properties": 6,
+    "approval_request_id": 2,
+    "approve": 3,
+    "id": 1,
+    "reason": 5,
+    "type": 4
+  },
+  "ServerRealtimeMcpApprovalResponseReasonValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeMcpListTools": {
+    "additional_properties": 5,
+    "id": 4,
+    "server_label": 1,
+    "tools": 2,
+    "type": 3
+  },
+  "ServerRealtimeMcpListToolsIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeMcpListToolsToolsList": {
+    "values": 1
+  },
+  "ServerRealtimeMcpProtocolError": {
+    "additional_properties": 4,
+    "code": 1,
+    "message": 2,
+    "type": 3
+  },
+  "ServerRealtimeMcpToolCall": {
+    "additional_properties": 9,
+    "approval_request_id": 6,
+    "arguments": 2,
+    "error": 7,
+    "id": 1,
+    "name": 3,
+    "output": 8,
+    "server_label": 4,
+    "type": 5
+  },
+  "ServerRealtimeMcpToolCallApprovalRequestIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeMcpToolCallErrorValue": {
+    "null": 4,
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3
+  },
+  "ServerRealtimeMcpToolCallOutputValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeMcpToolExecutionError": {
+    "additional_properties": 3,
+    "message": 1,
+    "type": 2
+  },
+  "ServerRealtimeMcphttpError": {
+    "additional_properties": 4,
+    "code": 1,
+    "message": 2,
+    "type": 3
+  },
+  "ServerRealtimeReasoning": {
+    "additional_properties": 2,
+    "effort": 1
+  },
+  "ServerRealtimeReasoningEffortValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponse": {
+    "additional_properties": 12,
+    "audio": 2,
+    "conversation_id": 3,
+    "id": 1,
+    "max_output_tokens": 4,
+    "metadata": 5,
+    "object": 6,
+    "output": 7,
+    "output_modalities": 8,
+    "status": 9,
+    "status_details": 10,
+    "usage": 11
+  },
+  "ServerRealtimeResponseAudioValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseConversationIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseMaxOutputTokensValue": {
+    "null": 3,
+    "value_1": 1,
+    "value_2": 2
+  },
+  "ServerRealtimeResponseMetadataValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseMetadataValueValue1Map": {
+    "values": 1
+  },
+  "ServerRealtimeResponseObjectValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseOutputModalitiesValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseOutputModalitiesValueValue1List": {
+    "values": 1
+  },
+  "ServerRealtimeResponseOutputValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseOutputValueValue1List": {
+    "values": 1
+  },
+  "ServerRealtimeResponseOutputValueValue1ListItemValue": {
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3,
+    "value_4": 4,
+    "value_5": 5,
+    "value_6": 6,
+    "value_7": 7,
+    "value_8": 8,
+    "value_9": 9
+  },
+  "ServerRealtimeResponseStatus": {
+    "additional_properties": 4,
+    "error": 1,
+    "reason": 2,
+    "type": 3
+  },
+  "ServerRealtimeResponseStatusDetailsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseStatusErrorValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseStatusReasonValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseStatusTypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseStatusValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseUsage": {
+    "additional_properties": 6,
+    "input_token_details": 1,
+    "input_tokens": 2,
+    "output_token_details": 3,
+    "output_tokens": 4,
+    "total_tokens": 5
+  },
+  "ServerRealtimeResponseUsageInputTokenDetails": {
+    "additional_properties": 6,
+    "audio_tokens": 1,
+    "cached_tokens": 2,
+    "cached_tokens_details": 3,
+    "image_tokens": 4,
+    "text_tokens": 5
+  },
+  "ServerRealtimeResponseUsageInputTokenDetailsAudioTokensValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseUsageInputTokenDetailsCachedTokensDetailsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseUsageInputTokenDetailsCachedTokensValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseUsageInputTokenDetailsImageTokensValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseUsageInputTokenDetailsTextTokensValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseUsageInputTokenDetailsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseUsageInputTokensValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseUsageOutputTokenDetails": {
+    "additional_properties": 3,
+    "audio_tokens": 1,
+    "text_tokens": 2
+  },
+  "ServerRealtimeResponseUsageOutputTokenDetailsAudioTokensValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseUsageOutputTokenDetailsTextTokensValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseUsageOutputTokenDetailsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseUsageOutputTokensValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseUsageTotalTokensValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeResponseUsageValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerRealtimeTruncationRetentionRatio": {
+    "additional_properties": 4,
+    "retention_ratio": 1,
+    "token_limits": 3,
+    "type": 2
+  },
+  "ServerRealtimeTruncationRetentionRatioTokenLimitsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerResponseAudioDeltaEvent": {
+    "additional_properties": 8,
+    "content_index": 1,
+    "delta": 2,
+    "event_id": 3,
+    "item_id": 4,
+    "output_index": 5,
+    "response_id": 6,
+    "type": 7
+  },
+  "ServerResponseAudioDoneEvent": {
+    "additional_properties": 7,
+    "content_index": 1,
+    "event_id": 2,
+    "item_id": 3,
+    "output_index": 4,
+    "response_id": 5,
+    "type": 6
+  },
+  "ServerResponseAudioTranscriptDeltaEvent": {
+    "additional_properties": 8,
+    "content_index": 1,
+    "delta": 2,
+    "event_id": 3,
+    "item_id": 4,
+    "output_index": 5,
+    "response_id": 6,
+    "type": 7
+  },
+  "ServerResponseAudioTranscriptDoneEvent": {
+    "additional_properties": 8,
+    "content_index": 1,
+    "event_id": 2,
+    "item_id": 3,
+    "output_index": 4,
+    "response_id": 5,
+    "transcript": 6,
+    "type": 7
+  },
+  "ServerResponseContentPartAddedEvent": {
+    "additional_properties": 8,
+    "content_index": 1,
+    "event_id": 2,
+    "item_id": 3,
+    "output_index": 4,
+    "part": 5,
+    "response_id": 6,
+    "type": 7
+  },
+  "ServerResponseContentPartDoneEvent": {
+    "additional_properties": 8,
+    "content_index": 1,
+    "event_id": 2,
+    "item_id": 3,
+    "output_index": 4,
+    "part": 5,
+    "response_id": 6,
+    "type": 7
+  },
+  "ServerResponseCreatedEvent": {
+    "additional_properties": 4,
+    "event_id": 1,
+    "response": 2,
+    "type": 3
+  },
+  "ServerResponseDoneEvent": {
+    "additional_properties": 4,
+    "event_id": 1,
+    "response": 2,
+    "type": 3
+  },
+  "ServerResponseFunctionCallArgumentsDeltaEvent": {
+    "additional_properties": 8,
+    "call_id": 1,
+    "delta": 2,
+    "event_id": 3,
+    "item_id": 4,
+    "output_index": 5,
+    "response_id": 6,
+    "type": 7
+  },
+  "ServerResponseFunctionCallArgumentsDoneEvent": {
+    "additional_properties": 9,
+    "arguments": 1,
+    "call_id": 2,
+    "event_id": 3,
+    "item_id": 4,
+    "name": 5,
+    "output_index": 6,
+    "response_id": 7,
+    "type": 8
+  },
+  "ServerResponseInputFile": {
+    "additional_properties": 8,
+    "detail": 2,
+    "file_data": 3,
+    "file_id": 4,
+    "file_url": 5,
+    "filename": 6,
+    "prompt_cache_breakpoint": 7,
+    "type": 1
+  },
+  "ServerResponseInputFileDetailValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerResponseInputFileFileDataValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerResponseInputFileFileIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerResponseInputFileFileUrlValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerResponseInputFileFilenameValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerResponseInputFilePromptCacheBreakpointValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerResponseInputImage": {
+    "additional_properties": 6,
+    "detail": 1,
+    "file_id": 3,
+    "image_url": 4,
+    "prompt_cache_breakpoint": 5,
+    "type": 2
+  },
+  "ServerResponseInputImageFileIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerResponseInputImageImageUrlValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerResponseInputImagePromptCacheBreakpointValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerResponseInputText": {
+    "additional_properties": 4,
+    "prompt_cache_breakpoint": 3,
+    "text": 1,
+    "type": 2
+  },
+  "ServerResponseInputTextPromptCacheBreakpointValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerResponseMcpCallArgumentsDelta": {
+    "additional_properties": 8,
+    "delta": 1,
+    "event_id": 2,
+    "item_id": 3,
+    "obfuscation": 7,
+    "output_index": 4,
+    "response_id": 5,
+    "type": 6
+  },
+  "ServerResponseMcpCallArgumentsDeltaObfuscationValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerResponseMcpCallArgumentsDone": {
+    "additional_properties": 7,
+    "arguments": 1,
+    "event_id": 2,
+    "item_id": 3,
+    "output_index": 4,
+    "response_id": 5,
+    "type": 6
+  },
+  "ServerResponseMcpCallCompleted": {
+    "additional_properties": 5,
+    "event_id": 1,
+    "item_id": 2,
+    "output_index": 3,
+    "type": 4
+  },
+  "ServerResponseMcpCallFailed": {
+    "additional_properties": 5,
+    "event_id": 1,
+    "item_id": 2,
+    "output_index": 3,
+    "type": 4
+  },
+  "ServerResponseMcpCallInProgress": {
+    "additional_properties": 5,
+    "event_id": 1,
+    "item_id": 2,
+    "output_index": 3,
+    "type": 4
+  },
+  "ServerResponseOutputItemAddedEvent": {
+    "additional_properties": 6,
+    "event_id": 1,
+    "item": 2,
+    "output_index": 3,
+    "response_id": 4,
+    "type": 5
+  },
+  "ServerResponseOutputItemAddedEventItemValue": {
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3,
+    "value_4": 4,
+    "value_5": 5,
+    "value_6": 6,
+    "value_7": 7,
+    "value_8": 8,
+    "value_9": 9
+  },
+  "ServerResponseOutputItemDoneEvent": {
+    "additional_properties": 6,
+    "event_id": 1,
+    "item": 2,
+    "output_index": 3,
+    "response_id": 4,
+    "type": 5
+  },
+  "ServerResponseOutputItemDoneEventItemValue": {
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3,
+    "value_4": 4,
+    "value_5": 5,
+    "value_6": 6,
+    "value_7": 7,
+    "value_8": 8,
+    "value_9": 9
+  },
+  "ServerResponsePrompt": {
+    "additional_properties": 4,
+    "id": 1,
+    "variables": 2,
+    "version": 3
+  },
+  "ServerResponsePromptVariablesValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerResponsePromptVariablesValueValue1Map": {
+    "values": 1
+  },
+  "ServerResponsePromptVariablesValueValue1MapItemValue": {
+    "value_1": 1,
+    "value_2": 2,
+    "value_3": 3,
+    "value_4": 4
+  },
+  "ServerResponsePromptVersionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerResponseTextDeltaEvent": {
+    "additional_properties": 8,
+    "content_index": 1,
+    "delta": 2,
+    "event_id": 3,
+    "item_id": 4,
+    "output_index": 5,
+    "response_id": 6,
+    "type": 7
+  },
+  "ServerResponseTextDoneEvent": {
+    "additional_properties": 8,
+    "content_index": 1,
+    "event_id": 2,
+    "item_id": 3,
+    "output_index": 4,
+    "response_id": 5,
+    "text": 6,
+    "type": 7
+  },
+  "ServerSemanticVad": {
+    "additional_properties": 5,
+    "create_response": 2,
+    "eagerness": 3,
+    "interrupt_response": 4,
+    "type": 1
+  },
+  "ServerSemanticVadCreateResponseValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerSemanticVadEagernessValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerSemanticVadInterruptResponseValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerServerVad": {
+    "additional_properties": 8,
+    "create_response": 2,
+    "idle_timeout_ms": 3,
+    "interrupt_response": 4,
+    "prefix_padding_ms": 5,
+    "silence_duration_ms": 6,
+    "threshold": 7,
+    "type": 1
+  },
+  "ServerServerVadCreateResponseValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerServerVadIdleTimeoutMsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerServerVadInterruptResponseValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerServerVadPrefixPaddingMsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerServerVadSilenceDurationMsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerServerVadThresholdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerTokenLimits": {
+    "additional_properties": 2,
+    "post_instructions": 1
+  },
+  "ServerTokenLimitsPostInstructionsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerTool": {
+    "additional_properties": 5,
+    "annotations": 3,
+    "description": 4,
+    "input_schema": 1,
+    "name": 2
+  },
+  "ServerToolAnnotationsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerToolChoiceFunction": {
+    "additional_properties": 3,
+    "name": 1,
+    "type": 2
+  },
+  "ServerToolChoiceMcp": {
+    "additional_properties": 4,
+    "name": 3,
+    "server_label": 1,
+    "type": 2
+  },
+  "ServerToolChoiceMcpNameValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerToolDescriptionValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerTracingConfiguration": {
+    "additional_properties": 4,
+    "group_id": 1,
+    "metadata": 2,
+    "workflow_name": 3
+  },
+  "ServerTracingConfigurationGroupIdValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerTracingConfigurationMetadataValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerTracingConfigurationWorkflowNameValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerTranscriptionLanguage": {
+    "additional_properties": 2,
+    "code": 1
+  },
+  "ServerUsageTranscriptTextUsageDuration": {
+    "additional_properties": 3,
+    "seconds": 1,
+    "type": 2
+  },
+  "ServerUsageTranscriptTextUsageTokens": {
+    "additional_properties": 6,
+    "input_token_details": 5,
+    "input_tokens": 1,
+    "output_tokens": 2,
+    "total_tokens": 3,
+    "type": 4
+  },
+  "ServerUsageTranscriptTextUsageTokensInputTokenDetails": {
+    "additional_properties": 3,
+    "audio_tokens": 1,
+    "text_tokens": 2
+  },
+  "ServerUsageTranscriptTextUsageTokensInputTokenDetailsAudioTokensValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerUsageTranscriptTextUsageTokensInputTokenDetailsTextTokensValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerUsageTranscriptTextUsageTokensInputTokenDetailsValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServerVoiceID": {
+    "additional_properties": 2,
+    "id": 1
+  },
+  "ServeropenaiTypesRealtimeConversationItemInputAudioTranscriptionFailedEventError": {
+    "additional_properties": 5,
+    "code": 1,
+    "message": 2,
+    "param": 3,
+    "type": 4
+  },
+  "ServeropenaiTypesRealtimeConversationItemInputAudioTranscriptionFailedEventErrorCodeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeConversationItemInputAudioTranscriptionFailedEventErrorMessageValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeConversationItemInputAudioTranscriptionFailedEventErrorParamValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeConversationItemInputAudioTranscriptionFailedEventErrorTypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeRealtimeConversationItemAssistantMessageContent": {
+    "additional_properties": 5,
+    "audio": 1,
+    "text": 2,
+    "transcript": 3,
+    "type": 4
+  },
+  "ServeropenaiTypesRealtimeRealtimeConversationItemAssistantMessageContentAudioValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeRealtimeConversationItemAssistantMessageContentTextValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeRealtimeConversationItemAssistantMessageContentTranscriptValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeRealtimeConversationItemAssistantMessageContentTypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeRealtimeConversationItemSystemMessageContent": {
+    "additional_properties": 3,
+    "text": 1,
+    "type": 2
+  },
+  "ServeropenaiTypesRealtimeRealtimeConversationItemSystemMessageContentTextValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeRealtimeConversationItemSystemMessageContentTypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeRealtimeConversationItemUserMessageContent": {
+    "additional_properties": 7,
+    "audio": 1,
+    "detail": 2,
+    "image_url": 3,
+    "text": 4,
+    "transcript": 5,
+    "type": 6
+  },
+  "ServeropenaiTypesRealtimeRealtimeConversationItemUserMessageContentAudioValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeRealtimeConversationItemUserMessageContentDetailValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeRealtimeConversationItemUserMessageContentImageUrlValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeRealtimeConversationItemUserMessageContentTextValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeRealtimeConversationItemUserMessageContentTranscriptValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeRealtimeConversationItemUserMessageContentTypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeRealtimeResponseStatusError": {
+    "additional_properties": 3,
+    "code": 1,
+    "type": 2
+  },
+  "ServeropenaiTypesRealtimeRealtimeResponseStatusErrorCodeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeRealtimeResponseStatusErrorTypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeResponseContentPartAddedEventPart": {
+    "additional_properties": 5,
+    "audio": 1,
+    "text": 2,
+    "transcript": 3,
+    "type": 4
+  },
+  "ServeropenaiTypesRealtimeResponseContentPartAddedEventPartAudioValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeResponseContentPartAddedEventPartTextValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeResponseContentPartAddedEventPartTranscriptValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeResponseContentPartAddedEventPartTypeValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeResponseContentPartDoneEventPart": {
+    "additional_properties": 5,
+    "audio": 1,
+    "text": 2,
+    "transcript": 3,
+    "type": 4
+  },
+  "ServeropenaiTypesRealtimeResponseContentPartDoneEventPartAudioValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeResponseContentPartDoneEventPartTextValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeResponseContentPartDoneEventPartTranscriptValue": {
+    "null": 2,
+    "value_1": 1
+  },
+  "ServeropenaiTypesRealtimeResponseContentPartDoneEventPartTypeValue": {
+    "null": 2,
+    "value_1": 1
+  }
+}

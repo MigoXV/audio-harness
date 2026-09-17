@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -19,13 +21,13 @@ def test_cli_only_exposes_service_commands() -> None:
     assert "export-openapi" not in result.output
 
 
-def test_serve_only_exposes_http_listener_options() -> None:
+def test_serve_exposes_both_required_listener_options() -> None:
     result = CliRunner().invoke(app, ["serve", "--help"])
 
     assert result.exit_code == 0
     assert "--http-port" in result.output
-    assert "--grpc-port" not in result.output
-    assert "--grpc-host" not in result.output
+    assert "--grpc-port" in result.output
+    assert "--grpc-host" in result.output
 
 
 def test_apply_serve_overrides_preserves_unspecified_addresses(
@@ -71,12 +73,15 @@ async def test_runner_stops_host_when_http_server_exits_unexpectedly(
     class FakeHost:
         def __init__(self, _config: AppConfig) -> None:
             self.http_app = object()
+            self.grpc_done = asyncio.Event()
+            self.grpc_server = SimpleNamespace(wait_for_termination=self.grpc_done.wait)
 
         async def start(self) -> None:
             events.append("host.start")
 
         async def stop(self) -> None:
             events.append("host.stop")
+            self.grpc_done.set()
 
     class FakeHttpServer:
         instance: "FakeHttpServer | None" = None

@@ -40,6 +40,8 @@ fi
 
 ensure_package mypy-protobuf
 
+"${PYTHON[@]}" scripts/generate_aha_grpc.py
+
 mapfile -t PROTO_FILES < <(
   find src/audio_harness/protos -type f -name '*.proto' | sort
 )

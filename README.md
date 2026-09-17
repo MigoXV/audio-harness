@@ -1,6 +1,6 @@
 # Audio Harness
 
-Audio Harness 是一个面向实时语音推理的异步编排服务。它把推理引擎、语音工作流、语音智能体配置和协议接入拆成独立边界，通过 OpenAI Realtime WebSocket 与 WebRTC 提供数据面。
+Audio Harness 是一个面向实时语音推理的异步编排服务。它把推理引擎、语音工作流、语音智能体配置和协议接入拆成独立边界，通过 OpenAI Realtime WebSocket、WebRTC 与 aha-grpc 提供数据面。
 
 当前版本采用全新的数据库基线，不兼容旧版 Pipeline、Stage Workflow 或历史业务数据。
 
@@ -23,7 +23,7 @@ HTTP 控制面
     ├── AgentBackendCatalog          │       │
     └── RealtimeModelCatalog         │       │
                                       │       └── 不可变引擎快照租约
-Realtime / WebRTC 数据面 ───────────┘
+Realtime / WebRTC / aha-grpc 数据面 ───────────┘
 ```
 
 协议层不读取数据库、不解析业务图，也不负责创建推理客户端。进程组合根在启动时装配服务；会话只持有活动工作流快照、容量租约和有界队列。
@@ -148,7 +148,8 @@ src/audio_harness/
 │   ├── diarization/    # 说话人分离批处理与结果映射会话
 │   └── speaker_clustering/ # 跨批次说话人聚类会话
 ├── serving/            # 进程容量、状态与协议服务
-│   ├── realtime/       # OpenAI Realtime WebSocket 适配器
+│   ├── realtime/       # 共享 Realtime 核心、二进制契约及 WebSocket 适配器
+│   ├── aha_grpc/       # aha-grpc 编解码、TLS 双向流及异步客户端
 │   └── webrtc/         # WebRTC 适配器
 └── database/           # SQLAlchemy 模型与单一 Alembic 基线
 
@@ -182,11 +183,14 @@ cd ../..
 poetry run audio-harness serve
 ```
 
+`serve` 同时强制启动 aha-grpc TLS，默认监听 `0.0.0.0:50051`，与 HTTP 共用证书和私钥，不提供启停开关。WS 与 gRPC 使用同一套 Realtime 业务逻辑，gRPC 音频为原始 bytes，默认启用 AHA v1。接入说明见 [aha-grpc 协议](docs/realtime-api/aha-grpc.md) 和 [Python 示例](examples/aha_grpc_python_demo/README.md)。
+
 常用环境变量：
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `DATABASE_URL` | `sqlite+aiosqlite:///./data-bin/sqlite/audio-harness.db` | SQLite 数据库 |
+| `AHA_GRPC_HOST` / `AHA_GRPC_PORT` | `0.0.0.0` / `50051` | aha-grpc TLS 地址与端口 |
 | `HTTP_HOST` / `HTTP_PORT` | `0.0.0.0` / `8000` | HTTP、WSS 与 WebRTC 信令地址 |
 | `VOICE_STORAGE_DIR` | `./data-bin/voices` | 参考音频目录 |
 | `RECEIVED_AUDIO_CACHE_DIR` | `./data-bin/cache` | 接收音频缓存根目录 |
