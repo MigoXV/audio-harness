@@ -8,6 +8,7 @@ from audio_harness.inferencers.tts.base import TtsInferencer
 from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.inferencers.embedding.base import EngineFeatureInferencer
 from audio_harness.inferencers.diarization.base import DiarizationInferencer
+from audio_harness.inferencers.diarization.streaming_base import StreamingDiarizationInferencer
 from audio_harness.inferencers.denoise.base import DenoiseInferencer
 
 
@@ -18,5 +19,6 @@ Inferencer: TypeAlias = (
     | ResponsesInferencer
     | EngineFeatureInferencer
     | DiarizationInferencer
+    | StreamingDiarizationInferencer
     | DenoiseInferencer
 )

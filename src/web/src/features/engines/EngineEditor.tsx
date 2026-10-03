@@ -92,10 +92,10 @@ export function EngineEditor({ engine, initialKind, blocked, onSave, onSaved, on
               </div>
             </fieldset>
             <fieldset disabled={saving || blocked} className="ec-fieldset"><legend>连接与凭据</legend><div className="ec-form-grid">
-              {form.kind === "diarization" ? <label className="ec-full" htmlFor={`${prefix}-implementation`}>实现<select id={`${prefix}-implementation`} value={form.api === "dummy_diarize" ? "dummy" : "grpc"} onChange={event => {
+              {form.kind === "diarization" ? <label className="ec-full" htmlFor={`${prefix}-implementation`}>实现<select id={`${prefix}-implementation`} value={form.api === "dummy_diarize" ? "dummy" : form.api === "ux_speaker_diarization_duplex" ? "duplex" : "grpc"} onChange={event => {
                 const dummy = event.target.value === "dummy";
-                setForm(current => ({ ...current, api: dummy ? "dummy_diarize" : "ux_speaker_diarization", protocol: dummy ? "dummy" : "grpc", target: dummy ? "dummy://diarize" : "" }));
-              }}><option value="grpc">外部 gRPC 引擎</option><option value="dummy">内置单说话人</option></select></label> : <p className="ec-full muted">接口：<code>{form.protocol.toUpperCase()} · {form.api}</code></p>}
+                setForm(current => ({ ...current, api: dummy ? "dummy_diarize" : event.target.value === "duplex" ? "ux_speaker_diarization_duplex" : "ux_speaker_diarization", protocol: dummy ? "dummy" : "grpc", target: dummy ? "dummy://diarize" : "" }));
+              }}><option value="grpc">外部 gRPC 引擎</option><option value="duplex">Sortformer 双向流（Nemotron-3）</option><option value="dummy">内置单说话人</option></select></label> : <p className="ec-full muted">接口：<code>{form.protocol.toUpperCase()} · {form.api}</code></p>}
               <label className="ec-full" htmlFor={`${prefix}-target`}>{form.protocol === "dummy" ? "内置地址" : form.kind === "llm" ? "API Base URL" : "gRPC 地址"}<input {...attrs("target")} maxLength={500} readOnly={form.protocol === "dummy"} value={form.target} onChange={event => set("target", event.target.value)} placeholder={form.kind === "llm" ? "https://api.example.com/v1" : "127.0.0.1:50051"} />{fieldError("target")}</label>
               {form.kind === "llm" && <>
                 <label className="ec-full" htmlFor={`${prefix}-api_key`}>模型 API Key<input {...attrs("api_key")} value={form.api_key ?? ""} autoComplete="off" maxLength={8192} onChange={event => set("api_key", event.target.value || null)} />{fieldError("api_key")}<small>沿用当前服务的明文存储方式。</small></label>

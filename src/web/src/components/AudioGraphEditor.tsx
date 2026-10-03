@@ -310,6 +310,12 @@ function nodeConfig(kind: string): AudioNode {
   if (kind === "audio_embedding") {
     return { id, kind, engine_id: null, config: { algorithm: "eres2netv2", expected_dimension: 192, normalize: true } } as AudioNode;
   }
+  if (kind === "streaming_speaker_diarization") {
+    return {
+      id, kind, engine_id: null,
+      config: { input_buffer_latency_ms: 320, min_asr_segment_seconds: 0.5, max_pending_audio_seconds: 120, max_segments: 10000 },
+    };
+  }
   if (kind === "speaker_diarization") {
     return {
       id,
@@ -622,6 +628,11 @@ function AudioGraphEditorInner({
       ? structuredClone(DIARIZATION_POSTPROCESSING_DEFAULTS)
       : selected.config.postprocessing,
   } : null;
+  const selectedStreamingConfig = selected?.kind === "streaming_speaker_diarization" ? {
+    input_buffer_latency_ms: 320 as 320 | 640 | 1040,
+    min_asr_segment_seconds: 0.5, max_pending_audio_seconds: 120, max_segments: 10000,
+    ...selected.config,
+  } : null;
   const selectedClusteringConfig = selected?.kind === "speaker_clustering" ? {
     embedding_algorithm: selected.config?.embedding_algorithm ?? "eres2netv2",
     expected_dimension: selected.config?.expected_dimension ?? 192,
@@ -837,6 +848,7 @@ function AudioGraphEditorInner({
             <button onClick={() => setPendingTemplate("dual_physical_asr")}><strong>物理双路 VAD + ASR</strong><small>正式转写 + AHA 中间结果预览</small></button>
             <button onClick={() => setPendingTemplate("dual_physical_semantic_asr")}><strong>双路物理 + 语义 VAD + ASR</strong><small>正式分支语义判停 + AHA 中间结果预览</small></button>
             <button onClick={() => setPendingTemplate("voice_agent")}><strong>语音智能体</strong><small>仅允许声纹白名单中的说话人进入转写和智能体</small></button>
+            <button onClick={() => setPendingTemplate("meeting_streaming")}><strong>流式会议</strong><small>持续识别说话人，保留语义轮次与分角色转写</small></button>
             <button onClick={() => setPendingTemplate("meeting_complete")}><strong>会议系统完全体</strong><small>双路语义判停、正式与预览转写、语音特征向量提取与搜索</small></button>
           </div>
         </details>
@@ -933,6 +945,14 @@ function AudioGraphEditorInner({
           {selected.kind === "speaker_diarization" && selectedDiarizationConfig && <section className="diarization-postprocessing-settings">
             <label className="switch-control"><input type="checkbox" checked={selectedDiarizationConfig.postprocessing != null} onChange={(event) => updateNode({ ...selected, config: { ...selectedDiarizationConfig, postprocessing: event.target.checked ? structuredClone(DIARIZATION_POSTPROCESSING_DEFAULTS) : null } })} /><span>启用 VAD 覆盖后处理</span><small>填充有效语音头尾与空洞，合并相邻同说话人片段，并在说话人切换后立即送入 ASR。</small></label>
             {selectedDiarizationConfig.postprocessing && <div className="inspector-state configured"><strong>audio_harness.diarization.vad_coverage</strong><span>协议版本 v1 · 稳定片段流式提交</span></div>}
+          </section>}
+          {selected.kind === "streaming_speaker_diarization" && selectedStreamingConfig && <section>
+            <h3>流式分离参数</h3>
+            <p className="muted">连接完整音频与 VAD／语义轮次两个输入；需要 Nemotron-3、16 kHz 单声道。</p>
+            <label><span>输入缓冲（毫秒）</span><select value={selectedStreamingConfig.input_buffer_latency_ms ?? 320} onChange={(event) => updateNode({ ...selected, config: { ...selectedStreamingConfig, input_buffer_latency_ms: Number(event.target.value) as 320 | 640 | 1040 } })}>{[320, 640, 1040].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+            <label><span>最短分角色转写（秒）</span><input type="number" min={0} step={0.1} value={selectedStreamingConfig.min_asr_segment_seconds ?? 0.5} onChange={(event) => updateNode({ ...selected, config: { ...selectedStreamingConfig, min_asr_segment_seconds: Number(event.target.value) } })} /></label>
+            <label><span>轮次缓冲与历史保留（秒）</span><input type="number" min={1} value={selectedStreamingConfig.max_pending_audio_seconds ?? 120} onChange={(event) => updateNode({ ...selected, config: { ...selectedStreamingConfig, max_pending_audio_seconds: Number(event.target.value) } })} /></label>
+            <label><span>最大片段数</span><input type="number" min={1} max={1000000} step={1} value={selectedStreamingConfig.max_segments ?? 10000} onChange={(event) => updateNode({ ...selected, config: { ...selectedStreamingConfig, max_segments: Number(event.target.value) } })} /></label>
           </section>}
           {selected.kind === "speaker_clustering" && selectedClusteringConfig && <section className="clustering-parameters-settings">
             <label><span>聚类算法</span><select value={selectedClusteringConfig.clustering_algorithm} onChange={(event) => updateNode({ ...selected, config: { ...selectedClusteringConfig, clustering_algorithm: event.target.value as "hdbscan" } })}><option value="hdbscan">HDBSCAN</option></select></label>

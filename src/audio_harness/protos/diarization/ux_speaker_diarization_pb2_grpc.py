@@ -44,6 +44,11 @@ class UxSpeakerDiarizationStub:
                 request_serializer=audio__harness_dot_protos_dot_diarization_dot_ux__speaker__diarization__pb2.DetectRequest.SerializeToString,
                 response_deserializer=audio__harness_dot_protos_dot_diarization_dot_ux__speaker__diarization__pb2.DetectResponse.FromString,
                 _registered_method=True)
+        self.DuplexStreamingDetect = channel.stream_stream(
+                '/ux_sd.UxSpeakerDiarization/DuplexStreamingDetect',
+                request_serializer=audio__harness_dot_protos_dot_diarization_dot_ux__speaker__diarization__pb2.DuplexStreamingDetectRequest.SerializeToString,
+                response_deserializer=audio__harness_dot_protos_dot_diarization_dot_ux__speaker__diarization__pb2.DuplexStreamingDetectResponse.FromString,
+                _registered_method=True)
 
 
 class UxSpeakerDiarizationServicer:
@@ -61,6 +66,12 @@ class UxSpeakerDiarizationServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def DuplexStreamingDetect(self, request_iterator, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_UxSpeakerDiarizationServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -73,6 +84,11 @@ def add_UxSpeakerDiarizationServicer_to_server(servicer, server):
                     servicer.StreamingDetect,
                     request_deserializer=audio__harness_dot_protos_dot_diarization_dot_ux__speaker__diarization__pb2.DetectRequest.FromString,
                     response_serializer=audio__harness_dot_protos_dot_diarization_dot_ux__speaker__diarization__pb2.DetectResponse.SerializeToString,
+            ),
+            'DuplexStreamingDetect': grpc.stream_stream_rpc_method_handler(
+                    servicer.DuplexStreamingDetect,
+                    request_deserializer=audio__harness_dot_protos_dot_diarization_dot_ux__speaker__diarization__pb2.DuplexStreamingDetectRequest.FromString,
+                    response_serializer=audio__harness_dot_protos_dot_diarization_dot_ux__speaker__diarization__pb2.DuplexStreamingDetectResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -129,6 +145,33 @@ class UxSpeakerDiarization:
             '/ux_sd.UxSpeakerDiarization/StreamingDetect',
             audio__harness_dot_protos_dot_diarization_dot_ux__speaker__diarization__pb2.DetectRequest.SerializeToString,
             audio__harness_dot_protos_dot_diarization_dot_ux__speaker__diarization__pb2.DetectResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DuplexStreamingDetect(request_iterator,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.stream_stream(
+            request_iterator,
+            target,
+            '/ux_sd.UxSpeakerDiarization/DuplexStreamingDetect',
+            audio__harness_dot_protos_dot_diarization_dot_ux__speaker__diarization__pb2.DuplexStreamingDetectRequest.SerializeToString,
+            audio__harness_dot_protos_dot_diarization_dot_ux__speaker__diarization__pb2.DuplexStreamingDetectResponse.FromString,
             options,
             channel_credentials,
             insecure,

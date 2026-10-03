@@ -75,6 +75,23 @@ Proto：[`diarization/ux_speaker_diarization.proto`](../../src/audio_harness/pro
 - Harness 会把去除静音后拼接时间映射回会话绝对时间。实现方不能假设输入 PCM 中保留了原始 VAD 间隙。
 - segment 起点必须在整个响应流中全局非递减，范围必须合法；相邻 segment 允许少量重叠。默认后处理会在同一语义轮次内跨 VAD 静音块合并相同 speaker；VAD 块边界不触发提交，首个有效的异 speaker segment、语义轮次边界或正常 EOF 才使待定片段稳定。稳定片段作为 AHA local delta 立即交给下游说话人 ASR，正常 EOF 再发送 completed。显式关闭节点后处理时，每个原始响应仍直接对应一个 local delta，正常 EOF 后再统一交给 ASR。
 
+### 双向流分离：`DuplexStreamingDetect`
+
+引擎资产 API 为 `ux_speaker_diarization_duplex`，与旧的一元请求路径显式区分。当前服务仅支持 Nemotron-3、16 kHz 单声道 LINEAR16。
+
+1. 首包为 `DuplexStreamingConfig`，包含音频配置和 `input_buffer_latency_ms`；Harness 提供 320（默认）、640、1040 三档。
+2. 后续请求只有非空、偶数字节的 `audio_content`，发送完整连续 PCM，包含静音、无 WAV 文件头。分包无需对齐模型推理块。
+3. 响应包含 `results` 与 `process_time`，静音响应可以没有 results。后者是排他的确定水位，不是计算耗时；不能倒退或超过已上传的音频范围。
+4. 每条结果含 RPC 内唯一 `segment_id`、固定 speaker `1..8` 及起止 Duration。边界的 `seconds=-1,nanos=0` 表示本次未更新；客户端按 ID 合并，不能覆盖已有边界。两边均为 `-1` 表示持续，非负终点表示永久闭合。
+5. 闭合可以乱序到达。新增起点及闭合边界不得修订旧水位之前的判定。Harness 先合并边界，再按轮次的 `TimelineSpan` 映射；不把原始响应直接送入要求全局起点有序的旧后处理器。
+6. 上传结束使用 half-close；客户端继续接收尾部响应。正常结束要求所有片段闭合、最终水位等于输入样本数。空输入由 Harness 直接完成，不发送只有配置的空业务 RPC。
+
+工作流节点同时消费连续 `audio` 和 VAD／语义 `segments`。水位覆盖候选轮次后，裁剪该轮次内的确定片段，按起点及模型片段 ID 排序后执行原有单说话人覆盖后处理；开放长片段在该轮次内也已有确定范围。模型 ID 与对外分段 ID 分别维护。
+
+节点同时产生原有局部分离事件及全量聚类快照，speaker ID 映射为 `model_speaker - 1`，不调用 Feature/StreamingClustering。取消清理当前 RPC；失败停止本次身份推断，排空完整音频输入，剩余轮次以未知身份继续 ASR，并发送聚类失败事件保留上一成功 revision，不透明重连。
+
+`request_timeout_seconds` 默认可空；非空时是整个 RPC 的 deadline。待处理音频与时间轴历史默认 120 秒，模型累计片段和输出片段默认各最多 10,000；超限也走上述失败开放路径。健康探测只检查 channel ready，业务能力需要实际流式调用验证。
+
 ## TTS：`qwen_tts.service.v1.TtsService`
 
 Proto：[`tts/tts.proto`](../../src/audio_harness/protos/tts/tts.proto)。Agent 使用 `DuplexSynthesize(stream) returns (stream)`：

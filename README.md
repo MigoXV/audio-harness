@@ -41,7 +41,9 @@ Realtime / WebRTC / aha-grpc 数据面 ───────────┘
 | Physical VAD | `audio: pcm_chunk` 或 `detection_audio: vad_audio_chunk`（互斥） | `audio_segment`、`speech_started`、`speech_stopped` | `ux_vad` |
 | Semantic VAD | `audio_segment` | `audio_segment`、`speech_stopped`、`transcription` | `ux_vad` |
 | ASR | `audio_segment` | `transcription` | `ux_speech` |
-| Speaker Diarization | `audio_segment` | `audio_segment`、`diarization_local_result` | `ux_speaker_diarization` |
+| Speaker Diarization | `audio_segment` | `diarization_segment`、`diarization_local_result` | `ux_speaker_diarization` |
+| Streaming Speaker Diarization | `pcm_chunk` ＋ `audio_segment`（均必需） | `diarization_segment`、`diarization_local_result`、`diarization_cluster_result` | `ux_speaker_diarization_duplex` |
+| Speaker Clustering | `diarization_segment` | `diarization_cluster_result` | `engine_feature` |
 | Audio Embedding | `audio_segment` | `embedding` | `engine_feature` |
 | Vector Search | `embedding` | `vector_search_result` | 无 |
 | Speaker Filter | `audio_segment`、`vector_search_result` | `audio_segment`、`speaker_filter_result`、VAD 事件 | 无 |
@@ -128,6 +130,43 @@ ASR 节点可以独立开启“移除转写标点”，在节点输出进入工�
 双路模板新建的预览 ASR 默认开启，正式 ASR 默认关闭。
 
 工作流的语义文档与画布 `layout` 分开保存。发布时重新编译草稿、准备全部引擎，然后原子写入不可变 revision；活动会话不会被后续草稿或引擎资产修改热改。
+
+## Sortformer／Nemotron-3 流式说话人分离
+
+在“推理引擎”中注册能力类型为“说话人分离”、实现为“Sortformer 双向流（Nemotron-3）”的引擎，填入服务的 `host:port`。对应资产使用 `kind=diarization`、`api=ux_speaker_diarization_duplex`、`protocol=grpc`。对方服务必须加载 Nemotron-3；普通 Sortformer 模型的旧接口不能用于这个节点。
+
+在工作流编辑器中应用“流式会议”模板，绑定 VAD、ASR 和新分离引擎，然后保存、校验并发布。模板保留主转写、预览、语义轮次和人物搜索分支，以一个 `streaming_speaker_diarization` 节点替代分离＋聚类两个节点。现有工作流不会自动迁移或激活。
+
+新节点必须同时连接：
+
+- `audio`：完整、连续的 16 kHz 单声道 PCM S16LE，包含静音；可来自图输入或 AGC。
+- `segments`：同一音频时间轴上的物理 VAD 或语义轮次，携带分角色 ASR 所需的原始音频和来源信息。
+
+输出 `segments` 连接分角色 ASR；`local_results` 绑定 `diarization_local`；`cluster_results` 绑定 `diarization_cluster`。分角色 ASR 的 `speaker_transcripts` 继续绑定 `speaker_transcript`。
+
+```json
+{
+  "id": "streaming-speaker-diarization",
+  "kind": "streaming_speaker_diarization",
+  "engine_id": "注册后的引擎ID",
+  "config": {
+    "input_buffer_latency_ms": 320,
+    "min_asr_segment_seconds": 0.5,
+    "max_pending_audio_seconds": 120,
+    "max_segments": 10000
+  }
+}
+```
+
+模型持续接收完整音频，`process_time` 表示从音频起点算起、包含静音的确定进度。当它覆盖一个 VAD／语义轮次时，节点立即处理该轮次；不再等待旧路径的 60 秒批次，也无需等待跨轮次长片段整体闭合。重叠、间隙和无身份音频沿用现有单说话人覆盖语义，不对同一段音频重复转写。
+
+输入缓冲可选 **320、640、1040 ms**，默认 320；这是模型缓冲档位，不保证响应间隔或端到端延迟。请求超时留空表示客户端不设置整条 RPC 的 deadline；填写时约束整个流的寿命。Realtime 继续使用已有重采样路径，其内部音频为 16 kHz。
+
+对外仍返回现有 `x_aha.diarization.local.*`、分角色转写和 `x_aha.diarization.cluster.*` 事件。每个候选轮次形成一个 batch，局部 speaker 使用 batch 命名空间；模型 speaker `1..8` 直接映射为该工作流 RPC 内全局 ID `0..7`，每次新增分配发布完整聚类快照。新分离路径不调用声纹特征或聚类服务；人物搜索分支仍独立使用特征服务。
+
+正常结束会 half-close 并排空尾部结果，再发布最终快照；空输入不建立业务 RPC，纯静音最终 assignments 为空。失败保留上一成功快照，并让剩余轮次以未知身份直通 ASR，同一工作流内不自动重连。`max_pending_audio_seconds` 同时限制待处理语音量和时间轴历史保留长度；超出历史范围的迟到轮次、模型累计片段数或输出片段数超过 `max_segments`，都会显式失败开放，不静默丢弃音频。speaker 身份不跨 RPC、commit 后的新工作流或客户端会话复用。
+
+详细线协议见 [gRPC 推理协议](docs/engine-integration/grpc-protocols.md)。
 
 ## 目录结构
 

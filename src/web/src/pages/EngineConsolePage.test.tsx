@@ -249,6 +249,15 @@ describe("engine management and diagnostics", () => {
     await new Promise(resolve => requestAnimationFrame(resolve));
     expect(next).toHaveFocus();
   });
+  it("registers the duplex diarization implementation", async () => {
+    const { api, typed } = fixture(); setup(typed); await screen.findByRole("button", { name: asset.name });
+    fireEvent.click(screen.getByRole("button", { name: "注册引擎" })); const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("能力类型"), { target: { value: "diarization" } });
+    fireEvent.change(within(dialog).getByLabelText("实现"), { target: { value: "duplex" } });
+    fill(dialog, /^名称/, "Sortformer"); fill(dialog, /^gRPC 地址/, "localhost:50051");
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存引擎" }));
+    await waitFor(() => expect(api.createEngine).toHaveBeenCalledWith(expect.objectContaining({ api: "ux_speaker_diarization_duplex", protocol: "grpc", target: "localhost:50051" })));
+  });
   it("registers the built-in diarization implementation with its fixed address", async () => {
     const { api, typed } = fixture(); setup(typed); await screen.findByRole("button", { name: asset.name });
     fireEvent.click(screen.getByRole("button", { name: "注册引擎" })); const dialog = screen.getByRole("dialog");

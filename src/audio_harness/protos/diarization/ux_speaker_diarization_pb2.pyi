@@ -21,6 +21,125 @@ else:
 DESCRIPTOR: _descriptor.FileDescriptor
 
 @_typing.final
+class DuplexStreamingConfig(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CONFIG_FIELD_NUMBER: _builtins.int
+    INPUT_BUFFER_LATENCY_MS_FIELD_NUMBER: _builtins.int
+    input_buffer_latency_ms: _builtins.int
+    """0 means 320 ms. Supported: 320, 640, 1040 ms."""
+    @_builtins.property
+    def config(self) -> Global___Config:
+        """Nemotron-3: mono LINEAR16, 16000 Hz only."""
+
+    def __init__(
+        self,
+        *,
+        config: Global___Config | None = ...,
+        input_buffer_latency_ms: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["config", b"config"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["config", b"config", "input_buffer_latency_ms", b"input_buffer_latency_ms"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___DuplexStreamingConfig: _TypeAlias = DuplexStreamingConfig  # noqa: Y015
+
+@_typing.final
+class DuplexStreamingDetectRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CONFIG_FIELD_NUMBER: _builtins.int
+    AUDIO_CONTENT_FIELD_NUMBER: _builtins.int
+    audio_content: _builtins.bytes
+    @_builtins.property
+    def config(self) -> Global___DuplexStreamingConfig: ...
+    def __init__(
+        self,
+        *,
+        config: Global___DuplexStreamingConfig | None = ...,
+        audio_content: _builtins.bytes = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["audio_content", b"audio_content", "config", b"config", "streaming_request", b"streaming_request"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["audio_content", b"audio_content", "config", b"config", "streaming_request", b"streaming_request"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType_streaming_request: _TypeAlias = _typing.Literal["config", "audio_content"]  # noqa: Y015
+    _WhichOneofArgType_streaming_request: _TypeAlias = _typing.Literal["streaming_request", b"streaming_request"]  # noqa: Y015
+    def WhichOneof(self, oneof_group: _WhichOneofArgType_streaming_request) -> _WhichOneofReturnType_streaming_request | None: ...
+
+Global___DuplexStreamingDetectRequest: _TypeAlias = DuplexStreamingDetectRequest  # noqa: Y015
+
+@_typing.final
+class DuplexStreamingDetectResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    RESULTS_FIELD_NUMBER: _builtins.int
+    PROCESS_TIME_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def results(self) -> _containers.RepeatedCompositeFieldContainer[Global___DuplexDetectionResult]:
+        """Incremental updates, including (-1, -1) for continuing open segments.
+        Sent after each inference block, even when results is empty (silence).
+        """
+
+    @_builtins.property
+    def process_time(self) -> _duration_pb2.Duration:
+        """Exclusive, immutable decision watermark, relative to the audio start.
+        Includes silence; excludes uncommitted lookahead. Not wall-clock latency.
+        """
+
+    def __init__(
+        self,
+        *,
+        results: _abc.Iterable[Global___DuplexDetectionResult] | None = ...,
+        process_time: _duration_pb2.Duration | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["process_time", b"process_time"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["process_time", b"process_time", "results", b"results"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___DuplexStreamingDetectResponse: _TypeAlias = DuplexStreamingDetectResponse  # noqa: Y015
+
+@_typing.final
+class DuplexDetectionResult(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    SEGMENT_ID_FIELD_NUMBER: _builtins.int
+    SPEAKER_FIELD_NUMBER: _builtins.int
+    START_TIME_FIELD_NUMBER: _builtins.int
+    END_TIME_FIELD_NUMBER: _builtins.int
+    segment_id: _builtins.int
+    """Unique within this RPC; merge boundary updates by this ID."""
+    speaker: _builtins.int
+    """1-based speaker identity, scoped to this RPC (Nemotron-3: 1..8)."""
+    @_builtins.property
+    def start_time(self) -> _duration_pb2.Duration:
+        """seconds=-1, nanos=0 means this update has no such boundary."""
+
+    @_builtins.property
+    def end_time(self) -> _duration_pb2.Duration:
+        """A nonnegative end closes the segment permanently."""
+
+    def __init__(
+        self,
+        *,
+        segment_id: _builtins.int = ...,
+        speaker: _builtins.int = ...,
+        start_time: _duration_pb2.Duration | None = ...,
+        end_time: _duration_pb2.Duration | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["end_time", b"end_time", "start_time", b"start_time"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["end_time", b"end_time", "segment_id", b"segment_id", "speaker", b"speaker", "start_time", b"start_time"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___DuplexDetectionResult: _TypeAlias = DuplexDetectionResult  # noqa: Y015
+
+@_typing.final
 class Config(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 

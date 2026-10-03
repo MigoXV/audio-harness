@@ -129,6 +129,7 @@ class EngineCatalog:
             EngineKind.EMBEDDING: EngineApi.ENGINE_FEATURE,
             EngineKind.DIARIZATION: (
                 EngineApi.UX_SPEAKER_DIARIZATION,
+                EngineApi.UX_SPEAKER_DIARIZATION_DUPLEX,
                 EngineApi.DUMMY_DIARIZE,
             ),
         }[asset.kind]

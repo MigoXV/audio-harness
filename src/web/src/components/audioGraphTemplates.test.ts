@@ -16,6 +16,24 @@ const existing: AudioWorkflowDocument = {
 };
 
 describe("audio graph templates", () => {
+  it("builds the streaming meeting with two inputs and compatible outputs", () => {
+    const result = applyAudioGraphTemplate(existing, "meeting_streaming", [], [
+      { id: "duplex", api: "ux_speaker_diarization_duplex", enabled: true } as EngineAsset,
+    ]);
+    const node = result.nodes.find((value) => value.kind === "streaming_speaker_diarization")!;
+    expect(node.engine_id).toBe("duplex");
+    expect(result.nodes.some((value) => value.kind === "speaker_clustering" || value.kind === "speaker_diarization")).toBe(false);
+    expect(result.edges.filter((edge) => edge.target.node_id === node.id).map((edge) => edge.target.port).sort()).toEqual(["audio", "segments"]);
+    expect(result.outputs.find((value) => value.name === "diarization_cluster")?.source).toEqual({ kind: "node", node_id: node.id, port: "cluster_results" });
+    expect(result.outputs.find((value) => value.name === "diarization_local")?.source.port).toBe("local_results");
+    expect(result.outputs.find((value) => value.name === "speaker_transcript")?.source.node_id).toBe("speaker-asr");
+    const modified = { ...result, nodes: result.nodes.map((value) => value.kind === "streaming_speaker_diarization" ? { ...value, config: { ...value.config!, input_buffer_latency_ms: 1040 as const } } : value) };
+    const reapplied = applyAudioGraphTemplate(modified, "meeting_streaming");
+    expect(reapplied.nodes.find((value) => value.kind === "streaming_speaker_diarization")).toMatchObject({ engine_id: "duplex", config: { input_buffer_latency_ms: 1040 } });
+    const nodeIds = new Set(reapplied.nodes.map((value) => value.id));
+    expect(reapplied.edges.every((edge) => nodeIds.has(edge.target.node_id) && (edge.source.kind === "input" || nodeIds.has(edge.source.node_id)))).toBe(true);
+  });
+
   it("builds the physical VAD and ASR graph while preserving matching configuration", () => {
     const result = applyAudioGraphTemplate(existing, "physical_asr");
 

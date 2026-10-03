@@ -1206,7 +1206,7 @@ export interface components {
              */
             schema_version: 1;
             /** Nodes */
-            nodes: (components["schemas"]["PhysicalVadNode"] | components["schemas"]["StreamingDenoiseNode"] | components["schemas"]["AutomaticGainControlNode"] | components["schemas"]["SemanticVadNode"] | components["schemas"]["AsrNode"] | components["schemas"]["AudioEmbeddingNode"] | components["schemas"]["SpeakerDiarizationNode"] | components["schemas"]["SpeakerClusteringNode"] | components["schemas"]["VectorSearchNode"] | components["schemas"]["SpeakerFilterNode"])[];
+            nodes: (components["schemas"]["PhysicalVadNode"] | components["schemas"]["StreamingDenoiseNode"] | components["schemas"]["AutomaticGainControlNode"] | components["schemas"]["SemanticVadNode"] | components["schemas"]["AsrNode"] | components["schemas"]["AudioEmbeddingNode"] | components["schemas"]["SpeakerDiarizationNode"] | components["schemas"]["StreamingSpeakerDiarizationNode"] | components["schemas"]["SpeakerClusteringNode"] | components["schemas"]["VectorSearchNode"] | components["schemas"]["SpeakerFilterNode"])[];
             /** Edges */
             edges: components["schemas"]["AudioEdge"][];
             /** Outputs */
@@ -1514,7 +1514,7 @@ export interface components {
          * EngineApi
          * @enum {string}
          */
-        EngineApi: "ux_denoise" | "ux_speech" | "ux_vad" | "responses" | "qwen_tts_duplex" | "engine_feature" | "ux_speaker_diarization" | "dummy_diarize";
+        EngineApi: "ux_denoise" | "ux_speech" | "ux_vad" | "responses" | "qwen_tts_duplex" | "engine_feature" | "ux_speaker_diarization" | "ux_speaker_diarization_duplex" | "dummy_diarize";
         /** EngineCreate */
         EngineCreate: {
             /** Slug */
@@ -2386,6 +2386,43 @@ export interface components {
             config?: components["schemas"]["StreamingDenoiseConfig"];
             /** @default fail_open */
             failure_policy: components["schemas"]["FailurePolicy"];
+        };
+        /** StreamingSpeakerDiarizationConfig */
+        StreamingSpeakerDiarizationConfig: {
+            /**
+             * Input Buffer Latency Ms
+             * @default 320
+             * @enum {integer}
+             */
+            input_buffer_latency_ms: 320 | 640 | 1040;
+            /**
+             * Min Asr Segment Seconds
+             * @default 0.5
+             */
+            min_asr_segment_seconds: number;
+            /**
+             * Max Pending Audio Seconds
+             * @default 120
+             */
+            max_pending_audio_seconds: number;
+            /**
+             * Max Segments
+             * @default 10000
+             */
+            max_segments: number;
+        };
+        /** StreamingSpeakerDiarizationNode */
+        StreamingSpeakerDiarizationNode: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "streaming_speaker_diarization";
+            /** Engine Id */
+            engine_id?: string | null;
+            config?: components["schemas"]["StreamingSpeakerDiarizationConfig"];
         };
         /** VadAudioPreviewRead */
         VadAudioPreviewRead: {

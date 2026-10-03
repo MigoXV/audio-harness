@@ -11,6 +11,7 @@ from audio_harness.inferencers.vad.grpc import UxVadInferencer
 from audio_harness.inferencers.embedding.grpc import GrpcEngineFeatureInferencer
 from audio_harness.inferencers.diarization.dummy import DummyDiarizationInferencer
 from audio_harness.inferencers.diarization.grpc import UxSpeakerDiarizationInferencer
+from audio_harness.inferencers.diarization.streaming_grpc import UxStreamingDiarizationInferencer
 from audio_harness.inferencers.denoise.grpc import UxDenoiseInferencer
 
 
@@ -50,6 +51,11 @@ def create_inferencer(
             endpoint,
             max_message_bytes=max_message_bytes,
         )
+    if (
+        snapshot.protocol is EngineProtocol.GRPC
+        and snapshot.api is EngineApi.UX_SPEAKER_DIARIZATION_DUPLEX
+    ):
+        return UxStreamingDiarizationInferencer(endpoint, max_message_bytes=max_message_bytes)
     if (
         snapshot.protocol is EngineProtocol.GRPC
         and snapshot.api is EngineApi.ENGINE_FEATURE

@@ -78,6 +78,7 @@ function fakeApi() {
       { kind: "vector_search", display_name: "人物搜索", required_api: null, inputs: [{ name: "embeddings", kind: "embedding" }], outputs: [{ name: "results", kind: "vector_search_result" }], config_schema: {} },
       { kind: "speaker_filter", display_name: "说话人过滤", required_api: null, inputs: [{ name: "segments", kind: "audio_segment" }, { name: "results", kind: "vector_search_result" }], outputs: [{ name: "segments", kind: "audio_segment" }, { name: "speech_started", kind: "speech_started" }, { name: "speech_stopped", kind: "speech_stopped" }, { name: "decisions", kind: "speaker_filter_result" }], config_schema: {} },
       { kind: "speaker_diarization", display_name: "说话人分离", required_api: "ux_speaker_diarization", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "segments", kind: "diarization_segment" }, { name: "local_results", kind: "diarization_local_result" }], config_schema: {} },
+      { kind: "streaming_speaker_diarization", display_name: "流式说话人分离", required_api: "ux_speaker_diarization_duplex", inputs: [{ name: "audio", kind: "pcm_chunk" }, { name: "segments", kind: "audio_segment" }], outputs: [{ name: "segments", kind: "diarization_segment" }, { name: "local_results", kind: "diarization_local_result" }, { name: "cluster_results", kind: "diarization_cluster_result" }], config_schema: {} },
       { kind: "speaker_clustering", display_name: "说话人聚类", required_api: "engine_feature", inputs: [{ name: "segments", kind: "diarization_segment" }], outputs: [{ name: "results", kind: "diarization_cluster_result" }], config_schema: {} },
     ]),
     listAudioWorkflowRevisions: vi.fn().mockResolvedValue([]),
@@ -440,6 +441,21 @@ describe("typed audio workflow control plane", () => {
         initial_level_db: -12,
         output_gain_db: 6,
       },
+    });
+  });
+
+  it("saves streaming meeting inputs and latency configuration", async () => {
+    const { api, saveAudioWorkflowDraft } = fakeApi();
+    renderApp(api, "/audio-workflows/wf-1/build");
+    fireEvent.click(await screen.findByRole("button", { name: /^流式会议/ }));
+    fireEvent.click(screen.getByRole("button", { name: "确认应用" }));
+    fireEvent.click(await screen.findByLabelText("节点 streaming-speaker-diarization"));
+    fireEvent.change(screen.getByLabelText("输入缓冲（毫秒）"), { target: { value: "640" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+    await waitFor(() => {
+      const saved = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
+      expect(saved.nodes.find((node) => node.kind === "streaming_speaker_diarization")?.config?.input_buffer_latency_ms).toBe(640);
+      expect(saved.edges.filter((edge) => edge.target.node_id === "streaming-speaker-diarization").map((edge) => edge.target.port).sort()).toEqual(["audio", "segments"]);
     });
   });
 

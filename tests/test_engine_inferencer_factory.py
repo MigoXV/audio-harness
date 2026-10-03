@@ -14,6 +14,8 @@ from audio_harness.inferencers.tts.grpc import QwenDuplexTtsInferencer
 from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.inferencers.vad.grpc import UxVadInferencer
 from audio_harness.inferencers.diarization.base import DiarizationInferencer
+from audio_harness.inferencers.diarization.streaming_base import StreamingDiarizationInferencer
+from audio_harness.inferencers.diarization.streaming_grpc import UxStreamingDiarizationInferencer
 from audio_harness.inferencers.diarization.grpc import (
     UxSpeakerDiarizationInferencer,
 )
@@ -41,6 +43,7 @@ def snapshot(api: EngineApi, protocol: EngineProtocol) -> EngineSnapshot:
 @pytest.mark.parametrize(
     ("api", "protocol", "expected_type"),
     [
+        (EngineApi.UX_SPEAKER_DIARIZATION_DUPLEX, EngineProtocol.GRPC, UxStreamingDiarizationInferencer),
         (EngineApi.UX_DENOISE, EngineProtocol.GRPC, UxDenoiseInferencer),
         (EngineApi.UX_SPEECH, EngineProtocol.GRPC, UxSpeechAsrInferencer),
         (EngineApi.UX_VAD, EngineProtocol.GRPC, UxVadInferencer),
@@ -89,6 +92,7 @@ async def test_create_inferencer_routes_supported_api_protocol_pairs(
 @pytest.mark.parametrize(
     ("concrete", "base"),
     [
+        (UxStreamingDiarizationInferencer, StreamingDiarizationInferencer),
         (UxDenoiseInferencer, DenoiseInferencer),
         (UxSpeechAsrInferencer, AsrInferencer),
         (UxVadInferencer, VadInferencer),

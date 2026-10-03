@@ -22,6 +22,7 @@ from audio_harness.workflows.models import (
     PhysicalVadConfig,
     PhysicalVadNode,
     SpeakerDiarizationNodeConfig,
+    StreamingSpeakerDiarizationConfig,
     SpeakerClusteringNodeConfig,
     SpeakerFilterNodeConfig,
     SemanticVadNode,
@@ -165,6 +166,21 @@ _NODE_SPECS: dict[str, AudioNodeSpec] = {
         },
         required_api=EngineApi.UX_SPEAKER_DIARIZATION,
         config_model=SpeakerDiarizationNodeConfig,
+    ),
+    "streaming_speaker_diarization": AudioNodeSpec(
+        kind="streaming_speaker_diarization",
+        display_name="流式说话人分离",
+        inputs={
+            "audio": PortSpec(PortKind.PCM_CHUNK),
+            "segments": PortSpec(PortKind.AUDIO_SEGMENT),
+        },
+        outputs={
+            "segments": PortSpec(PortKind.DIARIZATION_SEGMENT),
+            "local_results": PortSpec(PortKind.DIARIZATION_LOCAL_RESULT),
+            "cluster_results": PortSpec(PortKind.DIARIZATION_CLUSTER_RESULT),
+        },
+        required_api=EngineApi.UX_SPEAKER_DIARIZATION_DUPLEX,
+        config_model=StreamingSpeakerDiarizationConfig,
     ),
     "speaker_clustering": AudioNodeSpec(
         kind="speaker_clustering",
