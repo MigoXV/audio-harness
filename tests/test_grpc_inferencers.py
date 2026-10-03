@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from google.protobuf import duration_pb2
 
-from audio_harness.configs import EngineEndpoint
+from audio_harness.configs.engine import EngineEndpoint
 from audio_harness.errors import EngineDeadlineError, EngineUnavailableError
 from audio_harness.inferencers.asr.base import AsrInferencer
 from audio_harness.inferencers.asr.grpc import UxSpeechAsrInferencer
@@ -20,7 +20,7 @@ from audio_harness.inferencers.diarization.grpc import (
     UxSpeakerDiarizationInferencer,
 )
 from audio_harness.inferencers.denoise.grpc import UxDenoiseInferencer
-from audio_harness.inferencers.embedding import GrpcEngineFeatureInferencer
+from audio_harness.inferencers.embedding.grpc import GrpcEngineFeatureInferencer
 from audio_harness.protos.embedding import engine_pb2, engine_pb2_grpc
 from audio_harness.protos.asr import ux_speech_pb2 as speech_pb2
 from audio_harness.protos.asr import ux_speech_pb2_grpc as speech_pb2_grpc

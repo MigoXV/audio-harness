@@ -19,8 +19,9 @@ from audio_harness.commands.types import (
     WebRtcIceServersJsonOption,
     WebRtcNegotiationTimeoutOption,
 )
-from audio_harness.configs import AppConfig, IceServerConfig, parse_ice_servers_json
-from audio_harness.database import require_fresh_database, upgrade_database
+from audio_harness.configs.app import AppConfig
+from audio_harness.configs.webrtc import IceServerConfig, parse_ice_servers_json
+from audio_harness.database.session import require_fresh_database, upgrade_database
 from audio_harness.serving.runner import run_server
 
 logger = logging.getLogger(__name__)

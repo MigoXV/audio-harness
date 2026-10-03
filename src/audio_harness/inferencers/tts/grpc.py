@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 
 import grpc
 
-from audio_harness.configs import EngineEndpoint
+from audio_harness.configs.engine import EngineEndpoint
 from audio_harness.errors import EngineUnavailableError
 from audio_harness.inferencers.transports.grpc import (
     GrpcTransport,

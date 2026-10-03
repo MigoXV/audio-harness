@@ -7,11 +7,14 @@ import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from aha.contracts.json_codec import decode_client_event as decode_ws
 import grpc
 import pytest
 from fastapi import FastAPI, WebSocket
 
-from audio_harness.configs import AppConfig, CapacityConfig, WorkflowRuntimeConfig
+from audio_harness.configs.app import AppConfig
+from audio_harness.configs.serving import CapacityConfig
+from audio_harness.configs.workflow import WorkflowRuntimeConfig
 from audio_harness.protos.aha_grpc.v1 import aha_realtime_pb2 as pb
 from audio_harness.protos.aha_grpc.v1 import aha_realtime_pb2_grpc as rpc
 from audio_harness.serving.aha_grpc.codec import (
@@ -25,8 +28,7 @@ from audio_harness.serving.aha_grpc.server import AhaGrpcServer
 from audio_harness.serving.capacity import ServingCapacity
 from audio_harness.serving.realtime.connection import RealtimeTranscriptionService
 from audio_harness.serving.realtime.core import RealtimeOptions
-from audio_harness.serving.realtime.json_codec import decode_client_event as decode_ws
-from audio_harness.sessions.audio_workflow import AudioWorkflowSessionService
+from audio_harness.sessions.audio_workflow.session import AudioWorkflowSessionService
 from tests.graph_fakes import StaticRouteService, static_audio_workflow
 from tests.test_realtime_service import FinalAsr, RecordingVad, StaticSettings
 
@@ -35,6 +37,51 @@ def test_schema_covers_current_protocol_and_keeps_field_numbers() -> None:
     generate(check=True)
     assert len(pb.ClientEvent.DESCRIPTOR.oneofs_by_name["event"].fields) == 14
     assert len(pb.ServerEvent.DESCRIPTOR.oneofs_by_name["event"].fields) == 77
+
+
+def test_split_protocol_preserves_public_messages_and_field_ledger() -> None:
+    from importlib import import_module
+
+    from audio_harness.serving.aha_grpc.codec import _schema
+    from audio_harness.serving.aha_grpc.schema import PROTO_DIR
+
+    ledger = json.loads((PROTO_DIR / "field_numbers.json").read_text())
+    for message_name in [*_schema()["messages"], "JsonValue", "JsonObject", "JsonList"]:
+        message = getattr(pb, message_name)
+        descriptor = message.DESCRIPTOR
+        assert descriptor.full_name == f"aha.grpc.v1.{message_name}"
+        module_name = Path(descriptor.file.name).stem + "_pb2"
+        module = import_module(f"audio_harness.protos.aha_grpc.v1.{module_name}")
+        assert getattr(module, message_name) is message
+        if message_name in ledger:
+            for field in descriptor.fields:
+                assert field.number == ledger[message_name][field.name]
+    method = pb.DESCRIPTOR.services_by_name["AhaRealtime"].methods_by_name["Connect"]
+    assert method.client_streaming and method.server_streaming
+    assert method.input_type is pb.ClientEvent.DESCRIPTOR
+    assert method.output_type is pb.ServerEvent.DESCRIPTOR
+
+
+def test_schema_check_detects_missing_or_changed_domain_files(
+    tmp_path, monkeypatch
+) -> None:
+    from audio_harness.serving.aha_grpc import schema
+
+    (tmp_path / "field_numbers.json").write_bytes(
+        (schema.PROTO_DIR / "field_numbers.json").read_bytes()
+    )
+    monkeypatch.setattr(schema, "PROTO_DIR", tmp_path)
+    schema.generate()
+    schema.generate(check=True)
+    for path in sorted(tmp_path.glob("*.proto")):
+        original = path.read_text()
+        path.write_text(original + "// drift\n")
+        with pytest.raises(RuntimeError, match=path.name):
+            schema.generate(check=True)
+        path.unlink()
+        with pytest.raises(RuntimeError, match=path.name):
+            schema.generate(check=True)
+        path.write_text(original)
 
 
 @pytest.mark.parametrize(
@@ -673,7 +720,7 @@ async def test_python_client_and_actual_ws_produce_matching_transcription(tls_fi
 
 @pytest.mark.asyncio
 async def test_host_always_starts_grpc_with_existing_tls(tls_files, tmp_path):
-    from audio_harness.database import upgrade_database
+    from audio_harness.database.session import upgrade_database
     from audio_harness.serving.host import AudioHarnessHost
 
     cert, key = tls_files

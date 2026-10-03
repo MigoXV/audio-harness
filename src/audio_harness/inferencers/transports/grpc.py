@@ -4,7 +4,7 @@ import asyncio
 
 import grpc
 
-from audio_harness.configs import EngineEndpoint
+from audio_harness.configs.engine import EngineEndpoint
 from audio_harness.errors import (
     EngineDeadlineError,
     EngineUnavailableError,

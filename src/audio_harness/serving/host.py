@@ -6,9 +6,10 @@ import logging
 from audio_harness.agent_backends.catalog import AgentBackendCatalog
 from audio_harness.agent_backends.dsh import DshWebGateway
 from audio_harness.agent_backends.health import AgentBackendHealthMonitor
-from audio_harness.api import create_http_app
-from audio_harness.configs import AppConfig, CapacityConfig
-from audio_harness.database import Database
+from audio_harness.api.app import create_http_app
+from audio_harness.configs.app import AppConfig
+from audio_harness.configs.serving import CapacityConfig
+from audio_harness.database.session import Database
 from audio_harness.engines.health import EngineHealthMonitor
 from audio_harness.engines.catalog import EngineCatalog
 from audio_harness.engines.inferencer_factory import create_inferencer
@@ -17,19 +18,18 @@ from audio_harness.serving.aha_grpc.server import AhaGrpcServer
 from audio_harness.serving.model_catalog import RealtimeModelCatalog
 from audio_harness.serving.capacity import ServingCapacity
 from audio_harness.serving.capacity_settings import CapacitySettingsStore
-from audio_harness.serving.realtime import RealtimeTranscriptionService
+from audio_harness.serving.realtime.connection import RealtimeTranscriptionService
 from audio_harness.serving.realtime.tools import ToolRegistry
 from audio_harness.serving.status import ServingStatusService
-from audio_harness.serving.webrtc import WebRtcCallService
-from audio_harness.sessions.audio_workflow import AudioWorkflowSessionService
-from audio_harness.voice_agents import (
-    VoiceAgentRepository,
-    VoiceAgentService,
-)
+from audio_harness.serving.webrtc.service import WebRtcCallService
+from audio_harness.sessions.audio_workflow.session import AudioWorkflowSessionService
+from audio_harness.voice_agents.repository import VoiceAgentRepository
+from audio_harness.voice_agents.service import VoiceAgentService
 from audio_harness.voice_agents.voices import VoiceAssetStore
 from audio_harness.workflows.settings import WorkflowSettingsStore
-from audio_harness.workflows import AudioWorkflowRepository, AudioWorkflowService
-from audio_harness.vectors import VectorService
+from audio_harness.workflows.repository import AudioWorkflowRepository
+from audio_harness.workflows.service import AudioWorkflowService
+from audio_harness.vectors.service import VectorService
 from audio_harness.vectors.qdrant import QdrantGateway
 
 logger = logging.getLogger(__name__)

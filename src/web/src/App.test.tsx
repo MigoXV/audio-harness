@@ -4,7 +4,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
+import { THEME_STORAGE_KEY } from "./styles/themePreference";
 import type { AudioHarnessApi, AudioWorkflowDocument, VoiceAgentDefinition } from "./api/types";
+
+vi.mock("./features/engines/console.css", () => ({}));
 
 const document: AudioWorkflowDocument = {
   schema_version: 1,
@@ -45,7 +48,9 @@ function fakeApi() {
     probe_latency_ms: 2, consecutive_failures: 0, next_probe_at: null, source: null, details: {}, revision: 1,
     created_at: "2026-08-09T00:00:00Z", updated_at: "2026-08-09T00:00:00Z",
   });
+  const engineItems = [engine("vad-1", "vad", "ux_vad"), engine("asr-1", "asr", "ux_speech"), engine("llm-1", "llm", "responses"), engine("tts-1", "tts", "qwen_tts_duplex"), engine("embedding-1", "embedding", "engine_feature"), engine("denoise-1", "denoise", "ux_denoise")];
   const api = {
+    getEngine: vi.fn().mockImplementation(async (id: string) => engineItems.find((item) => item.id === id)),
     getRuntimeOverview: vi.fn().mockResolvedValue({
       status: "ready", control_plane: "ready", issues: [],
       realtime: { state: "ready", public_routes: 1, internal_routes: 0 },
@@ -76,7 +81,7 @@ function fakeApi() {
       { kind: "speaker_clustering", display_name: "说话人聚类", required_api: "engine_feature", inputs: [{ name: "segments", kind: "diarization_segment" }], outputs: [{ name: "results", kind: "diarization_cluster_result" }], config_schema: {} },
     ]),
     listAudioWorkflowRevisions: vi.fn().mockResolvedValue([]),
-    listEngines: vi.fn().mockResolvedValue({ items: [engine("vad-1", "vad", "ux_vad"), engine("asr-1", "asr", "ux_speech"), engine("llm-1", "llm", "responses"), engine("tts-1", "tts", "qwen_tts_duplex"), engine("embedding-1", "embedding", "engine_feature"), engine("denoise-1", "denoise", "ux_denoise")], total: 6, limit: 200, offset: 0 }),
+    listEngines: vi.fn().mockResolvedValue({ items: engineItems, total: 6, limit: 200, offset: 0 }),
     listEngineModels: vi.fn().mockResolvedValue({ engine_id: "llm-1", engine_revision: 1, items: ["deepseek-chat", "deepseek-reasoner"] }),
     getRuntimeStatus: vi.fn().mockResolvedValue({ realtime: { active: 2, capacity: 64, rejected: 1 }, webrtc: { active: 1, capacity: 64, rejected: 0 }, asr: { active: 2, capacity: 8, rejected: 0 }, responses: { active: 1, capacity: 8, rejected: 0 }, tts: { active: 1, capacity: 1, rejected: 2 }, started_at: "2026-08-09T00:00:00Z" }),
     getCapacitySettings: vi.fn().mockResolvedValue({ realtime: { max_sessions: 64 }, webrtc: { max_sessions: 64 }, max_asr_concurrency: 8, max_responses_concurrency: 8, max_tts_concurrency: 1, revision: 1, updated_at: "2026-08-09T00:00:00Z" }),
@@ -104,6 +109,88 @@ function renderApp(api: AudioHarnessApi, path = "/") {
 }
 
 describe("typed audio workflow control plane", () => {
+  it.each(["workflow", "agent"])("keeps the %s draft and inspector while probing an engine", async (kind) => {
+    const { api, saveAudioWorkflowDraft, saveVoiceAgentDraft } = fakeApi();
+    const workflow = kind === "workflow";
+    const engineId = workflow ? "asr-1" : "llm-1";
+    const original = await api.getEngine(engineId);
+    vi.mocked(api.getEngine).mockResolvedValueOnce(original).mockResolvedValue({ ...original, status_basis: "已更新探测结果" });
+    vi.mocked(api.probeEngine).mockResolvedValue({} as Awaited<ReturnType<AudioHarnessApi["probeEngine"]>>);
+    renderApp(api, workflow ? "/audio-workflows/wf-1/build" : "/voice-agents/agent-1/build");
+    fireEvent.click(await screen.findByLabelText(workflow ? "节点 asr" : "节点 Responses"));
+    if (workflow) fireEvent.click(screen.getByRole("checkbox", { name: "移除转写标点" }));
+    else fireEvent.change(screen.getByLabelText("系统提示词"), { target: { value: "保留快捷面板前的草稿" } });
+    const trigger = screen.getByRole("button", { name: "查看引擎" });
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole("dialog", { name: "引擎详情" });
+    await within(dialog).findByText(original.name);
+    fireEvent.click(within(dialog).getByRole("button", { name: "复检" }));
+    expect(await within(dialog).findByText("已更新探测结果")).toBeVisible();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "引擎详情" })).not.toBeInTheDocument());
+    expect(screen.getByLabelText(workflow ? "节点配置面板" : "智能体节点配置面板")).toBeVisible();
+    await waitFor(() => expect(trigger).toHaveFocus());
+    if (workflow) expect(screen.getByRole("checkbox", { name: "移除转写标点" })).toBeChecked();
+    else expect(screen.getByLabelText("系统提示词")).toHaveValue("保留快捷面板前的草稿");
+    expect(screen.getByText("有未保存修改")).toBeVisible();
+    expect(api.listEngines).toHaveBeenCalledTimes(1);
+    expect(saveAudioWorkflowDraft).not.toHaveBeenCalled();
+    expect(saveVoiceAgentDraft).not.toHaveBeenCalled();
+  });
+
+  it("retains the unsaved draft guard when entering engine management from the quick view", async () => {
+    const { api } = fakeApi();
+    renderApp(api, "/voice-agents/agent-1/build");
+    fireEvent.click(await screen.findByLabelText("节点 Responses"));
+    fireEvent.change(screen.getByLabelText("系统提示词"), { target: { value: "暂不保存" } });
+    fireEvent.click(screen.getByRole("button", { name: "查看引擎" }));
+    fireEvent.click(await screen.findByRole("link", { name: "进入引擎管理" }));
+    const guard = await screen.findByRole("alertdialog");
+    expect(guard).toHaveTextContent("还有未保存的修改");
+    fireEvent.click(within(guard).getByRole("button", { name: "继续编辑" }));
+    fireEvent.click(screen.getByRole("button", { name: "关闭引擎详情" }));
+    expect(screen.getByLabelText("系统提示词")).toHaveValue("暂不保存");
+  });
+
+  it("persists the theme without resetting a creation form", async () => {
+    window.localStorage.removeItem(THEME_STORAGE_KEY);
+    const { api } = fakeApi();
+    const view = renderApp(api, "/audio-workflows");
+    fireEvent.click(await screen.findByRole("button", { name: "新建语音工作流" }));
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "Theme Draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "切换到苍渊主题" }));
+    expect(window.document.documentElement.dataset.theme).toBe("abyssus");
+    expect(screen.getByLabelText("名称")).toHaveValue("Theme Draft");
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("abyssus");
+    view.unmount();
+    renderApp(api, "/audio-workflows");
+    expect(screen.getByRole("button", { name: "切换到白垣主题" })).toBeVisible();
+    window.localStorage.removeItem(THEME_STORAGE_KEY);
+  });
+
+  it("keeps the selected node and dirty prompt while switching themes", async () => {
+    window.localStorage.removeItem(THEME_STORAGE_KEY);
+    const { api } = fakeApi(); renderApp(api, "/voice-agents/agent-1/build");
+    fireEvent.click(await screen.findByLabelText("节点 Responses"));
+    fireEvent.change(screen.getByLabelText("系统提示词"), { target: { value: "保留未保存的提示词" } });
+    fireEvent.click(screen.getByRole("button", { name: "切换到苍渊主题" }));
+    expect(screen.getByLabelText("系统提示词")).toHaveValue("保留未保存的提示词");
+    expect(screen.getByLabelText("智能体节点配置面板")).toBeVisible();
+    expect(screen.getByText("有未保存修改")).toBeVisible();
+    window.localStorage.removeItem(THEME_STORAGE_KEY);
+  });
+
+  it("allows theme changes when browser storage is unavailable", async () => {
+    const read = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("storage unavailable"); });
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("storage unavailable"); });
+    try {
+      const { api } = fakeApi(); renderApp(api, "/audio-workflows");
+      fireEvent.click(screen.getByRole("button", { name: "切换到苍渊主题" }));
+      expect(window.document.documentElement.dataset.theme).toBe("abyssus");
+      expect(await screen.findByText("主语音图")).toBeVisible();
+    } finally { read.mockRestore(); write.mockRestore(); }
+  });
+
   it("uses audio workflows as the product home", async () => {
     const { api } = fakeApi(); renderApp(api);
     expect(screen.getByRole("link", { name: "Audio Harness 首页" })).toContainHTML('src="/audio-harness-logo.svg"');
@@ -671,14 +758,17 @@ describe("typed audio workflow control plane", () => {
     const { api } = fakeApi(); renderApp(api, "/engines");
     expect(await screen.findByRole("heading", { name: "推理引擎" })).toBeVisible();
     expect(screen.queryByText("人工连通性校验通过")).not.toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("button", { name: /VAD-1/ }));
-    fireEvent.click(screen.getByRole("button", { name: /ASR-1/ }));
-    expect(await screen.findAllByText("人工连通性校验通过")).toHaveLength(2);
+    fireEvent.click(await screen.findByRole("button", { name: "VAD-1" }));
+    expect(await screen.findByText("人工连通性校验通过")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "关闭引擎详情" }));
+    fireEvent.click(screen.getByRole("button", { name: "ASR-1" }));
+    expect(await screen.findByText("人工连通性校验通过")).toBeVisible();
   });
 
   it("fills a new engine slug from its name and preserves a manual override", async () => {
     const { api } = fakeApi(); renderApp(api, "/engines");
-    fireEvent.click(await screen.findByRole("button", { name: "注册引擎" }));
+    await screen.findByRole("button", { name: "VAD-1" });
+    fireEvent.click(screen.getByRole("button", { name: "注册引擎" }));
     fireEvent.change(screen.getByLabelText("名称"), { target: { value: "Primary ASR" } });
     expect(screen.getByDisplayValue("primary-asr")).toBeVisible();
     fireEvent.change(screen.getByDisplayValue("primary-asr"), { target: { value: "custom-asr" } });
@@ -689,19 +779,27 @@ describe("typed audio workflow control plane", () => {
   it("provides safe engine lifecycle actions", async () => {
     const { api } = fakeApi(); renderApp(api, "/engines");
     await screen.findByRole("heading", { name: "推理引擎" });
-    fireEvent.click((await screen.findAllByRole("button", { name: "停用" }))[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "VAD-1" }));
+    const detail = await screen.findByRole("dialog", { name: "引擎详情" });
+    await waitFor(() => expect(within(detail).getByRole("button", { name: "停用" })).toBeEnabled());
+    fireEvent.click(within(detail).getByRole("button", { name: "停用" }));
     expect(await screen.findByRole("alertdialog", { name: "停用引擎？" })).toBeVisible();
+    await waitFor(() => expect(screen.getByRole("button", { name: "确认停用" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "确认停用" }));
     await waitFor(() => expect(api.updateEngine).toHaveBeenCalledWith("vad-1", { enabled: false }));
   });
 
-  it("re-enables a disabled engine from its collapsed card", async () => {
+  it("re-enables a disabled engine from its details", async () => {
     const { api } = fakeApi();
     const response = await api.listEngines();
     const disabled = { ...response.items[0], enabled: false, status: "disabled" as const };
     api.listEngines = vi.fn().mockResolvedValue({ ...response, items: [disabled, ...response.items.slice(1)] });
+    api.getEngine = vi.fn().mockResolvedValue(disabled);
     renderApp(api, "/engines");
-    fireEvent.click(await screen.findByRole("button", { name: "启用" }));
+    fireEvent.click(await screen.findByRole("button", { name: "VAD-1" }));
+    const detail = await screen.findByRole("dialog", { name: "引擎详情" });
+    await waitFor(() => expect(within(detail).getByRole("button", { name: "启用" })).toBeEnabled());
+    fireEvent.click(within(detail).getByRole("button", { name: "启用" }));
     await waitFor(() => expect(api.updateEngine).toHaveBeenCalledWith("vad-1", { enabled: true }));
   });
 
@@ -710,9 +808,12 @@ describe("typed audio workflow control plane", () => {
     api.getEngineUsage = vi.fn().mockResolvedValue({ engine_id: "vad-1", references: ["主语音图 草稿"] });
     renderApp(api, "/engines");
     await screen.findByRole("heading", { name: "推理引擎" });
-    fireEvent.click((await screen.findAllByRole("button", { name: "停用" }))[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "VAD-1" }));
+    const detail = await screen.findByRole("dialog", { name: "引擎详情" });
+    await waitFor(() => expect(within(detail).getByRole("button", { name: "停用" })).toBeEnabled());
+    fireEvent.click(within(detail).getByRole("button", { name: "停用" }));
     expect(await screen.findByRole("alertdialog", { name: "当前不能停用引擎" })).toBeVisible();
-    expect(screen.getByText("主语音图 草稿")).toBeVisible();
+    expect(within(screen.getByRole("alertdialog")).getByText("主语音图 草稿")).toBeVisible();
     expect(screen.queryByRole("button", { name: "确认停用" })).not.toBeInTheDocument();
   });
 

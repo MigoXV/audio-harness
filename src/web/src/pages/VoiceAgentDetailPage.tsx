@@ -30,6 +30,9 @@ export function VoiceAgentDetailPage({ api, refreshVersion }: Props) {
   const [definition, setDefinition] = useState<VoiceAgentDefinition | null>(null);
   const [workflows, setWorkflows] = useState<AudioWorkflow[]>([]);
   const [engines, setEngines] = useState<EngineAsset[]>([]);
+  const updateEngine = useCallback((engine: EngineAsset) => {
+    setEngines((items) => items.some((item) => item.id === engine.id) ? items.map((item) => item.id === engine.id ? engine : item) : [...items, engine]);
+  }, []);
   const [backends, setBackends] = useState<AgentBackend[]>([]);
   const [history, setHistory] = useState<VoiceAgentRevision[]>([]);
   const [validation, setValidation] = useState<VoiceAgentValidation | null>(null);
@@ -129,6 +132,7 @@ export function VoiceAgentDetailPage({ api, refreshVersion }: Props) {
     {tab === "build" ? <VoiceAgentGraphEditor
       key={definition.audio_workflow_id || "empty-workflow"}
       api={api}
+      onEngineUpdated={updateEngine}
       definition={definition}
       workflows={workflows}
       engines={engines}

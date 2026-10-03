@@ -5,18 +5,16 @@ import base64
 import json
 from types import SimpleNamespace
 
+from aha.contracts.json_codec import decode_client_event, encode_server_event
 import pytest
 from openai.types.realtime import RealtimeClientEvent, RealtimeServerEvent
 from pydantic import TypeAdapter
 
-from audio_harness.configs import WorkflowRuntimeConfig
+from audio_harness.configs.workflow import WorkflowRuntimeConfig
 from audio_harness.inferencers.asr.base import AsrInferencer
 from audio_harness.serving.realtime.session import RealtimeTranscriptionSession
-from audio_harness.serving.realtime.connection import (
-    RealtimeConnectionMode,
-    RealtimeTranscriptionService,
-)
-from audio_harness.serving.realtime import connection as realtime_connection
+from audio_harness.serving.realtime.core import RealtimeConnection, RealtimeConnectionMode
+from audio_harness.serving.realtime.connection import RealtimeTranscriptionService
 from audio_harness.serving.realtime.tools import ToolRegistry
 from audio_harness.workflows.events import (
     SpeakerFilterResult,
@@ -32,11 +30,6 @@ from tests.test_agent_runtime import (
 )
 from tests.graph_fakes import static_audio_workflow
 
-
-from audio_harness.serving.realtime.json_codec import (
-    decode_client_event,
-    encode_server_event,
-)
 
 _CLIENT_EVENTS = SimpleNamespace(validate_python=decode_client_event)
 _SERVER_EVENTS = TypeAdapter(RealtimeServerEvent)
@@ -224,7 +217,7 @@ async def test_dynamic_session_initialization_failure_is_protocol_error(
         raise RuntimeError("invalid workflow")
 
     monkeypatch.setattr(
-        realtime_connection.RealtimeConnection,
+        RealtimeConnection,
         "_new_session",
         fail_session,
     )
@@ -268,7 +261,7 @@ async def test_fixed_model_initialization_failure_closes_cleanly(
         raise RuntimeError("invalid workflow")
 
     monkeypatch.setattr(
-        realtime_connection.RealtimeConnection,
+        RealtimeConnection,
         "_new_session",
         fail_session,
     )

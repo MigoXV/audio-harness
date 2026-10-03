@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from audio_harness.protos.aha_grpc.v1 import aha_realtime_pb2 as audio__harness_dot_protos_dot_aha__grpc_dot_v1_dot_aha__realtime__pb2
+from audio_harness.protos.aha_grpc.v1 import aha_events_pb2 as audio__harness_dot_protos_dot_aha__grpc_dot_v1_dot_aha__events__pb2
 
 GRPC_GENERATED_VERSION = '1.83.0'
 GRPC_VERSION = grpc.__version__
@@ -36,8 +36,8 @@ class AhaRealtimeStub:
         """
         self.Connect = channel.stream_stream(
                 '/aha.grpc.v1.AhaRealtime/Connect',
-                request_serializer=audio__harness_dot_protos_dot_aha__grpc_dot_v1_dot_aha__realtime__pb2.ClientEvent.SerializeToString,
-                response_deserializer=audio__harness_dot_protos_dot_aha__grpc_dot_v1_dot_aha__realtime__pb2.ServerEvent.FromString,
+                request_serializer=audio__harness_dot_protos_dot_aha__grpc_dot_v1_dot_aha__events__pb2.ClientEvent.SerializeToString,
+                response_deserializer=audio__harness_dot_protos_dot_aha__grpc_dot_v1_dot_aha__events__pb2.ServerEvent.FromString,
                 _registered_method=True)
 
 
@@ -55,8 +55,8 @@ def add_AhaRealtimeServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'Connect': grpc.stream_stream_rpc_method_handler(
                     servicer.Connect,
-                    request_deserializer=audio__harness_dot_protos_dot_aha__grpc_dot_v1_dot_aha__realtime__pb2.ClientEvent.FromString,
-                    response_serializer=audio__harness_dot_protos_dot_aha__grpc_dot_v1_dot_aha__realtime__pb2.ServerEvent.SerializeToString,
+                    request_deserializer=audio__harness_dot_protos_dot_aha__grpc_dot_v1_dot_aha__events__pb2.ClientEvent.FromString,
+                    response_serializer=audio__harness_dot_protos_dot_aha__grpc_dot_v1_dot_aha__events__pb2.ServerEvent.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -84,8 +84,8 @@ class AhaRealtime:
             request_iterator,
             target,
             '/aha.grpc.v1.AhaRealtime/Connect',
-            audio__harness_dot_protos_dot_aha__grpc_dot_v1_dot_aha__realtime__pb2.ClientEvent.SerializeToString,
-            audio__harness_dot_protos_dot_aha__grpc_dot_v1_dot_aha__realtime__pb2.ServerEvent.FromString,
+            audio__harness_dot_protos_dot_aha__grpc_dot_v1_dot_aha__events__pb2.ClientEvent.SerializeToString,
+            audio__harness_dot_protos_dot_aha__grpc_dot_v1_dot_aha__events__pb2.ServerEvent.FromString,
             options,
             channel_credentials,
             insecure,

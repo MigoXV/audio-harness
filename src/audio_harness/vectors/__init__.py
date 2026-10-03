@@ -1,3 +1,1 @@
-from audio_harness.vectors.service import VectorService
-
-__all__ = ["VectorService"]
+"""向量检索与管理。"""

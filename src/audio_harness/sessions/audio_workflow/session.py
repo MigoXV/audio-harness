@@ -6,7 +6,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 
 from audio_harness.engines.pool import InferencerPool
-from audio_harness.inferencers import Inferencer
+from audio_harness.inferencers.types import Inferencer
 from audio_harness.inferencers.asr.base import AsrInferencer
 from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
 from audio_harness.media.pcm import PcmChunk

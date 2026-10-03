@@ -18,24 +18,20 @@ from audio_harness.engines.models import (
 )
 from audio_harness.errors import CapacityExceededError
 from audio_harness.inferencers.asr.base import AsrInferencer
-from audio_harness.inferencers.embedding import EngineFeatureInferencer
+from audio_harness.inferencers.embedding.base import EngineFeatureInferencer
 from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.media.pcm import PcmChunk
 from audio_harness.sessions.contracts import SegmentCandidate as _SegmentCandidate
-from audio_harness.sessions.physical_vad import (
+from audio_harness.sessions.physical_vad.session import (
     PhysicalVadSession,
     VadProgressLimiter,
 )
-from audio_harness.sessions.semantic_vad import SemanticVadSession
-from audio_harness.workflows import (
+from audio_harness.sessions.semantic_vad.session import SemanticVadSession
+from audio_harness.workflows.models import (
     AsrNode,
     AsrNodeConfig,
     AudioEdge,
-    AudioGraphValidationError,
-    AudioInferenceRequest,
-    AudioRuntimeConfig,
     AudioWorkflowDocument,
-    AudioWorkflowRuntime,
     FailurePolicy,
     GraphInputRef,
     NamedOutputBinding,
@@ -44,17 +40,6 @@ from audio_harness.workflows import (
     PhysicalVadConfig,
     PhysicalVadNode,
     SemanticVadNode,
-    compile_audio_graph,
-)
-from audio_harness.workflows.events import (
-    SpeakerFilterResult,
-    SpeechStarted,
-    SpeechStopped,
-    VadProgress,
-    VectorSearchResult,
-)
-from audio_harness.workflows.compiler import speech_started_physical_vad
-from audio_harness.workflows.models import (
     AudioEmbeddingNode,
     AudioEmbeddingNodeConfig,
     HdbscanClusteringParameters,
@@ -63,6 +48,23 @@ from audio_harness.workflows.models import (
     SpeakerFilterNodeConfig,
     VectorSearchNode,
     VectorSearchNodeConfig,
+)
+from audio_harness.workflows.compiler import (
+    AudioGraphValidationError,
+    compile_audio_graph,
+    speech_started_physical_vad,
+)
+from audio_harness.workflows.runtime import (
+    AudioInferenceRequest,
+    AudioRuntimeConfig,
+    AudioWorkflowRuntime,
+)
+from audio_harness.workflows.events import (
+    SpeakerFilterResult,
+    SpeechStarted,
+    SpeechStopped,
+    VadProgress,
+    VectorSearchResult,
 )
 from audio_harness.vectors.models import SpeakerMatch, VectorObservation
 

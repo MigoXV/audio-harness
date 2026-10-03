@@ -1,15 +1,6 @@
 from __future__ import annotations
 
-import pytest
-from openai.types.realtime import (
-    InputAudioBufferAppendEvent,
-    SessionCreatedEvent,
-    SessionUpdateEvent,
-    SessionUpdatedEvent,
-)
-from pydantic import ValidationError
-
-from audio_harness.serving.realtime.protocol import (
+from aha.contracts.protocol import (
     AHA_REALTIME_CLIENT_EVENT_ADAPTER,
     AHA_REALTIME_SERVER_EVENT_ADAPTER,
     AhaAudioPCM,
@@ -20,6 +11,15 @@ from audio_harness.serving.realtime.protocol import (
     AhaAgentBackendApprovalResponseEvent,
     AhaAgentBackendQuestionResponseEvent,
 )
+import pytest
+from openai.types.realtime import (
+    InputAudioBufferAppendEvent,
+    SessionCreatedEvent,
+    SessionUpdateEvent,
+    SessionUpdatedEvent,
+)
+from pydantic import ValidationError
+
 
 
 def _session_event(event_type: str, rate: int) -> dict:

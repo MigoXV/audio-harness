@@ -7,7 +7,7 @@ import signal
 
 import uvicorn
 
-from audio_harness.configs import AppConfig
+from audio_harness.configs.app import AppConfig
 from audio_harness.serving.host import AudioHarnessHost
 
 logger = logging.getLogger(__name__)

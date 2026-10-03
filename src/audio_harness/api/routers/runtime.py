@@ -15,7 +15,7 @@ from audio_harness.schemas.runtime import (
     WorkflowSettingsRead,
     WorkflowSettingsUpdate,
 )
-from audio_harness.configs import WorkflowRuntimeConfig
+from audio_harness.configs.workflow import WorkflowRuntimeConfig
 from audio_harness.serving.capacity import ServingCapacity
 from audio_harness.serving.capacity_settings import (
     CapacitySettingsSnapshot,
@@ -88,7 +88,7 @@ def create_runtime_router(
     async def update_capacity_settings(
         payload: CapacitySettingsUpdate,
     ) -> CapacitySettingsRead:
-        from audio_harness.configs import CapacityConfig
+        from audio_harness.configs.serving import CapacityConfig
 
         return capacity_settings_response(
             await capacity_settings.update(

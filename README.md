@@ -4,6 +4,8 @@ Audio Harness 是一个面向实时语音推理的异步编排服务。它把推
 
 当前版本采用全新的数据库基线，不兼容旧版 Pipeline、Stage Workflow 或历史业务数据。
 
+Web UI 采用 MANAS 工作空间布局与苍渊·白垣双主题，默认白垣。导航、页面原型、共享变量和代码入口见 [UI 与 Figma 同步说明](docs/ui-figma-sync.md)。
+
 ## 核心设计
 
 系统围绕五个明确对象组织：
@@ -148,7 +150,7 @@ src/audio_harness/
 │   ├── diarization/    # 说话人分离批处理与结果映射会话
 │   └── speaker_clustering/ # 跨批次说话人聚类会话
 ├── serving/            # 进程容量、状态与协议服务
-│   ├── realtime/       # 共享 Realtime 核心、二进制契约及 WebSocket 适配器
+│   ├── realtime/       # 共享 Realtime 核心与 WebSocket 适配器
 │   ├── aha_grpc/       # aha-grpc 编解码、TLS 双向流及异步客户端
 │   └── webrtc/         # WebRTC 适配器
 └── database/           # SQLAlchemy 模型与单一 Alembic 基线
@@ -160,6 +162,14 @@ src/web/
     ├── components/AudioGraphEditor.tsx
     └── components/DeploymentPanel.tsx # 工作流与语音智能体共用的显式接入面板
 ```
+
+Python 符号统一从定义模块导入，例如
+`from audio_harness.configs.app import AppConfig`，
+`from audio_harness.workflows.service import AudioWorkflowService`。
+各包的 `__init__.py` 不再重导出类型或服务；共享的 `Inferencer` 联合类型位于
+`audio_harness.inferencers.types`。Realtime 协议、二进制契约与 JSON/Base64 编解码
+直接使用 `aha.contracts.protocol`、`aha.contracts.binary` 和
+`aha.contracts.json_codec`，旧服务端导入路径已移除。
 
 ## 数据库策略
 
@@ -174,8 +184,13 @@ src/web/
 
 ## 安装与启动
 
+服务端共享协议来自独立的 `aha-python` SDK（Python 导入名为 `aha`）。
+当前尚未纳入本仓库 Poetry 依赖，安装项目依赖后还需从本地构建的 wheel 安装 SDK：
+
 ```bash
 poetry install
+poetry -C /workspace/libs/aha-python build
+poetry run python -m pip install /workspace/libs/aha-python/dist/aha_python-0.1.0-py3-none-any.whl
 cd src/web
 pnpm install
 pnpm build
@@ -225,6 +240,8 @@ Qdrant 是 Collection、Named Vector、Point 和 payload 的唯一事实来源�
 只有白名单人物达到门控分数时才将音频送入 ASR；未匹配、低分和检索失败均静默拒绝。
 完整字段、curl 示例和 `x_aha.vector.*` 事件分别见[向量检索接口](docs/control-plane/vectors.md)
 与 [AHA v1 协议](docs/realtime-api/aha-v1.md)。
+
+推理引擎页面支持在列表行中直接编辑连接配置或复检，点击名称查看健康诊断与工作流/智能体引用。Responses 模型目录与 Qwen TTS 音色目录在详情中按需读取；停用、删除前会检查引用。保存与复检分别反馈结果，复检失败会保留已保存的配置。
 
 控制台按语音工作流、语音智能体、Agent Backends、推理引擎和接入运行等任务域组织。首次启动后的推荐顺序：
 

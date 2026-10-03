@@ -45,10 +45,12 @@ from audio_harness.serving.capacity_settings import (
     CapacitySettingsStore,
 )
 from audio_harness.errors import CapacityExceededError
-from audio_harness.serving.realtime import RealtimeTranscriptionService
+from audio_harness.serving.realtime.connection import RealtimeTranscriptionService
 from audio_harness.serving.status import ServingStatusService
-from audio_harness.serving.webrtc import WebRtcCallService
-from audio_harness.serving.webrtc.service import WebRtcCallNotFoundError
+from audio_harness.serving.webrtc.service import (
+    WebRtcCallService,
+    WebRtcCallNotFoundError,
+)
 from audio_harness.voice_agents.repository import (
     VoiceAgentConflictError,
     VoiceAgentNotFoundError,
@@ -79,7 +81,7 @@ from audio_harness.workflows.service import (
 )
 from audio_harness.vectors.service import VectorConflictError, VectorNotFoundError, VectorService
 from audio_harness.vectors.qdrant import QdrantUnavailableError
-from audio_harness.configs import QdrantConfig
+from audio_harness.configs.app import QdrantConfig
 
 logger = logging.getLogger(__name__)
 

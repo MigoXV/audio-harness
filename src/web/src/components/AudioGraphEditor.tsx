@@ -31,6 +31,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import type {
+  AudioHarnessApi,
   AudioNode,
   AudioNodeType,
   AudioWorkflowDocument,
@@ -43,9 +44,14 @@ import { layoutAudioGraph, needsAutoLayout, orderOutputPorts, orthogonalPath, ro
 import { audioPortMeta as portMeta } from "./audioPortMeta";
 import { collectGraphPortOffsets, type PortOffsets, type RoutePoint } from "./graphLayout";
 import { applyAudioGraphTemplate, type AudioGraphTemplateId } from "./audioGraphTemplates";
+import { EngineQuickView } from "./EngineQuickView";
 import { WorkbenchSidebar } from "./WorkbenchSidebar";
+import { vars } from "../styles/theme.css";
+import { isCompactWorkbench, useInspectorFocus } from "./useInspectorFocus";
 
 interface Props {
+  api: AudioHarnessApi;
+  onEngineUpdated: (engine: EngineAsset) => void;
   document: AudioWorkflowDocument;
   nodeTypes: AudioNodeType[];
   engines: EngineAsset[];
@@ -85,9 +91,9 @@ const OUTPUTS = [
 ];
 
 const ROLE_COLORS = {
-  input: "#2563eb",
-  processor: "#28684f",
-  output: "#7c3aed",
+  input: vars.color.roleInput,
+  processor: vars.color.roleProcessor,
+  output: vars.color.roleOutput,
 } as const;
 
 const GRAPH_NODE_WIDTH = 244;
@@ -182,11 +188,12 @@ function PortRow({ port, direction }: { port: { name: string; kind: string; labe
       id={port.name}
       type={direction === "input" ? "target" : "source"}
       position={direction === "input" ? Position.Left : Position.Right}
+      className={`port-shape-${meta.shape}`}
       style={{ top: "50%", background: meta.color }}
       title={`${port.name}: ${port.kind}`}
     />
     <span className="audio-port-name">{port.name}</span>
-    <code style={{ color: meta.color }}>{port.label ?? meta.label}</code>
+    <code>{port.label ?? meta.label}</code>
   </li>;
 }
 
@@ -355,6 +362,8 @@ export function AudioGraphEditor({
 }
 
 function AudioGraphEditorInner({
+  api,
+  onEngineUpdated,
   document,
   nodeTypes,
   engines,
@@ -471,7 +480,7 @@ function AudioGraphEditorInner({
     };
     const edgeStyle = (kind: string) => {
       const color = portMeta(kind).color;
-      return { type: "routed", className: `audio-edge edge-${kind}`, style: { stroke: color, strokeWidth: 2.25 }, markerEnd: { type: MarkerType.ArrowClosed, color } };
+      return { type: "routed", className: `audio-edge edge-${kind}`, style: { stroke: color, strokeWidth: 2.25, strokeDasharray: portMeta(kind).line === "dashed" ? "6 4" : undefined }, markerEnd: { type: MarkerType.ArrowClosed, color } };
     };
     const outputEdges = document.outputs.map((output, index) => ({
       id: `output:${output.name}`,
@@ -497,6 +506,7 @@ function AudioGraphEditorInner({
   const [flowNodes, setFlowNodes] = useState(initialNodes);
   const [flowEdges, setFlowEdges] = useState<GraphEdge[]>(initialEdges);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const focusSidebar = useInspectorFocus(selectedId);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [connectingKind, setConnectingKind] = useState<string | null>(null);
@@ -816,7 +826,7 @@ function AudioGraphEditorInner({
         ariaLabel="工作流侧栏"
         content={sidebarContent}
         footer={sidebarFooter}
-        onOpenChange={onSidebarOpenChange}
+        onOpenChange={(open) => { if (open && isCompactWorkbench()) { setSelectedId(null); focusSidebar(); } onSidebarOpenChange(open); }}
       >
         <details className="audio-template-catalog" open={templatesOpen} onToggle={(event) => setTemplatesOpen(event.currentTarget.open)}>
           <summary><h2>快速模板</h2><span>自动连线</span><i aria-hidden="true">⌄</i></summary>
@@ -862,7 +872,7 @@ function AudioGraphEditorInner({
           connectionLineStyle={{ stroke: portMeta(connectingKind ?? "").color, strokeWidth: 2.25 }}
           isValidConnection={validConnection}
           onPaneClick={() => { setSelectedId(null); setSelectedEdgeId(null); }}
-          onNodeClick={(_event, node) => { setSelectedEdgeId(null); setSelectedId(node.id.startsWith("$") ? null : node.id); }}
+          onNodeClick={(_event, node) => { setSelectedEdgeId(null); setSelectedId(node.id.startsWith("$") ? null : node.id); if (!node.id.startsWith("$") && isCompactWorkbench()) onSidebarOpenChange(false); }}
           onEdgeClick={(_event, edge) => { setSelectedId(null); setSelectedEdgeId(edge.id); }}
           onNodeDragStop={(_event, node) => {
             if (node.id.startsWith("$")) return;
@@ -876,24 +886,25 @@ function AudioGraphEditorInner({
           maxZoom={1.6}
           deleteKeyCode={["Backspace", "Delete"]}
         >
-          <Background gap={24} size={1} color="#d9dfdb" />
+          <Background gap={24} size={1} color={vars.color.line} />
           <Panel position="top-center" className="audio-graph-legend">
             <div className="role-legend"><span><i style={{ background: ROLE_COLORS.input }} />输入</span><span><i style={{ background: ROLE_COLORS.processor }} />处理</span><span><i style={{ background: ROLE_COLORS.output }} />输出</span></div>
-            <div className="type-legend">{legendKinds.map((kind) => <span key={kind}><i style={{ background: portMeta(kind).color }} />{portMeta(kind).label}</span>)}</div>
+            <div className="type-legend">{legendKinds.map((kind) => <span key={kind}><i className={`port-shape-${portMeta(kind).shape}`} style={{ background: portMeta(kind).color }} />{portMeta(kind).label}</span>)}</div>
           </Panel>
-          <MiniMap pannable zoomable nodeColor={(node) => ROLE_COLORS[node.data.role as keyof typeof ROLE_COLORS] ?? "#69716c"} />
+          <MiniMap pannable zoomable nodeColor={(node) => ROLE_COLORS[node.data.role as keyof typeof ROLE_COLORS] ?? vars.color.textMuted} maskColor={vars.color.overlay} />
           <Controls fitViewOptions={{ padding: 0.18, minZoom: 0.55, maxZoom: 1 }}>
             <ControlButton aria-label="自动排列" title="自动排列" onClick={() => void arrangeGraph()}>↔</ControlButton>
           </Controls>
         </ReactFlow>
       </section>
 
-      {selected && selectedSpec && <aside className="audio-inspector panel" aria-label="节点配置面板">
+      {selected && selectedSpec && <aside className="audio-inspector panel" aria-label="节点配置面板" onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setSelectedId(null); } }}>
         <header><div><span>节点配置</span><h2>{selected.id}</h2></div><button className="icon-button" aria-label="关闭节点配置" onClick={() => setSelectedId(null)}>×</button></header>
         <div className="audio-inspector-body">
           <div className={`inspector-state ${selectedEngineConfigured ? "configured" : "unconfigured"}`}><strong>{selectedSpec.display_name}</strong><span>{selectedSpec.required_api == null ? "基础设施节点" : selectedEngineConfigured ? "已绑定执行引擎" : selected.engine_id ? "所选引擎不可用" : "待绑定执行引擎"}</span></div>
           <label><span>节点 ID</span><input value={selected.id} disabled /></label>
-          {selectedSpec.required_api != null && <label><span>执行引擎</span><select value={selected.engine_id ?? ""} onChange={(event) => updateNode({ ...selected, engine_id: event.target.value || null } as AudioNode)}><option value="">未绑定</option>{engines.filter((engine) => engine.enabled && (engine.api === selectedSpec.required_api || (selectedSpec.required_api === "ux_speaker_diarization" && engine.api === "dummy_diarize")) && (!selectedSpec.required_capability || (Array.isArray(engine.details?.capabilities) && engine.details.capabilities.includes(selectedSpec.required_capability)))).map((engine) => <option key={engine.id} value={engine.id}>{engine.name} · {engine.status}</option>)}</select><small>需要 {selectedSpec.required_api}{selectedSpec.required_capability ? ` / ${selectedSpec.required_capability}` : ""} 能力</small></label>}
+          {selectedSpec.required_api != null && <label><span>执行引擎</span><select value={selected.engine_id ?? ""} onChange={(event) => updateNode({ ...selected, engine_id: event.target.value || null } as AudioNode)}><option value="">未绑定</option>{selected.engine_id && !selectedEngineConfigured && <option value={selected.engine_id} disabled>{engines.find((engine) => engine.id === selected.engine_id)?.name ?? selected.engine_id} · 当前不可用</option>}{engines.filter((engine) => engine.enabled && (engine.api === selectedSpec.required_api || (selectedSpec.required_api === "ux_speaker_diarization" && engine.api === "dummy_diarize")) && (!selectedSpec.required_capability || (Array.isArray(engine.details?.capabilities) && engine.details.capabilities.includes(selectedSpec.required_capability)))).map((engine) => <option key={engine.id} value={engine.id}>{engine.name} · {engine.status}</option>)}</select><small>需要 {selectedSpec.required_api}{selectedSpec.required_capability ? ` / ${selectedSpec.required_capability}` : ""} 能力</small></label>}
+          {selectedSpec.required_api != null && <EngineQuickView api={api} engineId={selected.engine_id} onUpdated={onEngineUpdated} />}
           {Object.entries(selected.config ?? {}).filter(([key]) => !["postprocessing", "parameters", "clustering_algorithm", "remove_punctuation", "normalize", "include_embedding", "filter", "collection_name", "vector_name", "progress_interval_seconds", "allowed_speaker_ids", "min_score", "denoised_weight", "attack_seconds", "decay_seconds", "soft_knee_db", "initial_level_db", "output_gain_db"].includes(key)).map(([key, value]) => <label key={key}><span>{key}</span><input type={typeof value === "number" || value === null ? "number" : "text"} step="0.1" value={value == null ? "" : String(value)} onChange={(event) => updateNode({ ...selected, config: { ...(selected.config ?? {}), [key]: typeof value === "number" || value === null ? (event.target.value ? Number(event.target.value) : null) : event.target.value } } as AudioNode)} /></label>)}
           {selected.kind === "audio_embedding" && <label className="switch-control"><input type="checkbox" checked={selected.config?.normalize ?? true} onChange={(event) => updateNode({ ...selected, config: { algorithm: selected.config?.algorithm ?? "eres2netv2", expected_dimension: selected.config?.expected_dimension ?? 192, normalize: event.target.checked } })} /><span>L2 归一化</span></label>}
           {selected.kind === "vector_search" && <><label><span>Voiceprint Collection</span><select value={selected.config.collection_name} onChange={(event) => { const space = vectorSpaces.find((item) => item.collection_name === event.target.value); if (space) updateNode({ ...selected, config: { ...selected.config, collection_name: space.collection_name, vector_name: space.vectors[0]?.name ?? "" } }); }}><option value="">请选择 voiceprint Collection</option>{vectorSpaces.filter((space) => space.template === "voiceprint").map((space) => <option value={space.collection_name} key={space.collection_name}>{space.collection_name}</option>)}</select></label><label><span>Named Vector</span><select value={selected.config.vector_name} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, vector_name: event.target.value } })}>{vectorSpaces.find((item) => item.collection_name === selected.config.collection_name)?.vectors.map((vector) => <option key={vector.name}>{vector.name}</option>)}</select></label><label><span>Filter JSON</span><textarea value={JSON.stringify(selected.config.filter ?? {}, null, 2)} onChange={(event) => { try { updateNode({ ...selected, config: { ...selected.config, filter: JSON.parse(event.target.value) } }); } catch { /* 保存前由校验提示 */ } }} /></label><label className="switch-control"><input type="checkbox" checked={selected.config.include_embedding} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, include_embedding: event.target.checked } })} /><span>在 AHA 事件中返回查询向量</span></label></>}

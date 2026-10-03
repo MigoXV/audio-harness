@@ -8,7 +8,7 @@ from typing import cast
 
 from audio_harness.engines.models import EngineApi, EngineSnapshot
 from audio_harness.errors import EngineConfigurationInvalidError
-from audio_harness.inferencers import Inferencer
+from audio_harness.inferencers.types import Inferencer
 from audio_harness.inferencers.responses.http import ResponsesInferencer
 from audio_harness.inferencers.tts.base import TtsInferencer
 

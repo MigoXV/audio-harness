@@ -8,6 +8,7 @@ import type {
   VoiceAgentValidation,
 } from "../../api/types";
 import { audioPortMeta } from "../../components/audioPortMeta";
+import { vars } from "../../styles/theme.css";
 
 export type VoiceAgentNodeId = "workflow" | "responses" | "backend" | "tts";
 export type VoiceAgentNodeState = "boundary" | "configured" | "unconfigured" | "optional" | "invalid";
@@ -27,9 +28,9 @@ export type VoiceAgentGraphNode = Node<VoiceAgentNodeData>;
 export const VOICE_AGENT_GRAPH_COLORS = {
   audio: audioPortMeta("pcm_chunk").color,
   transcript: audioPortMeta("transcription").color,
-  delegation: "#b45309",
-  text: "#28684f",
-  speech: "#0e7490",
+  delegation: vars.color.portEvent,
+  text: vars.color.portTranscript,
+  speech: vars.color.portAudio,
 } as const;
 
 interface VoiceAgentGraphInput {
@@ -59,8 +60,8 @@ function nodeState(
 function edge(id: string, source: string, sourceHandle: string, target: string, targetHandle: string, color: string): Edge {
   return {
     id, source, sourceHandle, target, targetHandle, type: "smoothstep",
-    animated: id === "responses-backend" || id === "backend-responses",
-    style: { stroke: color, strokeWidth: 2.25 },
+    animated: false,
+    style: { stroke: color, strokeWidth: 2.25, strokeDasharray: id === "responses-backend" || id === "backend-responses" ? "6 4" : undefined },
     markerEnd: { type: MarkerType.ArrowClosed, color },
   };
 }
@@ -89,8 +90,8 @@ export function buildVoiceAgentGraph(input: VoiceAgentGraphInput): { nodes: Voic
     },
     { id: "responses", type: "agent", position: { x: 650, y: 180 }, data: { label: "Responses", subtitle: "MODEL & POLICY", summary: responses && responseConfig.model ? `${responses.name} · ${responseConfig.model}` : "配置回复模型与策略", state: nodeState(diagnostics, "responses", Boolean(responses?.enabled && responseConfig.model.trim())), inputs: [{ id: "transcript", label: "转写", color: VOICE_AGENT_GRAPH_COLORS.transcript }, { id: "result", label: "委派结果", color: VOICE_AGENT_GRAPH_COLORS.delegation }], outputs: [{ id: "text", label: "回复文本", color: VOICE_AGENT_GRAPH_COLORS.text }, { id: "delegate", label: "任务委派", color: VOICE_AGENT_GRAPH_COLORS.delegation }] } },
     { id: "backend", type: "agent", position: { x: 940, y: 480 }, data: { label: "Agent Backend", subtitle: "OPTIONAL DELEGATION", summary: backend ? `${backend.name} · ${definition.agent_backend?.agent_preset}` : "Responses-only", state: nodeState(diagnostics, "backend", Boolean(backend?.enabled && definition.agent_backend?.cwd.trim()), definition.agent_backend == null), inputs: [{ id: "delegate", label: "任务", color: VOICE_AGENT_GRAPH_COLORS.delegation }], outputs: [{ id: "result", label: "结果", color: VOICE_AGENT_GRAPH_COLORS.delegation }] } },
-    { id: "tts", type: "agent", position: { x: 890, y: 180 }, data: { label: "TTS", subtitle: "SPEECH SYNTHESIS", summary: tts && ttsConfig.default_voice ? `${tts.name} · ${ttsConfig.default_voice}` : "配置合成引擎与音色", state: nodeState(diagnostics, "tts", Boolean(tts?.enabled && ttsConfig.default_voice && ttsConfig.allowed_voices?.length)), inputs: [{ id: "text", label: "文本", color: VOICE_AGENT_GRAPH_COLORS.text }], outputs: [{ id: "speech", label: "音频", color: VOICE_AGENT_GRAPH_COLORS.speech }] } },
-    { id: "$output", type: "agent", position: { x: 1180, y: 180 }, draggable: false, selectable: false, data: { label: "Realtime 输出", subtitle: "SESSION OUTPUT", summary: "文本与合成语音", state: "boundary", inputs: [{ id: "speech", label: "音频", color: VOICE_AGENT_GRAPH_COLORS.speech }], outputs: [] } },
+    { id: "tts", type: "agent", position: { x: 1000, y: 180 }, data: { label: "TTS", subtitle: "SPEECH SYNTHESIS", summary: tts && ttsConfig.default_voice ? `${tts.name} · ${ttsConfig.default_voice}` : "配置合成引擎与音色", state: nodeState(diagnostics, "tts", Boolean(tts?.enabled && ttsConfig.default_voice && ttsConfig.allowed_voices?.length)), inputs: [{ id: "text", label: "文本", color: VOICE_AGENT_GRAPH_COLORS.text }], outputs: [{ id: "speech", label: "音频", color: VOICE_AGENT_GRAPH_COLORS.speech }] } },
+    { id: "$output", type: "agent", position: { x: 1290, y: 180 }, draggable: false, selectable: false, data: { label: "Realtime 输出", subtitle: "SESSION OUTPUT", summary: "文本与合成语音", state: "boundary", inputs: [{ id: "speech", label: "音频", color: VOICE_AGENT_GRAPH_COLORS.speech }], outputs: [] } },
   ];
 
   const agentEdges = [

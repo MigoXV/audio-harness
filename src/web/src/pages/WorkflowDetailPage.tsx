@@ -29,6 +29,9 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
   const [document, setDocument] = useState<AudioWorkflowDocument | null>(null);
   const [nodeTypes, setNodeTypes] = useState<AudioNodeType[]>([]);
   const [engines, setEngines] = useState<EngineAsset[]>([]);
+  const updateEngine = useCallback((engine: EngineAsset) => {
+    setEngines((items) => items.some((item) => item.id === engine.id) ? items.map((item) => item.id === engine.id ? engine : item) : [...items, engine]);
+  }, []);
   const [vectorSpaces, setVectorSpaces] = useState<VectorSpace[]>([]);
   const [validation, setValidation] = useState<AudioWorkflowValidation>({ valid: false, diagnostics: [], topological_order: [] });
   const [revisions, setRevisions] = useState<AudioWorkflowRevision[]>([]);
@@ -144,6 +147,8 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
     <UnsavedChangesGuard when={hasUnsavedChanges} saving={saveState === "saving"} onSave={saveDraft} onDiscard={discardChanges} />
     {tab === "build" ? <AudioGraphEditor
       key={workflow.id}
+      api={api}
+      onEngineUpdated={updateEngine}
       document={document}
       nodeTypes={nodeTypes}
       engines={engines}

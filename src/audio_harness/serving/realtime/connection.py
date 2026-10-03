@@ -6,6 +6,11 @@ import asyncio
 import json
 from typing import Any
 
+from aha.contracts.json_codec import (
+    InvalidAudioEncoding,
+    decode_client_event,
+    encode_server_event,
+)
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
@@ -16,9 +21,7 @@ from .core import (
     RealtimeConnectionRejected,
     RealtimeOptions,
     RealtimeService,
-    _OnlinePcmResampler,
 )
-from .json_codec import InvalidAudioEncoding, decode_client_event, encode_server_event
 
 
 class RealtimeTranscriptionService(RealtimeService):

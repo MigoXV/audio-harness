@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from importlib.util import resolve_name
 import re
 from pathlib import Path
 
@@ -56,6 +57,99 @@ def test_only_shared_errors_live_at_package_root() -> None:
     }
     assert root_modules == {"__init__.py", "errors.py"}
     assert not (SOURCE_ROOT / "domains").exists()
+
+
+def test_handwritten_packages_do_not_reexport_symbols() -> None:
+    for path in SOURCE_ROOT.rglob("__init__.py"):
+        if "protos" in path.relative_to(SOURCE_ROOT).parts:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        if path == SOURCE_ROOT / "__init__.py":
+            assert not any(
+                isinstance(node, (ast.Import, ast.ImportFrom))
+                for node in tree.body
+            )
+        else:
+            assert len(tree.body) == 1 and ast.get_docstring(tree), str(path)
+
+
+def test_project_imports_use_defining_modules() -> None:
+    source_files = [
+        path for path in SOURCE_ROOT.rglob("*.py")
+        if "protos" not in path.relative_to(SOURCE_ROOT).parts
+    ]
+    modules: dict[str, Path] = {}
+    packages: set[str] = set()
+    forwarded: set[tuple[str, str]] = set()
+    for path in source_files:
+        parts = list(path.relative_to(PROJECT_ROOT / "src").with_suffix("").parts)
+        if parts[-1] == "__init__":
+            parts.pop()
+            packages.add(".".join(parts))
+        modules[".".join(parts)] = path
+    for module, path in modules.items():
+        package = module if module in packages else module.rpartition(".")[0]
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in tree.body:
+            if isinstance(node, ast.ImportFrom):
+                target = resolve_name(
+                    "." * node.level + (node.module or ""), package
+                ) if node.level else node.module
+                if target and target.startswith("audio_harness."):
+                    forwarded.update(
+                        (module, alias.asname or alias.name)
+                        for alias in node.names
+                    )
+
+    removed = (
+        "audio_harness.serving.realtime.contracts",
+        "audio_harness.serving.realtime.json_codec",
+        "audio_harness.serving.realtime.protocol",
+    )
+    assert not any(
+        module == prefix or module.startswith(prefix + ".")
+        for module in modules for prefix in removed
+    )
+    paths = [
+        *source_files,
+        *sorted((PROJECT_ROOT / "tests").rglob("*.py")),
+        *sorted((PROJECT_ROOT / "scripts").rglob("*.py")),
+        *sorted((PROJECT_ROOT / "examples").rglob("*.py")),
+    ]
+    violations: list[str] = []
+    for path in paths:
+        relative = path.relative_to(PROJECT_ROOT)
+        parts = list(relative.with_suffix("").parts)
+        if parts[0] == "src":
+            parts.pop(0)
+        if parts[-1] == "__init__":
+            parts.pop()
+            package = ".".join(parts)
+        else:
+            package = ".".join(parts[:-1])
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom):
+                module = resolve_name(
+                    "." * node.level + (node.module or ""), package
+                ) if node.level else node.module
+                targets = [module] if module else []
+                for alias in node.names:
+                    if (
+                        module in packages
+                        and f"{module}.{alias.name}" not in modules
+                    ) or (module, alias.name) in forwarded:
+                        violations.append(f"{relative} -> {module}.{alias.name}")
+            elif isinstance(node, ast.Import):
+                targets = [alias.name for alias in node.names]
+            else:
+                continue
+            for target in targets:
+                if any(
+                    target == prefix or target.startswith(prefix + ".")
+                    for prefix in removed
+                ):
+                    violations.append(f"{relative} -> {target}")
+    assert violations == []
 
 
 def test_shared_errors_do_not_depend_on_infrastructure() -> None:

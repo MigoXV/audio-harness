@@ -10,6 +10,13 @@ from typing import Any
 from typing import cast
 from uuid import uuid4
 
+from aha.contracts.json_codec import decode_client_event, encode_server_event
+from aha.contracts.protocol import (
+    AHA_REALTIME_CLIENT_EVENT_ADAPTER,
+    AHA_REALTIME_SERVER_EVENT_ADAPTER,
+    AhaRealtimeSession,
+    AhaV1ServerEventBase,
+)
 from aiortc import (
     RTCConfiguration,
     RTCDataChannel,
@@ -19,7 +26,7 @@ from aiortc import (
 )
 from pydantic import ValidationError
 
-from audio_harness.configs import WebRtcConfig
+from audio_harness.configs.webrtc import WebRtcConfig
 from audio_harness.agent_backends.base import AgentBackendGateway
 from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
 from audio_harness.errors import CapacityExceededError
@@ -33,22 +40,12 @@ from audio_harness.serving.webrtc.tracks import (
     IncomingAudioPump,
     ServerAudioTrack,
 )
-from audio_harness.sessions.audio_workflow import (
+from audio_harness.sessions.audio_workflow.session import (
     AudioWorkflowSessionReservation,
     AudioWorkflowSessionService,
 )
 from audio_harness.serving.realtime.tools import ToolRegistry
 from audio_harness.serving.realtime.agent import VoiceResolver
-from audio_harness.serving.realtime.json_codec import (
-    decode_client_event,
-    encode_server_event,
-)
-from audio_harness.serving.realtime.protocol import (
-    AHA_REALTIME_CLIENT_EVENT_ADAPTER,
-    AHA_REALTIME_SERVER_EVENT_ADAPTER,
-    AhaRealtimeSession,
-    AhaV1ServerEventBase,
-)
 from audio_harness.workflows.settings import WorkflowSettingsStore
 from audio_harness.voice_agents.service import ActiveVoiceAgent
 from audio_harness.workflows.models import PhysicalVadNode

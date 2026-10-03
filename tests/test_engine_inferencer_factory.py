@@ -17,12 +17,11 @@ from audio_harness.inferencers.diarization.base import DiarizationInferencer
 from audio_harness.inferencers.diarization.grpc import (
     UxSpeakerDiarizationInferencer,
 )
-from audio_harness.inferencers.diarization import DummyDiarizationInferencer
-from audio_harness.inferencers.denoise import DenoiseInferencer, UxDenoiseInferencer
-from audio_harness.inferencers.embedding import (
-    EngineFeatureInferencer,
-    GrpcEngineFeatureInferencer,
-)
+from audio_harness.inferencers.diarization.dummy import DummyDiarizationInferencer
+from audio_harness.inferencers.denoise.base import DenoiseInferencer
+from audio_harness.inferencers.denoise.grpc import UxDenoiseInferencer
+from audio_harness.inferencers.embedding.base import EngineFeatureInferencer
+from audio_harness.inferencers.embedding.grpc import GrpcEngineFeatureInferencer
 
 
 def snapshot(api: EngineApi, protocol: EngineProtocol) -> EngineSnapshot:

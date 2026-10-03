@@ -12,14 +12,10 @@ from functools import cache
 from importlib.resources import files
 from typing import Any
 
+from aha.contracts.binary import CLIENT_EVENTS, SERVER_EVENTS, event_payload
 from google.protobuf.message import Message
 
 from audio_harness.protos.aha_grpc.v1 import aha_realtime_pb2 as pb
-from audio_harness.serving.realtime.contracts import (
-    CLIENT_EVENTS,
-    SERVER_EVENTS,
-    event_payload,
-)
 
 
 @cache

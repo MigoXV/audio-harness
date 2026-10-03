@@ -58,6 +58,7 @@ ws://localhost:8000/v1/realtime?model=meeting-agent
 
 ## 进一步阅读
 
+- [Python SDK 构建、安装与调用](python-sdk.md)
 - [aha-grpc TLS 双向流与强类型协议](aha-grpc.md)
 - [OpenAI 原生兼容子集](openai-realtime.md)
 - [AHA v1 事件](aha-v1.md)

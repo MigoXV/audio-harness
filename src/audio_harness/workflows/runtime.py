@@ -10,12 +10,12 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
 from audio_harness.errors import CapacityExceededError
-from audio_harness.inferencers import Inferencer
+from audio_harness.inferencers.types import Inferencer
 from audio_harness.inferencers.asr.base import AsrInferencer
 from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.inferencers.embedding.base import EngineFeatureInferencer
-from audio_harness.inferencers.diarization import DiarizationInferencer
-from audio_harness.inferencers.denoise import DenoiseInferencer
+from audio_harness.inferencers.diarization.base import DiarizationInferencer
+from audio_harness.inferencers.denoise.base import DenoiseInferencer
 from audio_harness.media.agc import RealtimeAutomaticGainControl
 from audio_harness.media.pcm import PcmChunk, VadAudioChunk, mix_pcm_s16le
 from audio_harness.workflows.compiler import (
@@ -54,10 +54,10 @@ from audio_harness.sessions.contracts import (
     SegmentCandidate as _SegmentCandidate,
     candidate_physical_segment_ids,
 )
-from audio_harness.sessions.diarization import DiarizationSession
-from audio_harness.sessions.physical_vad import PhysicalVadSession
-from audio_harness.sessions.semantic_vad import SemanticVadSession
-from audio_harness.sessions.speaker_clustering import SpeakerClusteringSession
+from audio_harness.sessions.diarization.session import DiarizationSession
+from audio_harness.sessions.physical_vad.session import PhysicalVadSession
+from audio_harness.sessions.semantic_vad.session import SemanticVadSession
+from audio_harness.sessions.speaker_clustering.session import SpeakerClusteringSession
 from audio_harness.vectors.service import VectorService
 
 logger = logging.getLogger(__name__)

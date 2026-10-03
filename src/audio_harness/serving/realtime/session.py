@@ -12,6 +12,34 @@ from typing import Any, Literal
 from typing import cast
 from uuid import uuid4
 
+from aha.contracts.protocol import (
+    AhaAgentBackendApprovalResponseEvent,
+    AhaAgentBackendCancelEvent,
+    AhaAgentBackendQuestionResponseEvent,
+    AhaDiarizationClusterCompletedEvent,
+    AhaDiarizationClusterFailedEvent,
+    AhaDiarizationLocalCompletedEvent,
+    AhaDiarizationLocalDeltaEvent,
+    AhaDiarizationLocalFailedEvent,
+    AhaInputAudioTranscriptionInterimClearedEvent,
+    AhaInputAudioTranscriptionInterimEvent,
+    AhaRealtimeClientEvent,
+    AhaRealtimeTranscriptionSessionCreateRequest,
+    AhaSessionCreatedEvent,
+    AhaSessionUpdatedEvent,
+    AhaSpeakerTranscriptionCompletedEvent,
+    AhaSpeakerTranscriptionDeltaEvent,
+    AhaSpeakerTranscriptionFailedEvent,
+    AhaSpeakerFilterFailedEvent,
+    AhaSpeakerFilterMatchedEvent,
+    AhaSpeakerFilterRejectedEvent,
+    AhaVadPhysicalSpeechStartedEvent,
+    AhaVadPhysicalSpeechStoppedEvent,
+    AhaVadTurnCompletedEvent,
+    AhaVadProgressEvent,
+    AhaVectorSearchCompletedEvent,
+    AhaVectorSearchFailedEvent,
+)
 from openai.types.realtime import (
     ConversationItemCreateEvent,
     ConversationItemDeleteEvent,
@@ -57,36 +85,8 @@ from audio_harness.serving.realtime.agent import (
     RealtimeAgentRuntime,
     VoiceResolver,
 )
-from audio_harness.serving.realtime.protocol import (
-    AhaAgentBackendApprovalResponseEvent,
-    AhaAgentBackendCancelEvent,
-    AhaAgentBackendQuestionResponseEvent,
-    AhaDiarizationClusterCompletedEvent,
-    AhaDiarizationClusterFailedEvent,
-    AhaDiarizationLocalCompletedEvent,
-    AhaDiarizationLocalDeltaEvent,
-    AhaDiarizationLocalFailedEvent,
-    AhaInputAudioTranscriptionInterimClearedEvent,
-    AhaInputAudioTranscriptionInterimEvent,
-    AhaRealtimeClientEvent,
-    AhaRealtimeTranscriptionSessionCreateRequest,
-    AhaSessionCreatedEvent,
-    AhaSessionUpdatedEvent,
-    AhaSpeakerTranscriptionCompletedEvent,
-    AhaSpeakerTranscriptionDeltaEvent,
-    AhaSpeakerTranscriptionFailedEvent,
-    AhaSpeakerFilterFailedEvent,
-    AhaSpeakerFilterMatchedEvent,
-    AhaSpeakerFilterRejectedEvent,
-    AhaVadPhysicalSpeechStartedEvent,
-    AhaVadPhysicalSpeechStoppedEvent,
-    AhaVadTurnCompletedEvent,
-    AhaVadProgressEvent,
-    AhaVectorSearchCompletedEvent,
-    AhaVectorSearchFailedEvent,
-)
 from audio_harness.serving.realtime.tools import ToolRegistry
-from audio_harness.sessions.audio_workflow import (
+from audio_harness.sessions.audio_workflow.session import (
     AudioWorkflowSession,
     AudioWorkflowSessionReservation,
     AudioWorkflowSessionService,

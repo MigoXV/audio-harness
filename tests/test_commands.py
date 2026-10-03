@@ -9,7 +9,8 @@ from typer.testing import CliRunner
 
 from audio_harness.commands.app import app
 from audio_harness.commands.serve import apply_serve_overrides
-from audio_harness.configs import AppConfig, IceServerConfig
+from audio_harness.configs.app import AppConfig
+from audio_harness.configs.webrtc import IceServerConfig
 from audio_harness.serving import runner as runner_module
 
 

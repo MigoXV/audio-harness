@@ -15,18 +15,13 @@ from audio_harness.engines.models import (
     EngineStatus,
 )
 from audio_harness.inferencers.asr.base import AsrInferencer
-from audio_harness.inferencers.denoise import DenoiseInferencer
+from audio_harness.inferencers.denoise.base import DenoiseInferencer
 from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.media.pcm import PcmChunk, mix_pcm_s16le
-from audio_harness.workflows import (
+from audio_harness.workflows.models import (
     AsrNode,
     AudioEdge,
-    AudioGraphExecutionError,
-    AudioGraphValidationError,
-    AudioInferenceRequest,
-    AudioRuntimeConfig,
     AudioWorkflowDocument,
-    AudioWorkflowRuntime,
     FailurePolicy,
     GraphInputRef,
     NamedOutputBinding,
@@ -36,6 +31,15 @@ from audio_harness.workflows import (
     PhysicalVadNode,
     StreamingDenoiseConfig,
     StreamingDenoiseNode,
+)
+from audio_harness.workflows.runtime import (
+    AudioGraphExecutionError,
+    AudioInferenceRequest,
+    AudioRuntimeConfig,
+    AudioWorkflowRuntime,
+)
+from audio_harness.workflows.compiler import (
+    AudioGraphValidationError,
     compile_audio_graph,
 )
 

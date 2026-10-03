@@ -6,10 +6,8 @@ import time
 from collections.abc import AsyncIterator
 from uuid import uuid4
 
-from audio_harness.inferencers.diarization import (
-    DiarizationInferencer,
-    DiarizationPostprocessor,
-)
+from audio_harness.inferencers.diarization.base import DiarizationInferencer
+from audio_harness.inferencers.diarization.postprocessor import DiarizationPostprocessor
 from audio_harness.sessions.contracts import SegmentCandidate
 from audio_harness.sessions.diarization.batching import (
     DiarizationBatch,

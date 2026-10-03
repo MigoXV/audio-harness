@@ -9,7 +9,7 @@ from typing import Any
 
 import grpc
 
-from audio_harness.configs import AppConfig
+from audio_harness.configs.app import AppConfig
 from audio_harness.errors import CapacityExceededError
 from audio_harness.protos.aha_grpc.v1 import aha_realtime_pb2 as pb
 from audio_harness.protos.aha_grpc.v1 import aha_realtime_pb2_grpc as rpc

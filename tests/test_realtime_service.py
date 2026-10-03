@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
+from aha.contracts.protocol import AHA_REALTIME_SERVER_EVENT_ADAPTER
 import numpy as np
 import pytest
 from fastapi import FastAPI, Query, WebSocket
@@ -13,19 +14,17 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from audio_harness.serving.capacity import ServingCapacity
-from audio_harness.configs import CapacityConfig, WorkflowRuntimeConfig
+from audio_harness.configs.serving import CapacityConfig
+from audio_harness.configs.workflow import WorkflowRuntimeConfig
 from audio_harness.inferencers.asr.base import AsrInferencer
 from audio_harness.inferencers.vad.base import VadInferencer
-from audio_harness.serving.realtime.connection import (
+from audio_harness.serving.realtime.core import (
     RealtimeConnectionMode,
-    RealtimeTranscriptionService,
     _OnlinePcmResampler,
 )
-from audio_harness.serving.realtime.protocol import (
-    AHA_REALTIME_SERVER_EVENT_ADAPTER,
-)
+from audio_harness.serving.realtime.connection import RealtimeTranscriptionService
 from audio_harness.api.routers.data_plane import create_data_plane_router
-from audio_harness.sessions.audio_workflow import AudioWorkflowSessionService
+from audio_harness.sessions.audio_workflow.session import AudioWorkflowSessionService
 from audio_harness.workflows.settings import WorkflowSettingsSnapshot
 from tests.graph_fakes import StaticRouteService, static_audio_workflow
 

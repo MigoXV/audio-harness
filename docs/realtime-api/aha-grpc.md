@@ -25,6 +25,24 @@ service AhaRealtime {
 }
 ```
 
+协议由 `scripts/generate_aha_grpc.py` 按业务领域生成，文件均位于同一个 `v1` 目录：
+
+| 文件 | 职责 |
+| --- | --- |
+| `aha_common.proto` | JSON 值、错误、用量及公共基础类型 |
+| `aha_audio.proto` | 音频格式、转写和 VAD 配置、音频缓冲区事件 |
+| `aha_tools.proto` | 函数工具、MCP、审批及工具调用 |
+| `aha_conversation.proto` | 对话、消息内容、提示词输入及对话条目事件 |
+| `aha_session.proto` | 会话配置、创建和更新事件 |
+| `aha_response.proto` | 响应配置、结果及增量事件 |
+| `aha_extensions.proto` | AHA Agent、说话人、分离和向量检索等扩展事件 |
+| `aha_events.proto` | 客户端和服务端事件信封 |
+| `aha_realtime.proto` | 服务声明及 `import public` 统一入口 |
+
+基础类型供业务模块引用，事件信封引用具体事件，服务入口公开导入全部模块；生成器会拒绝循环依赖。Value/List/Map 等辅助消息跟随所属模型。AHA 会话和音频配置归入对应业务模块。
+
+现有 `aha_realtime_pb2` 消息导入和 `aha_realtime_pb2_grpc` stub 导入继续可用；消息全名、字段编号和 RPC 路径不变。消息所属的文件描述符和 Python 定义模块会变化。请修改生成器而非手工编辑生成文件，使用 `bash scripts/run_grpcio_tools.sh` 重新生成，再运行 `poetry run python scripts/generate_aha_grpc.py --check` 校验全部协议文件。
+
 RPC 路径为 `/aha.grpc.v1.AhaRealtime/Connect`。每个 RPC 是独立会话，初始事件为 `session.created`。
 
 | Metadata | 语义 |

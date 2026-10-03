@@ -8,6 +8,12 @@ from enum import Enum
 from typing import Any
 from pathlib import Path
 
+from aha.contracts.protocol import (
+    AhaRealtimeTranscriptionSessionCreateRequest,
+    AhaSessionCreatedEvent,
+    AhaV1ServerEventBase,
+)
+from aha.contracts.binary import CLIENT_EVENTS, SERVER_EVENTS, event_payload
 import numpy as np
 import soxr
 from openai.types.realtime import (
@@ -38,17 +44,11 @@ from audio_harness.serving.realtime.session import (
     session_values,
 )
 from audio_harness.serving.realtime.agent import VoiceResolver
-from audio_harness.serving.realtime.protocol import (
-    AhaRealtimeTranscriptionSessionCreateRequest,
-    AhaSessionCreatedEvent,
-    AhaV1ServerEventBase,
-)
-from audio_harness.sessions.audio_workflow import AudioWorkflowSessionService
+from audio_harness.sessions.audio_workflow.session import AudioWorkflowSessionService
 from audio_harness.serving.realtime.tools import ToolRegistry
 from audio_harness.workflows.settings import WorkflowSettingsStore
 from audio_harness.voice_agents.service import ActiveVoiceAgent
 
-from .contracts import CLIENT_EVENTS, SERVER_EVENTS, event_payload
 
 logger = logging.getLogger(__name__)
 

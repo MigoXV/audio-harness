@@ -7,7 +7,7 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from audio_harness.configs import WorkflowRuntimeConfig
+from audio_harness.configs.workflow import WorkflowRuntimeConfig
 from audio_harness.database.models import WorkflowSetting, utc_now
 
 _SETTING_ID = 1

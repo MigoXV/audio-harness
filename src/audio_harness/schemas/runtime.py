@@ -5,7 +5,8 @@ from typing import Literal
 
 from pydantic import Field
 
-from audio_harness.configs import CapacityConfig, WorkflowRuntimeConfig
+from audio_harness.configs.serving import CapacityConfig
+from audio_harness.configs.workflow import WorkflowRuntimeConfig
 from audio_harness.schemas.base import StrictSchema
 
 

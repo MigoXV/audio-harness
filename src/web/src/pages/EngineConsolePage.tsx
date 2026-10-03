@@ -1,158 +1,154 @@
-import * as AlertDialog from "@radix-ui/react-alert-dialog";
-import * as Dialog from "@radix-ui/react-dialog";
-import { useCallback, useEffect, useMemo, useState } from "react";
-
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { AudioHarnessApi, EngineAsset, EngineKind, EngineWritePayload } from "../api/types";
 import { errorMessage } from "../api/client";
-import type { AudioHarnessApi, EngineApi, EngineAsset, EngineKind, EngineProtocol, EngineWritePayload } from "../api/types";
-import { normalizeSlug } from "../features/forms/slug";
+import { EngineEditor } from "../features/engines/EngineEditor";
+import { EngineDetails, EngineLifecycleDialog } from "../features/engines/EngineDetails";
+import { dateLabel, healthGroup, healthLabels, kindMeta, kinds, readCatalog, statusLabel } from "../features/engines/model";
+import type { HealthFilter } from "../features/engines/model";
+import "../features/engines/console.css";
 
 interface Props { api: AudioHarnessApi; refreshVersion: number; }
-
-const kindMeta: Record<EngineKind, { label: string; api: EngineApi; protocol: EngineProtocol }> = {
-  denoise: { label: "在线降噪", api: "ux_denoise", protocol: "grpc" },
-  vad: { label: "VAD", api: "ux_vad", protocol: "grpc" }, asr: { label: "ASR", api: "ux_speech", protocol: "grpc" },
-  llm: { label: "Responses", api: "responses", protocol: "https" }, tts: { label: "TTS", api: "qwen_tts_duplex", protocol: "grpc" },
-  embedding: { label: "音频向量", api: "engine_feature", protocol: "grpc" },
-  diarization: { label: "说话人分离", api: "ux_speaker_diarization", protocol: "grpc" },
-};
-const diarizationImplementations: Record<string, { api: EngineApi; protocol: EngineProtocol; target: string }> = {
-  grpc: { api: "ux_speaker_diarization", protocol: "grpc", target: "" },
-  dummy: { api: "dummy_diarize", protocol: "dummy", target: "dummy://diarize" },
-};
-type VadPostprocessing = { processor: "firered.stream_vad"; version: 1; parameters: Record<string, number> };
-const defaultVadPostprocessing: VadPostprocessing = { processor: "firered.stream_vad", version: 1, parameters: { smooth_window_size: 5, speech_threshold: 0.5, pad_start_frame: 5, min_speech_frame: 8, max_speech_frame: 2000, min_silence_frame: 20 } };
-function vadPostprocessing(details: Record<string, unknown>): VadPostprocessing | null {
-  const value = details.vad_postprocessing;
-  return value && typeof value === "object" && "parameters" in value ? value as VadPostprocessing : null;
-}
-
-function blank(kind: EngineKind = "asr"): EngineWritePayload {
-  const meta = kindMeta[kind];
-  return { slug: "", name: "", kind, api: meta.api, protocol: meta.protocol, target: "", connect_timeout_seconds: 10,
-    request_timeout_seconds: kind === "llm" ? 180 : null, api_key: kind === "llm" ? "" : null, credential_env: null, enabled: true,
-    status: "unknown", image: null, description: null, status_basis: null, status_observed_at: null, source: null, details: {} };
-}
-
-function statusLabel(status: string): string {
-  return ({ healthy: "健康", unhealthy: "不可用", unknown: "未探测", checking: "探测中", stale: "结果过期", disabled: "已停用" } as Record<string, string>)[status] ?? status;
-}
-
-function healthGroup(item: EngineAsset): "healthy" | "unhealthy" | "unknown" | "disabled" {
-  if (item.status === "healthy") return "healthy";
-  if (item.status === "disabled" || !item.enabled) return "disabled";
-  if (item.status === "unknown" || item.status === "checking") return "unknown";
-  return "unhealthy";
-}
+const EMPTY: EngineAsset[] = [];
+const catalogKey = ["engine-console-list"];
 
 export function EngineConsolePage({ api, refreshVersion }: Props) {
-  const [items, setItems] = useState<EngineAsset[]>([]);
+  const client = useQueryClient();
+  const catalog = useQuery({ queryKey: catalogKey, queryFn: ({ signal }) => readCatalog(api, signal), retry: false, placeholderData: previous => previous });
+  const refetchCatalog = catalog.refetch;
+  const previousRefresh = useRef(refreshVersion);
+  useEffect(() => {
+    if (previousRefresh.current === refreshVersion) return;
+    previousRefresh.current = refreshVersion;
+    void refetchCatalog();
+  }, [refreshVersion, refetchCatalog]);
+  const items = catalog.data ?? EMPTY;
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<EngineKind | "all">("all");
-  const [health, setHealth] = useState<"all" | "healthy" | "unhealthy" | "unknown" | "disabled">("all");
+  const [health, setHealth] = useState<HealthFilter>("all");
+  const [sort, setSort] = useState("created");
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<EngineAsset | null>(null);
   const [editing, setEditing] = useState<EngineAsset | "new" | null>(null);
-  const [deleting, setDeleting] = useState<EngineAsset | null>(null);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
-  const [pendingDisable, setPendingDisable] = useState<{ engine: EngineAsset; references: string[] } | null>(null);
-  const [values, setValues] = useState<EngineWritePayload>(blank());
-  const [slugEdited, setSlugEdited] = useState(false);
-  const [usage, setUsage] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
+  const [lifecycle, setLifecycle] = useState<{ engine: EngineAsset; action: "disable" | "delete" } | null>(null);
+  const [pending, setPending] = useState<Set<string>>(() => new Set());
+  const locks = useRef(new Set<string>());
+  const batchLock = useRef(false);
+  const [batch, setBatch] = useState(false);
+  const [messages, setMessages] = useState<Record<string, string>>({});
+  const [notice, setNotice] = useState<string | null>(null);
+  const origin = useRef<HTMLElement | null>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const upsert = useCallback((item: EngineAsset) => {
+    client.setQueryData<EngineAsset[]>(catalogKey, previous => {
+      const current = previous ?? [];
+      return current.some(value => value.id === item.id) ? current.map(value => value.id === item.id ? item : value) : [...current, item];
+    });
+  }, [client]);
+  const persist = (item: EngineAsset) => { upsert(item); client.setQueryData(["engine-console-detail", item.id], item); };
+  const run = async <T,>(id: string, job: () => Promise<T>): Promise<T> => {
+    if (batchLock.current || locks.current.has(id)) throw new Error("该引擎正在处理，请稍后再试。");
+    locks.current.add(id); setPending(new Set(locks.current));
     try {
-      setItems((await api.listEngines({ limit: 200 })).items);
-      setError(null);
+      await client.cancelQueries({ queryKey: catalogKey, exact: true });
+      await client.cancelQueries({ queryKey: ["engine-console-detail", id], exact: true });
+      return await job();
     }
-    catch (reason) { setError(errorMessage(reason, "引擎列表读取失败。")); }
-    finally { setLoading(false); }
-  }, [api]);
-  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load, refreshVersion]);
-  const filtered = useMemo(() => items.filter((item) => (kind === "all" || item.kind === kind) && (health === "all" || healthGroup(item) === health) && (!query || `${item.name} ${item.slug} ${item.target}`.toLowerCase().includes(query.toLowerCase()))), [health, items, kind, query]);
-
-  const closeEditor = () => { if (!busy) setEditing(null); };
-  const openCreate = (nextKind: EngineKind = "asr") => { setEditing("new"); setValues(blank(nextKind)); setSlugEdited(false); setUsage([]); setError(null); };
-  const openEdit = async (engine: EngineAsset) => {
-    setSlugEdited(true);
-    setEditing(engine); setValues({ slug: engine.slug, name: engine.name, kind: engine.kind, api: engine.api, protocol: engine.protocol,
-      target: engine.target, connect_timeout_seconds: engine.connect_timeout_seconds, request_timeout_seconds: engine.request_timeout_seconds,
-      credential_env: engine.credential_env ?? null, api_key: engine.api_key ?? null, enabled: engine.enabled, status: engine.status,
-      image: engine.image, description: engine.description, status_basis: engine.status_basis, status_observed_at: engine.status_observed_at, source: engine.source, details: engine.details });
-    try { setUsage((await api.getEngineUsage(engine.id)).references ?? []); }
-    catch (reason) { setError(errorMessage(reason, "引擎引用读取失败。")); }
+    finally { locks.current.delete(id); setPending(new Set(locks.current)); }
   };
-  const changeKind = (nextKind: EngineKind) => { const meta = kindMeta[nextKind]; setValues((current) => ({ ...current, kind: nextKind, api: meta.api, protocol: meta.protocol, api_key: nextKind === "llm" ? current.api_key ?? "" : null, credential_env: null, request_timeout_seconds: nextKind === "llm" ? current.request_timeout_seconds ?? 180 : null })); };
-  const changeDiarizationImplementation = (implementation: string) => {
-    const next = diarizationImplementations[implementation];
-    setValues((current) => ({ ...current, api: next.api, protocol: next.protocol, target: next.target }));
-  };
-  const setVadPostprocessing = (next: VadPostprocessing | null) => setValues((current) => {
-    const details = { ...(current.details ?? {}) };
-    delete details.vad_postprocessing;
-    return { ...current, details: next ? { ...details, vad_postprocessing: next } : details };
-  });
-  const setVadParameter = (name: string, value: number) => {
-    const current = vadPostprocessing(values.details ?? {}) ?? defaultVadPostprocessing;
-    setVadPostprocessing({ ...current, parameters: { ...current.parameters, [name]: value } });
-  };
-  const save = async () => { setBusy(true); setError(null); try { if (editing === "new") await api.createEngine(values); else if (editing) await api.updateEngine(editing.id, values); setEditing(null); await load(); } catch (reason) { setError(errorMessage(reason, "引擎保存失败。")); } finally { setBusy(false); } };
-  const probe = async (engine: EngineAsset) => { if (!api.probeEngine) return; setBusy(true); setError(null); try { await api.probeEngine(engine.id); await load(); } catch (reason) { setError(errorMessage(reason, "引擎探测失败。")); } finally { setBusy(false); } };
-  const toggleExpanded = (engineId: string) => setExpandedIds((current) => {
-    const next = new Set(current);
-    if (next.has(engineId)) next.delete(engineId); else next.add(engineId);
-    return next;
-  });
-  const requestDisable = async (engine: EngineAsset) => {
-    setBusy(true); setError(null);
+  const probe = async (item: EngineAsset) => {
     try {
-      const references = (await api.getEngineUsage(engine.id)).references ?? [];
-      setPendingDisable({ engine, references });
-    } catch (reason) { setError(errorMessage(reason, "引擎引用读取失败。")); }
-    finally { setBusy(false); }
+      await run(item.id, async () => {
+        setMessages(current => ({ ...current, [item.id]: "正在复检…" }));
+        const result = await api.probeEngine(item.id);
+        const outcome = result.outcome === "passed" ? "复检通过" : result.outcome === "stale" ? "配置已变更，探测结果未写入" : "复检未通过";
+        setMessages(current => ({ ...current, [item.id]: `${outcome}${result.message ? `：${result.message}` : ""}` }));
+        try { await client.cancelQueries({ queryKey: ["engine-console-detail", item.id], exact: true }); persist(await api.getEngine(item.id)); }
+        catch (reason) { setMessages(current => ({ ...current, [item.id]: `${outcome}；最新信息读取失败，以下为旧信息。${errorMessage(reason)}` })); }
+      });
+    } catch (reason) { setMessages(current => ({ ...current, [item.id]: errorMessage(reason, "引擎复检请求失败，请重试。") })); }
   };
-  const disable = async () => {
-    if (!pendingDisable || pendingDisable.references.length > 0) return;
-    setBusy(true); setError(null);
-    try { await api.updateEngine(pendingDisable.engine.id, { enabled: false }); setPendingDisable(null); await load(); }
-    catch (reason) { setError(errorMessage(reason, "引擎停用失败。")); setPendingDisable(null); }
-    finally { setBusy(false); }
+  const probeAll = async () => {
+    if (batchLock.current || locks.current.size) return;
+    batchLock.current = true; setBatch(true); setNotice(null);
+    try {
+      await client.cancelQueries({ queryKey: catalogKey, exact: true });
+      const result = await api.validateEngines();
+      const count = (outcome: string) => result.results.filter(value => value.outcome === outcome).length;
+      const summary = `全部复检完成：通过 ${count("passed")}，失败 ${count("failed")}，配置变更 ${count("stale")}。`;
+      setMessages(current => ({ ...current, ...Object.fromEntries(result.results.map(value => [value.engine_id, `${value.outcome === "passed" ? "复检通过" : value.outcome === "stale" ? "配置已变更，探测结果未写入" : "复检未通过"}${value.message ? `：${value.message}` : ""}`])) }));
+      const refreshed = await catalog.refetch();
+      setNotice(refreshed.isError ? `${summary}最新目录读取失败，当前显示旧信息，请刷新列表。` : summary);
+      if (!refreshed.isError) await client.invalidateQueries({ queryKey: ["engine-console-detail"] });
+    } catch (reason) { setNotice(errorMessage(reason, "全部复检请求失败，请重试。")); }
+    finally { batchLock.current = false; setBatch(false); }
   };
-  const enable = async (engine: EngineAsset) => {
-    setBusy(true); setError(null);
-    try { await api.updateEngine(engine.id, { enabled: true }); await load(); }
-    catch (reason) { setError(errorMessage(reason, "引擎启用失败。")); }
-    finally { setBusy(false); }
+  const save = (payload: EngineWritePayload | Partial<EngineWritePayload>) => run(editing && editing !== "new" ? editing.id : "new", async () => {
+    const item = editing && editing !== "new" ? await api.updateEngine(editing.id, payload) : await api.createEngine(payload as EngineWritePayload);
+    persist(item);
+    if (editing === "new") void client.invalidateQueries({ queryKey: catalogKey, exact: true });
+    return item;
+  });
+  const restoreFocus = () => {
+    const target = origin.current;
+    requestAnimationFrame(() => {
+      // A quick follow-up action may already have moved focus or opened another drawer.
+      const active = document.activeElement;
+      if (active && active !== document.body && active !== document.documentElement && active !== target) return;
+      if (target?.isConnected && !(target as HTMLButtonElement).disabled) target.focus();
+      else headingRef.current?.focus();
+    });
   };
-  const remove = async () => { if (!deleting) return; try { await api.deleteEngine(deleting.id); setDeleting(null); await load(); } catch (reason) { setError(errorMessage(reason, "引擎仍被工作流引用，无法删除。")); setDeleting(null); } };
-  const configuredVadPostprocessing = vadPostprocessing(values.details ?? {});
-
-  return <main className="workspace-page">
-    <header className="page-heading"><div><p className="eyebrow">ENGINES</p><h1>推理引擎</h1><p>连接信息、真实健康与工作流引用集中管理。</p></div><button className="primary-button" onClick={() => openCreate()}>注册引擎</button></header>
-    {error && <div className="alert alert-error" role="alert">{error}<button className="text-button" onClick={() => setError(null)}>关闭</button></div>}
-    <section className="engine-health-summary" aria-label="引擎健康筛选">{(["all", "healthy", "unhealthy", "unknown", "disabled"] as const).map((value) => <button className={health === value ? "active" : ""} key={value} onClick={() => setHealth(value)}><span>{({ all: "全部", healthy: "健康", unhealthy: "异常", unknown: "未探测", disabled: "已停用" } as const)[value]}</span><strong>{value === "all" ? items.length : items.filter((item) => healthGroup(item) === value).length}</strong></button>)}</section>
-    <section className="panel engine-toolbar" aria-label="引擎筛选"><div className="filter-tabs">{(["all", "denoise", "vad", "asr", "diarization", "embedding", "llm", "tts"] as const).map((value) => <button className={kind === value ? "active" : ""} key={value} onClick={() => setKind(value)}>{value === "all" ? "全部能力" : kindMeta[value].label} <span>{value === "all" ? items.length : items.filter((item) => item.kind === value).length}</span></button>)}</div><input className="search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索名称、Slug 或地址" aria-label="搜索引擎" /></section>
-    <section className="panel engine-accordion-list" aria-label="引擎列表">{loading && items.length === 0 ? <div className="empty-state" role="status" aria-live="polite">正在加载引擎…</div> : error && items.length === 0 ? <div className="empty-state"><strong>引擎列表暂时无法读取</strong><button className="secondary-button" onClick={() => void load()}>重新加载</button></div> : items.length === 0 ? <div className="empty-state">尚未注册引擎</div> : filtered.length === 0 ? <div className="empty-state">没有符合条件的引擎</div> : filtered.map((engine) => { const expanded = expandedIds.has(engine.id); const detailsId = `engine-details-${engine.id}`; return <article className={`engine-card ${expanded ? "expanded" : "collapsed"}`} key={engine.id}>
-      <header className="engine-card-summary">
-        <button className="engine-card-toggle" aria-expanded={expanded} aria-controls={detailsId} onClick={() => toggleExpanded(engine.id)}>
-          <span><strong>{engine.name}</strong><small>{engine.slug} · {kindMeta[engine.kind]?.label ?? engine.kind}</small></span>
-          <code>{engine.target}</code>
-          <span className={`status-chip engine-${engine.status}`}>{statusLabel(engine.status)}</span>
-          <i aria-hidden="true">⌄</i>
-        </button>
-        <button className={engine.enabled ? "danger-text engine-lifecycle-button" : "secondary-button engine-lifecycle-button"} disabled={busy} onClick={() => void (engine.enabled ? requestDisable(engine) : enable(engine))}>{engine.enabled ? "停用" : "启用"}</button>
-      </header>
-      {expanded && <div className="engine-card-details" id={detailsId}>
-        <dl><div><dt>接口</dt><dd><code>{engine.protocol.toUpperCase()} · {engine.api}</code></dd></div><div><dt>最近探测</dt><dd>{engine.status_observed_at ? new Date(engine.status_observed_at).toLocaleString("zh-CN") : "尚未探测"}</dd></div><div><dt>探测延迟</dt><dd>{engine.probe_latency_ms != null ? `${Math.round(engine.probe_latency_ms)} ms` : "—"}</dd></div><div><dt>修订</dt><dd>r{engine.revision}</dd></div></dl>
-        {engine.status_basis && <p className="engine-status-reason"><strong>状态说明</strong>{engine.status_basis}</p>}
-        {engine.description && <p className="engine-description">{engine.description}</p>}
-        <div className="row-actions"><button onClick={() => void probe(engine)} disabled={busy || !engine.enabled}>复检</button><button onClick={() => void openEdit(engine)}>编辑</button><button className="danger-text" onClick={() => setDeleting(engine)}>删除</button></div>
-      </div>}
-    </article>; })}</section>
-
-    <Dialog.Root open={Boolean(editing)} onOpenChange={(open) => { if (!open) closeEditor(); }}><Dialog.Portal><Dialog.Overlay className="drawer-backdrop" /><Dialog.Content className="control-drawer" aria-describedby={undefined}><header><div><p className="eyebrow">ENGINE</p><Dialog.Title>{editing === "new" ? "注册引擎" : `编辑 ${editing?.name ?? ""}`}</Dialog.Title></div><Dialog.Close className="icon-button" disabled={busy} aria-label="关闭编辑引擎">×</Dialog.Close></header><div className="drawer-body"><div className="form-grid two-columns"><label><span>能力类型</span><select disabled={editing !== "new"} value={values.kind} onChange={(event) => changeKind(event.target.value as EngineKind)}>{(["denoise", "vad", "asr", "diarization", "embedding", "llm", "tts"] as EngineKind[]).map((value) => <option key={value} value={value}>{kindMeta[value].label}</option>)}</select></label><label><span>名称</span><input value={values.name} onChange={(event) => { const name = event.target.value; setValues((current) => ({ ...current, name, slug: editing === "new" && !slugEdited ? normalizeSlug(name) : current.slug })); }} /></label><label><span>Slug</span><input value={values.slug} onChange={(event) => { setSlugEdited(true); setValues((current) => ({ ...current, slug: normalizeSlug(event.target.value) })); }} /><small>{values.slug || (values.name.trim() ? "名称无法生成英文 Slug，请手动填写" : "小写字母、数字和连字符")}</small></label>{values.kind === "diarization" ? <label><span>实现</span><select value={values.api === "dummy_diarize" ? "dummy" : "grpc"} onChange={(event) => changeDiarizationImplementation(event.target.value)}><option value="grpc">外部 gRPC 引擎</option><option value="dummy">内置单说话人</option></select></label> : <label><span>接口</span><input value={`${values.protocol.toUpperCase()} · ${values.api}`} disabled /></label>}<label className="full-span"><span>{values.protocol === "dummy" ? "内置地址" : values.kind === "llm" ? "API Base URL" : "gRPC 地址"}</span><input value={values.target} disabled={values.protocol === "dummy"} onChange={(event) => setValues({ ...values, target: event.target.value })} placeholder={values.kind === "llm" ? "https://api.example.com" : "127.0.0.1:50051"} /></label>{values.kind === "llm" && <label className="full-span"><span>模型 API Key（内网明文存储与展示）</span><input value={values.api_key ?? ""} onChange={(event) => setValues({ ...values, api_key: event.target.value })} autoComplete="off" /></label>}<label><span>连接超时（秒）</span><input type="number" min="0.1" value={values.connect_timeout_seconds} onChange={(event) => setValues({ ...values, connect_timeout_seconds: Number(event.target.value) })} /></label><label><span>请求超时（秒）</span><input type="number" min="0.1" value={values.request_timeout_seconds ?? ""} onChange={(event) => setValues({ ...values, request_timeout_seconds: event.target.value ? Number(event.target.value) : null })} /></label><label className="full-span"><span>描述</span><textarea value={values.description ?? ""} onChange={(event) => setValues({ ...values, description: event.target.value || null })} /></label><label className="switch-control full-span"><input type="checkbox" checked={values.enabled} onChange={(event) => setValues({ ...values, enabled: event.target.checked })} /><span>启用并参与后台健康探测</span></label></div>{values.kind === "vad" && <details className="engine-vad-postprocessing"><summary>FireRed 后处理参数（可选）</summary><label className="switch-control"><input type="checkbox" checked={Boolean(configuredVadPostprocessing)} onChange={(event) => setVadPostprocessing(event.target.checked ? defaultVadPostprocessing : null)} /><span>覆盖 VAD 服务端默认后处理</span></label>{configuredVadPostprocessing && <div className="form-grid two-columns">{[["smooth_window_size", "平滑窗口帧数", 1, 1], ["speech_threshold", "语音阈值", 0, 0.01], ["pad_start_frame", "起点前补帧数", 1, 1], ["min_speech_frame", "最短语音帧数", 1, 1], ["max_speech_frame", "最长语音帧数", 1, 1], ["min_silence_frame", "最短静音帧数", 1, 1]].map(([name, label, min, step]) => <label key={name}><span>{label}</span><input type="number" min={min} step={step} value={configuredVadPostprocessing.parameters[String(name)]} onChange={(event) => setVadParameter(String(name), Number(event.target.value))} /></label>)}</div>}</details>}{editing !== "new" && <section className="usage-box"><h3>工作流引用</h3>{usage.length ? usage.map((item) => <span key={item}>{item}</span>) : <p>当前没有工作流引用该引擎。</p>}</section>}</div><footer><Dialog.Close className="secondary-button" disabled={busy}>取消</Dialog.Close><button className="primary-button" disabled={busy || !values.name || !values.slug || !values.target || (values.kind === "llm" && !values.api_key)} onClick={() => void save()}>{busy ? "保存中…" : "保存引擎"}</button></footer></Dialog.Content></Dialog.Portal></Dialog.Root>
-    <AlertDialog.Root open={Boolean(deleting)} onOpenChange={(open) => { if (!open) setDeleting(null); }}><AlertDialog.Portal><AlertDialog.Overlay className="drawer-backdrop" /><AlertDialog.Content className="confirm-dialog"><AlertDialog.Title>删除引擎？</AlertDialog.Title><AlertDialog.Description>将删除“{deleting?.name}”。如果该引擎仍被工作流引用，服务会拒绝该操作。</AlertDialog.Description><div className="panel-actions"><AlertDialog.Cancel className="secondary-button">取消</AlertDialog.Cancel><AlertDialog.Action className="primary-button" onClick={() => void remove()}>确认删除</AlertDialog.Action></div></AlertDialog.Content></AlertDialog.Portal></AlertDialog.Root>
-    <AlertDialog.Root open={Boolean(pendingDisable)} onOpenChange={(open) => { if (!open) setPendingDisable(null); }}><AlertDialog.Portal><AlertDialog.Overlay className="drawer-backdrop" /><AlertDialog.Content className="confirm-dialog"><AlertDialog.Title>{pendingDisable?.references.length ? "当前不能停用引擎" : "停用引擎？"}</AlertDialog.Title><AlertDialog.Description>{pendingDisable?.references.length ? `“${pendingDisable.engine.name}”仍被以下处理链引用，请先解除引用：` : `停用“${pendingDisable?.engine.name ?? ""}”后将停止健康探测，也不能再绑定到新配置。`}</AlertDialog.Description>{Boolean(pendingDisable?.references.length) && <ul className="engine-reference-list">{pendingDisable?.references.map((reference) => <li key={reference}>{reference}</li>)}</ul>}<div className="panel-actions"><AlertDialog.Cancel className="secondary-button">{pendingDisable?.references.length ? "知道了" : "取消"}</AlertDialog.Cancel>{pendingDisable?.references.length === 0 && <AlertDialog.Action className="danger-button" disabled={busy} onClick={() => void disable()}>确认停用</AlertDialog.Action>}</div></AlertDialog.Content></AlertDialog.Portal></AlertDialog.Root>
+  const remember = () => { origin.current = document.activeElement as HTMLElement; };
+  const openEdit = (item: EngineAsset) => { if (!selected) remember(); setSelected(null); setEditing(item); };
+  const changeLifecycle = async (item: EngineAsset, action: "enable" | "disable" | "delete") => {
+    if (action !== "enable") { setLifecycle({ engine: item, action }); return; }
+    try { await run(item.id, async () => { persist(await api.updateEngine(item.id, { enabled: true })); setMessages(current => ({ ...current, [item.id]: "引擎已启用，等待实际健康探测。" })); }); }
+    catch (reason) { setMessages(current => ({ ...current, [item.id]: errorMessage(reason, "引擎启用失败。") })); }
+  };
+  const confirmLifecycle = async () => {
+    if (!lifecycle) return;
+    await run(lifecycle.engine.id, async () => {
+      if (lifecycle.action === "delete") {
+        await api.deleteEngine(lifecycle.engine.id);
+        client.setQueryData<EngineAsset[]>(catalogKey, previous => previous?.filter(value => value.id !== lifecycle.engine.id));
+        client.removeQueries({ queryKey: ["engine-console-detail", lifecycle.engine.id], exact: true });
+        setSelected(null); setNotice(`已删除 ${lifecycle.engine.name}。`);
+      } else { persist(await api.updateEngine(lifecycle.engine.id, { enabled: false })); setMessages(current => ({ ...current, [lifecycle.engine.id]: "引擎已停用。" })); }
+      setLifecycle(null);
+    });
+  };
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    const values = items.filter(item => (kind === "all" || item.kind === kind) && (health === "all" || healthGroup(item) === health) && `${item.name} ${item.slug} ${item.target}`.toLocaleLowerCase().includes(needle));
+    if (sort === "name") values.sort((a, b) => a.name.localeCompare(b.name, "zh-CN") || a.id.localeCompare(b.id));
+    if (sort === "updated") values.sort((a, b) => b.updated_at.localeCompare(a.updated_at) || a.id.localeCompare(b.id));
+    return values;
+  }, [items, kind, health, query, sort]);
+  const pages = Math.max(1, Math.ceil(filtered.length / 50));
+  const currentPage = Math.min(page, pages);
+  const visible = filtered.slice((currentPage - 1) * 50, currentPage * 50);
+  const clear = () => { setQuery(""); setKind("all"); setHealth("all"); setPage(1); };
+  const countsReady = Boolean(catalog.data) && !catalog.isError && !catalog.isPlaceholderData;
+  const selectedItem = selected ? items.find(item => item.id === selected.id) ?? selected : null;
+  return <main className="workspace-page ec-console">
+    <header className="page-heading"><div><h1 ref={headingRef} tabIndex={-1}>推理引擎</h1><p>注册、配置连接，查看健康诊断与处理链引用。</p></div><div className="ec-page-actions"><button className="secondary-button" disabled={catalog.isFetching || batch || pending.size > 0} onClick={() => void catalog.refetch()}>{catalog.isFetching && catalog.data ? "刷新中…" : "刷新列表"}</button><button className="secondary-button" disabled={catalog.isFetching || batch || pending.size > 0 || !items.some(item => item.enabled)} onClick={() => void probeAll()}>{batch ? "全部复检中…" : "复检全部已启用引擎"}</button><button className="primary-button" disabled={batch || catalog.isFetching} onClick={() => { remember(); setEditing("new"); }}>注册引擎</button></div></header>
+    {catalog.isError && <div className="alert alert-error" role="alert">{errorMessage(catalog.error, "引擎列表读取失败。")}{catalog.data && <p>当前显示上次读取的目录，统计暂不可用。</p>}<button className="secondary-button" disabled={catalog.isFetching || batch || pending.size > 0} onClick={() => void catalog.refetch()}>重新加载</button></div>}
+    {notice && <p className="ec-operation-message" role="status">{notice}</p>}{batch && <p role="status">正在复检全部已启用引擎，完成后更新诊断结果…</p>}
+    <section className="ec-health" aria-label="引擎健康筛选">{(Object.keys(healthLabels) as HealthFilter[]).map(value => {
+      const count = countsReady ? value === "all" ? items.length : items.filter(item => healthGroup(item) === value).length : null;
+      const needsAttention = value === "unhealthy" && count !== null && count > 0;
+      return <button key={value} className={needsAttention ? "ec-health-attention" : undefined} aria-pressed={health === value} onClick={() => { setHealth(value); setPage(1); }}>{needsAttention && <span className="ec-health-icon" aria-hidden="true">⚠</span>}<span>{healthLabels[value]}</span><strong>{count ?? "—"}</strong></button>;
+    })}</section>
+    <section className="ec-filters" aria-label="引擎筛选"><label><span className="ec-visually-hidden">搜索引擎</span><input value={query} onChange={event => { setQuery(event.target.value); setPage(1); }} placeholder="搜索名称、Slug 或地址" /></label><label><span className="ec-visually-hidden">能力类型</span><select value={kind} onChange={event => { setKind(event.target.value as EngineKind | "all"); setPage(1); }}><option value="all">全部能力</option>{kinds.map(value => <option key={value} value={value}>{kindMeta[value].label}</option>)}</select></label><label><span className="ec-visually-hidden">排序</span><select value={sort} onChange={event => { setSort(event.target.value); setPage(1); }}><option value="created">创建顺序</option><option value="name">名称</option><option value="updated">最近更新</option></select></label>{(query || kind !== "all" || health !== "all") && <button className="text-button ec-clear-filters" onClick={clear}>清空筛选</button>}{catalog.data && <p className="ec-result-count">{countsReady ? `${filtered.length} 个引擎${pages > 1 ? ` · 第 ${currentPage} / ${pages} 页` : ""}` : "上次读取的引擎目录"}{catalog.isFetching && " · 正在刷新"}</p>}</section>
+    {catalog.isPending ? <div className="empty-state" role="status">正在加载引擎…</div> : !catalog.data ? <div className="empty-state">引擎列表暂时无法读取，请重新加载。</div> : items.length === 0 ? <div className="empty-state"><strong>尚未注册引擎</strong><p>先注册连接地址，再复检实际连通性。</p></div> : filtered.length === 0 ? <div className="empty-state"><strong>没有符合条件的引擎</strong><button className="secondary-button" onClick={clear}>清空筛选</button></div> : <>
+      <table className="ec-table" aria-label="引擎列表"><thead><tr><th scope="col">名称 / Slug</th><th scope="col">能力</th><th scope="col" className="ec-address">地址</th><th scope="col">健康状态</th><th scope="col" className="ec-observed">最近探测</th><th scope="col">操作</th></tr></thead><tbody>{visible.map(item => <Fragment key={item.id}><tr>
+        <td><button className="ec-name" aria-label={item.name} aria-haspopup="dialog" onClick={() => { remember(); setSelected(item); }}><strong>{item.name}</strong><small>{item.slug}</small></button></td><td className="ec-kind">{kindMeta[item.kind].label}</td><td className="ec-address"><code title={item.target}>{item.target}</code></td><td className="ec-status"><span className={`status-chip engine-${!item.enabled ? "disabled" : item.status}`}>{statusLabel(item)}</span></td><td className="ec-observed">{dateLabel(item.status_observed_at)}</td><td className="ec-row-actions"><button className="text-button" aria-label={`编辑 ${item.name}`} disabled={batch || pending.has(item.id)} onClick={() => openEdit(item)}>编辑</button><button className="text-button" aria-label={`复检 ${item.name}`} disabled={batch || pending.has(item.id) || !item.enabled} title={!item.enabled ? "引擎已停用，无法复检" : undefined} onClick={() => void probe(item)}>{pending.has(item.id) ? "处理中…" : "复检"}</button></td>
+      </tr>{messages[item.id] && <tr className="ec-message-row"><td className="ec-row-message" colSpan={6}><p role="status">{messages[item.id]}</p></td></tr>}</Fragment>)}</tbody></table>
+      {pages > 1 && <nav className="ec-pagination" aria-label="引擎分页"><button className="secondary-button" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>上一页</button><span>第 {currentPage} / {pages} 页</span><button className="secondary-button" disabled={currentPage === pages} onClick={() => setPage(currentPage + 1)}>下一页</button></nav>}
+    </>}
+    {selectedItem && <EngineDetails key={selectedItem.id} api={api} initial={selectedItem} busy={batch || pending.has(selectedItem.id)} message={messages[selectedItem.id]} onUpdated={upsert} onEdit={openEdit} onProbe={item => void probe(item)} onLifecycle={(item, action) => void changeLifecycle(item, action)} onClose={() => setSelected(null)} restoreFocus={restoreFocus} />}
+    {editing && <EngineEditor key={editing === "new" ? "new" : editing.id} engine={editing === "new" ? null : editing} initialKind={kind === "all" ? "asr" : kind} blocked={batch} onSave={save} onSaved={(item, withProbe) => { setEditing(null); setNotice(`已保存 ${item.name}。`); if (withProbe) { setSelected(item); void probe(item); } }} onClose={() => setEditing(null)} restoreFocus={restoreFocus} />}
+    {lifecycle && <EngineLifecycleDialog key={`${lifecycle.engine.id}-${lifecycle.action}`} api={api} engine={lifecycle.engine} action={lifecycle.action} busy={pending.has(lifecycle.engine.id)} onConfirm={confirmLifecycle} onClose={() => setLifecycle(null)} />}
   </main>;
 }

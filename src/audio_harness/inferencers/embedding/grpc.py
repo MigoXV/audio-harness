@@ -6,7 +6,7 @@ from collections.abc import Mapping
 import grpc
 import numpy as np
 
-from audio_harness.configs import EngineEndpoint
+from audio_harness.configs.engine import EngineEndpoint
 from audio_harness.errors import EngineDeadlineError, EngineUnavailableError
 from audio_harness.inferencers.embedding.base import (
     EngineFeatureInferencer,

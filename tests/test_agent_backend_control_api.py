@@ -10,8 +10,8 @@ from audio_harness.agent_backends.models import (
     AgentBackendPlugin,
     AgentBackendSnapshot,
 )
-from audio_harness.configs import AppConfig
-from audio_harness.database import upgrade_database
+from audio_harness.configs.app import AppConfig
+from audio_harness.database.session import upgrade_database
 from audio_harness.serving.host import AudioHarnessHost
 
 

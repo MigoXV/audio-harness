@@ -7,10 +7,7 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from audio_harness.configs import (
-    CapacityConfig,
-    ProtocolCapacityConfig,
-)
+from audio_harness.configs.serving import CapacityConfig, ProtocolCapacityConfig
 from audio_harness.database.models import CapacitySetting, utc_now
 
 _SETTING_ID = 1
