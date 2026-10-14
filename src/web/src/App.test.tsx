@@ -12,7 +12,7 @@ vi.mock("./features/engines/console.css", () => ({}));
 const document: AudioWorkflowDocument = {
   schema_version: 1,
   nodes: [
-    { id: "physical-vad", kind: "physical_vad", engine_id: "vad-1", config: { min_segment_seconds: .5, max_segment_seconds: 60, audio_buffer_seconds: 120, speech_pre_roll_seconds: .3, progress_interval_seconds: .2 } },
+    { id: "physical-vad", kind: "physical_vad", engine_id: "vad-1", config: { min_segment_seconds: .5, max_segment_seconds: 60, audio_buffer_seconds: 120, speech_pre_roll_seconds: .3, speech_chunk_seconds: 1, speech_chunk_holdback_seconds: 1, progress_interval_seconds: .2 } },
     { id: "asr", kind: "asr", engine_id: "asr-1", config: { remove_punctuation: false } },
   ],
   edges: [
@@ -71,14 +71,14 @@ function fakeApi() {
     listAudioNodeTypes: vi.fn().mockResolvedValue([
       { kind: "automatic_gain_control", display_name: "自动增益控制", required_api: null, inputs: [{ name: "audio", kind: "pcm_chunk" }], outputs: [{ name: "audio", kind: "pcm_chunk" }], config_schema: {} },
       { kind: "streaming_denoise", display_name: "在线降噪", required_api: "ux_denoise", inputs: [{ name: "audio", kind: "pcm_chunk" }], outputs: [{ name: "audio", kind: "vad_audio_chunk" }], config_schema: {} },
-      { kind: "physical_vad", display_name: "物理 VAD", required_api: "ux_vad", inputs: [{ name: "audio", kind: "pcm_chunk" }, { name: "detection_audio", kind: "vad_audio_chunk" }], outputs: [{ name: "segments", kind: "audio_segment" }, { name: "speech_started", kind: "speech_started" }, { name: "speech_stopped", kind: "speech_stopped" }], input_groups: [{ name: "audio_source", ports: ["audio", "detection_audio"], minimum: 1, maximum: 1 }], config_schema: {} },
+      { kind: "physical_vad", display_name: "物理 VAD", required_api: "ux_vad", inputs: [{ name: "audio", kind: "pcm_chunk" }, { name: "detection_audio", kind: "vad_audio_chunk" }], outputs: [{ name: "segments", kind: "audio_segment" }, { name: "speech_chunks", kind: "speech_audio_chunk" }, { name: "speech_started", kind: "speech_started" }, { name: "speech_stopped", kind: "speech_stopped" }], input_groups: [{ name: "audio_source", ports: ["audio", "detection_audio"], minimum: 1, maximum: 1 }], config_schema: {} },
       { kind: "semantic_vad", display_name: "语义 VAD", required_api: "ux_vad", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "segments", kind: "audio_segment" }, { name: "speech_stopped", kind: "speech_stopped" }, { name: "turn_progress", kind: "transcription" }], config_schema: {} },
       { kind: "asr", display_name: "语音识别", required_api: "ux_speech", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "transcripts", kind: "transcription" }, { name: "speaker_transcripts", kind: "speaker_transcription" }], config_schema: {} },
       { kind: "audio_embedding", display_name: "语音特征向量提取", required_api: "engine_feature", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "embeddings", kind: "embedding" }], config_schema: {} },
       { kind: "vector_search", display_name: "人物搜索", required_api: null, inputs: [{ name: "embeddings", kind: "embedding" }], outputs: [{ name: "results", kind: "vector_search_result" }], config_schema: {} },
       { kind: "speaker_filter", display_name: "说话人过滤", required_api: null, inputs: [{ name: "segments", kind: "audio_segment" }, { name: "results", kind: "vector_search_result" }], outputs: [{ name: "segments", kind: "audio_segment" }, { name: "speech_started", kind: "speech_started" }, { name: "speech_stopped", kind: "speech_stopped" }, { name: "decisions", kind: "speaker_filter_result" }], config_schema: {} },
       { kind: "speaker_diarization", display_name: "说话人分离", required_api: "ux_speaker_diarization", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "segments", kind: "diarization_segment" }, { name: "local_results", kind: "diarization_local_result" }], config_schema: {} },
-      { kind: "streaming_speaker_diarization", display_name: "流式说话人分离", required_api: "ux_speaker_diarization_duplex", inputs: [{ name: "audio", kind: "pcm_chunk" }, { name: "segments", kind: "audio_segment" }], outputs: [{ name: "segments", kind: "diarization_segment" }, { name: "local_results", kind: "diarization_local_result" }, { name: "cluster_results", kind: "diarization_cluster_result" }], config_schema: {} },
+      { kind: "streaming_speaker_diarization", display_name: "流式说话人分离", required_api: "ux_speaker_diarization_duplex", inputs: [{ name: "audio", kind: "pcm_chunk" }, { name: "segments", kind: "audio_segment", accepted_kinds: ["speech_audio_chunk"] }], outputs: [{ name: "segments", kind: "diarization_segment" }, { name: "local_results", kind: "diarization_local_result" }, { name: "cluster_results", kind: "diarization_cluster_result" }], config_schema: {} },
       { kind: "speaker_clustering", display_name: "说话人聚类", required_api: "engine_feature", inputs: [{ name: "segments", kind: "diarization_segment" }], outputs: [{ name: "results", kind: "diarization_cluster_result" }], config_schema: {} },
     ]),
     listAudioWorkflowRevisions: vi.fn().mockResolvedValue([]),
@@ -449,6 +449,11 @@ describe("typed audio workflow control plane", () => {
     renderApp(api, "/audio-workflows/wf-1/build");
     fireEvent.click(await screen.findByRole("button", { name: /^流式会议/ }));
     fireEvent.click(screen.getByRole("button", { name: "确认应用" }));
+    fireEvent.click(await screen.findByLabelText("节点 physical-vad"));
+    expect(screen.getByLabelText(/流式语音块时长/)).toHaveValue(1);
+    expect(screen.getByLabelText(/语音尾部保留/)).toHaveValue(1);
+    fireEvent.change(screen.getByLabelText(/流式语音块时长/), { target: { value: "0.8" } });
+    fireEvent.change(screen.getByLabelText(/语音尾部保留/), { target: { value: "0.6" } });
     fireEvent.click(await screen.findByLabelText("节点 streaming-speaker-diarization"));
     fireEvent.change(screen.getByLabelText("输入缓冲（毫秒）"), { target: { value: "640" } });
     fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
@@ -456,6 +461,8 @@ describe("typed audio workflow control plane", () => {
       const saved = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
       expect(saved.nodes.find((node) => node.kind === "streaming_speaker_diarization")?.config?.input_buffer_latency_ms).toBe(640);
       expect(saved.edges.filter((edge) => edge.target.node_id === "streaming-speaker-diarization").map((edge) => edge.target.port).sort()).toEqual(["audio", "segments"]);
+      expect(saved.edges.find((edge) => edge.target.node_id === "streaming-speaker-diarization" && edge.target.port === "segments")?.source).toEqual({ kind: "node", node_id: "physical-vad", port: "speech_chunks" });
+      expect(saved.nodes.find((node) => node.kind === "physical_vad")?.config).toMatchObject({ speech_chunk_seconds: 0.8, speech_chunk_holdback_seconds: 0.6 });
     });
   });
 

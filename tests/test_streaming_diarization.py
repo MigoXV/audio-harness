@@ -7,7 +7,7 @@ import pytest
 
 from audio_harness.inferencers.diarization.streaming_base import StreamingDiarizationInferencer as Engine
 from audio_harness.media.pcm import PcmChunk
-from audio_harness.sessions.contracts import SegmentCandidate, TimelineSpan
+from audio_harness.sessions.contracts import SegmentCandidate, SpeechAudioChunk, TimelineSpan
 from audio_harness.sessions.diarization.streaming import StreamingDiarizationSession, StreamingDiarizationTimeline
 from audio_harness.workflows.events import DiarizationClusterResult, DiarizationLocalResult
 from audio_harness.workflows.models import StreamingSpeakerDiarizationConfig
@@ -268,3 +268,113 @@ async def test_same_start_overlap_uses_segment_id_order():
     pieces = [value for port, value in values if port == "segments"]
     assert len(pieces) == 1 and pieces[0].diarization.speaker == 2
     assert len(pieces[0].audio) == 32000
+
+
+@pytest.mark.asyncio
+async def test_open_speech_buffer_limit_fails_explicitly_without_losing_pcm():
+    pcm = bytes((1, 0)) * 4000
+    chunks = [SpeechAudioChunk(
+        pcm[start * 2:(start + 1000) * 2], start, start + 1000,
+        0, "pseg-1", completed=start == 3000,
+    ) for start in range(0, 4000, 1000)]
+    values = [value async for value in session(max_pending_audio_seconds=0.1).run(
+        iterate([PcmChunk(pcm, 16000, 0)]), iterate(chunks),
+    )]
+    assert any(port == "cluster_results" and value.phase == "failed" for port, value in values)
+    candidates = [value for port, value in values if port == "segments"]
+    assert b"".join(value.audio for value in candidates) == pcm
+    assert candidates[-1].diarization.source_completed
+    assert all(value.diarization.speaker is None for value in candidates)
+
+
+@pytest.mark.asyncio
+async def test_cancelling_open_speech_preview_closes_duplex_tasks():
+    async def audio():
+        yield PcmChunk(bytes(32000), 16000, 0)
+        await asyncio.Event().wait()
+
+    engine = FakeEngine()
+    chunk = SpeechAudioChunk(bytes(32000), 0, 16000, 0, "pseg-1")
+    async with aclosing(session(engine).run(audio(), iterate([chunk]))) as stream:
+        port, preview = await asyncio.wait_for(anext(stream), 2)
+        assert port == "local_results" and preview.phase == "delta"
+    assert engine.closed
+    assert not [task for task in asyncio.all_tasks() if task.get_name().startswith("diarization-duplex-")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("continuous_model_segment", [False, True])
+async def test_same_speaker_cannot_bridge_physical_vad_pauses(continuous_model_segment):
+    class RepeatedSpeakerEngine(FakeEngine):
+        async def stream_diarize(self, audio, sample_rate, *, input_buffer_latency_ms):
+            async for _ in audio:
+                boundaries = (self.Boundary(1, 1, 0, 64000),) if continuous_model_segment else (
+                    self.Boundary(1, 1, 0, 16000),
+                    self.Boundary(2, 1, 24000, 40000),
+                    self.Boundary(3, 2, 48000, 64000),
+                )
+                yield self.Update(boundaries, 64000)
+
+    first = bytes((1, 0)) * 16000
+    second = bytes((2, 0)) * 16000
+    third = bytes((3, 0)) * 16000
+    values = [item async for item in session(RepeatedSpeakerEngine()).run(
+        iterate([PcmChunk(bytes(128000), 16000, 0)]),
+        iterate([
+            SpeechAudioChunk(first, 0, 16000, 0, 'vad-1', True),
+            SpeechAudioChunk(second, 24000, 40000, 24000, 'vad-2', True),
+            SpeechAudioChunk(third, 48000, 64000, 48000, 'vad-3', True),
+        ]),
+    )]
+    outputs = [value for port, value in values if port == 'segments']
+    assert [value.audio for value in outputs] == [first, second, third]
+    assert [value.diarization.speaker for value in outputs] == [1, 1, 1 if continuous_model_segment else 2]
+    assert outputs[0].timeline_spans == (TimelineSpan(0, 16000, 0),)
+    assert outputs[0].physical_segment_ids == ('vad-1',)
+    assert outputs[1].physical_segment_ids == ('vad-2',)
+    assert outputs[2].physical_segment_ids == ('vad-3',)
+    assert [(value.start_sample, value.end_sample) for value in outputs] == [(0, 16000), (24000, 40000), (48000, 64000)]
+    assert all(value.diarization.source_completed for value in outputs)
+    assert len([value for port, value in values if port == 'local_results' and value.phase == 'completed']) == 3
+    for port, value in values:
+        if port == 'local_results':
+            for segment in value.segments:
+                assert any(start <= segment.start_sample < segment.end_sample <= end
+                           for start, end in [(0, 16000), (24000, 40000), (48000, 64000)])
+
+
+@pytest.mark.asyncio
+async def test_vad_stop_flushes_same_speaker_boundaries_before_model_eof():
+    release = asyncio.Event()
+
+    class RepeatedSpeakerEngine(FakeEngine):
+        async def stream_diarize(self, audio, sample_rate, *, input_buffer_latency_ms):
+            async for _ in audio:
+                yield self.Update((
+                    self.Boundary(1, 1, 0, 16000),
+                    self.Boundary(2, 1, 16000, None),
+                ), 32000)
+            yield self.Update((self.Boundary(2, 1, None, 32000),), 32000)
+
+    pcm = bytes((1, 0)) * 32000
+
+    async def audio():
+        yield PcmChunk(pcm, 16000, 0)
+        await release.wait()
+
+    chunks = [
+        SpeechAudioChunk(pcm[:32000], 0, 16000, 0, 'vad-1'),
+        SpeechAudioChunk(pcm[32000:], 16000, 32000, 0, 'vad-1'),
+        SpeechAudioChunk(b'', 32000, 32000, 0, 'vad-1', True),
+    ]
+    values = []
+    async with aclosing(session(RepeatedSpeakerEngine()).run(audio(), iterate(chunks))) as stream:
+        while not any(port == 'segments' for port, _ in values):
+            values.append(await asyncio.wait_for(anext(stream), 2))
+        output = next(value for port, value in values if port == 'segments')
+        assert output.audio == pcm
+        assert (output.start_sample, output.end_sample) == (0, 32000)
+        assert output.diarization.speaker == 1
+        release.set()
+        values.extend([item async for item in stream])
+    assert len([value for port, value in values if port == 'segments']) == 1

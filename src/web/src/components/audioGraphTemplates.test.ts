@@ -6,7 +6,7 @@ import { applyAudioGraphTemplate } from "./audioGraphTemplates";
 const existing: AudioWorkflowDocument = {
   schema_version: 1,
   nodes: [
-    { id: "custom-vad", kind: "physical_vad", engine_id: "vad-1", config: { min_segment_seconds: 1, max_segment_seconds: 30, audio_buffer_seconds: 40, speech_pre_roll_seconds: 0.2, progress_interval_seconds: 0.2 } },
+    { id: "custom-vad", kind: "physical_vad", engine_id: "vad-1", config: { min_segment_seconds: 1, max_segment_seconds: 30, audio_buffer_seconds: 40, speech_pre_roll_seconds: 0.2, speech_chunk_seconds: 1, speech_chunk_holdback_seconds: 1, progress_interval_seconds: 0.2 } },
     { id: "custom-semantic", kind: "semantic_vad", engine_id: "semantic-1", config: { max_buffer_seconds: 20 }, failure_policy: "fail_pipeline" },
     { id: "custom-asr", kind: "asr", engine_id: "asr-1", config: { remove_punctuation: false } },
   ],
@@ -24,6 +24,8 @@ describe("audio graph templates", () => {
     expect(node.engine_id).toBe("duplex");
     expect(result.nodes.some((value) => value.kind === "speaker_clustering" || value.kind === "speaker_diarization")).toBe(false);
     expect(result.edges.filter((edge) => edge.target.node_id === node.id).map((edge) => edge.target.port).sort()).toEqual(["audio", "segments"]);
+    expect(result.edges.find((edge) => edge.target.node_id === node.id && edge.target.port === "segments")?.source).toEqual({ kind: "node", node_id: "physical-vad", port: "speech_chunks" });
+    expect(result.edges).toContainEqual({ id: "physical-vad-to-semantic-vad", source: { kind: "node", node_id: "physical-vad", port: "segments" }, target: { node_id: "semantic-vad", port: "segments" } });
     expect(result.outputs.find((value) => value.name === "diarization_cluster")?.source).toEqual({ kind: "node", node_id: node.id, port: "cluster_results" });
     expect(result.outputs.find((value) => value.name === "diarization_local")?.source.port).toBe("local_results");
     expect(result.outputs.find((value) => value.name === "speaker_transcript")?.source.node_id).toBe("speaker-asr");

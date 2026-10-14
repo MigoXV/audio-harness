@@ -44,6 +44,7 @@ class PortKind(str, Enum):
     DIARIZATION_LOCAL_RESULT = "diarization_local_result"
     SPEAKER_TRANSCRIPTION = "speaker_transcription"
     DIARIZATION_SEGMENT = "diarization_segment"
+    SPEECH_AUDIO_CHUNK = "speech_audio_chunk"
     DIARIZATION_CLUSTER_RESULT = "diarization_cluster_result"
 
 
@@ -110,6 +111,7 @@ _NODE_SPECS: dict[str, AudioNodeSpec] = {
         },
         outputs={
             "segments": PortSpec(PortKind.AUDIO_SEGMENT),
+            "speech_chunks": PortSpec(PortKind.SPEECH_AUDIO_CHUNK),
             "speech_started": PortSpec(PortKind.SPEECH_STARTED),
             "speech_stopped": PortSpec(PortKind.SPEECH_STOPPED),
         },
@@ -172,7 +174,7 @@ _NODE_SPECS: dict[str, AudioNodeSpec] = {
         display_name="流式说话人分离",
         inputs={
             "audio": PortSpec(PortKind.PCM_CHUNK),
-            "segments": PortSpec(PortKind.AUDIO_SEGMENT),
+            "segments": PortSpec(PortKind.AUDIO_SEGMENT, accepted_kinds=(PortKind.SPEECH_AUDIO_CHUNK,)),
         },
         outputs={
             "segments": PortSpec(PortKind.DIARIZATION_SEGMENT),
@@ -383,6 +385,19 @@ def compile_audio_graph(
 
     for node in definition.nodes:
         spec = _NODE_SPECS[node.kind]
+        if node.kind == "physical_vad" and any(
+            isinstance(edge.source, NodeOutputRef)
+            and edge.source.node_id == node.id
+            and edge.source.port == "speech_chunks"
+            for edge in definition.edges
+        ):
+            config = node.config
+            if config.speech_chunk_seconds + config.speech_chunk_holdback_seconds > config.audio_buffer_seconds:
+                diagnostics.append(AudioGraphDiagnostic(
+                    "speech_chunk_buffer_too_small",
+                    "语音块时长与尾部保留时长之和不能超过音频缓冲时长",
+                    node_id=node.id, port="speech_chunks",
+                ))
         if spec.required_api is None:
             compiled[node.id] = CompiledAudioNode(node, spec, None)
             continue
@@ -645,11 +660,11 @@ def compile_audio_graph(
             )
             continue
         expected = _KNOWN_OUTPUTS.get(output.name)
-        if source_port.kind in {PortKind.PCM_CHUNK, PortKind.VAD_AUDIO_CHUNK}:
+        if source_port.kind in {PortKind.PCM_CHUNK, PortKind.VAD_AUDIO_CHUNK, PortKind.SPEECH_AUDIO_CHUNK}:
             diagnostics.append(
                 AudioGraphDiagnostic(
                     "private_audio_output",
-                    "流式 PCM 音频只能连接图内节点，不能绑定工作流出口",
+                    "流式 PCM 音频及语音块只能连接图内节点，不能绑定工作流出口",
                     node_id=source_node.id,
                     port=output.source.port,
                 )

@@ -46,6 +46,8 @@ function physicalVad(document: AudioWorkflowDocument) {
         max_segment_seconds: 60,
         audio_buffer_seconds: 120,
         speech_pre_roll_seconds: 0.3,
+        speech_chunk_seconds: 1,
+        speech_chunk_holdback_seconds: 1,
         progress_interval_seconds: 0.2,
         postprocessing: null,
       },
@@ -125,6 +127,8 @@ function interimPhysicalVad(
       max_segment_seconds: 2,
       audio_buffer_seconds: 10,
       speech_pre_roll_seconds: 0,
+      speech_chunk_seconds: 1,
+      speech_chunk_holdback_seconds: 1,
       progress_interval_seconds: 0.2,
       postprocessing: {
         processor: "firered.stream_vad" as const,
@@ -275,7 +279,7 @@ export function applyAudioGraphTemplate(
       edges: [
         ...base.edges.filter((edge) => !removed.has(edge.target.node_id) && !(edge.source.kind === "node" && removed.has(edge.source.node_id))),
         { id: "audio-to-streaming-diarization", source: { kind: "input", name: "audio" }, target: { node_id: node.id, port: "audio" } },
-        { id: "turns-to-streaming-diarization", source: { kind: "node", node_id: "semantic-vad", port: "segments" }, target: { node_id: node.id, port: "segments" } },
+        { id: "speech-chunks-to-streaming-diarization", source: { kind: "node", node_id: "physical-vad", port: "speech_chunks" }, target: { node_id: node.id, port: "segments" } },
         { id: "streaming-diarization-to-asr", source: { kind: "node", node_id: node.id, port: "segments" }, target: { node_id: "speaker-asr", port: "segments" } },
       ],
       outputs: base.outputs.map((output) => output.name === "diarization_local"

@@ -54,6 +54,7 @@ from audio_harness.workflows.models import (
 )
 from audio_harness.sessions.contracts import (
     SegmentCandidate as _SegmentCandidate,
+    SpeechAudioChunk,
     candidate_physical_segment_ids,
 )
 from audio_harness.sessions.diarization.session import DiarizationSession
@@ -200,6 +201,7 @@ class _EdgeRouter:
                     PortKind.PCM_CHUNK,
                     PortKind.VAD_AUDIO_CHUNK,
                     PortKind.AUDIO_SEGMENT,
+                    PortKind.SPEECH_AUDIO_CHUNK,
                     PortKind.DIARIZATION_SEGMENT,
                 }
                 else config.result_queue_capacity
@@ -762,6 +764,7 @@ class AudioWorkflowRuntime:
             definition.config,
             request.recognition.sample_rate,
             self._vad_inferencers[node_id],
+            speech_chunks_enabled=router.has_consumers(node_id, "speech_chunks"),
         )
 
         input_port = (
@@ -778,7 +781,7 @@ class AudioWorkflowRuntime:
             audio(),
             progress_enabled=router.has_consumers(node_id, "progress"),
         ):
-            if port.startswith("speech_") and not request.include_vad_events:
+            if port in {"speech_started", "speech_stopped"} and not request.include_vad_events:
                 continue
             await router.emit(node_id, port, payload)
 
@@ -849,7 +852,7 @@ class AudioWorkflowRuntime:
                     context.min_asr_segment_seconds
                     * request.recognition.sample_rate
                 )
-                if segment_samples < minimum_samples:
+                if segment_samples == 0 or segment_samples < minimum_samples:
                     if context.source_completed:
                         ordered = [
                             text
@@ -1096,7 +1099,7 @@ class AudioWorkflowRuntime:
 
         async def candidates():
             async for item in _items(router.input(node_id, "segments")):
-                yield cast(_SegmentCandidate, item)
+                yield cast(_SegmentCandidate | SpeechAudioChunk, item)
 
         async with aclosing(session.run(audio(), candidates())) as emissions:
             async for port, payload in emissions:

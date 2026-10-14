@@ -1587,3 +1587,75 @@ async def test_workflow_cleanup_survives_transcription_finish_failure() -> None:
     assert session._workflow_task is None
     assert session._transcription is None
     assert session._session_context is None
+
+
+@pytest.mark.asyncio
+async def test_speaker_run_across_vad_items_associates_with_start_item():
+    from audio_harness.workflows.events import SpeakerTranscriptionResult
+
+    sent = []
+
+    async def send_event(event):
+        sent.append(event)
+
+    session = RealtimeTranscriptionSession(
+        send_event=send_event,
+        session_service=object(),
+        workflow_settings=_Settings(),
+        model='audio', target=_profile().audio_workflow,
+        session_identifier='sess_speaker_run', aha_version='v1',
+    )
+    session._pending_items.clear()
+    session._speaker_item_history = [
+        SimpleNamespace(item_id='first-item', start_sample=0, end_sample=16000),
+        SimpleNamespace(item_id='second-item', start_sample=24000, end_sample=40000),
+    ]
+    session._active_item_id = 'next-speaker-item'
+    await session._handle_workflow_event('speaker_transcript', SpeakerTranscriptionResult(
+        phase='completed', item_source_id='speaker-run', segment_id='segment',
+        batch_id='batch', local_speaker_id='batch:1', speaker=1,
+        source_start_sample=0, source_end_sample=40000,
+        start_sample=0, end_sample=40000, sample_rate=16000, text='完整的一段',
+    ))
+    assert len(sent) == 1
+    assert sent[0].item_id == 'first-item'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('include_deltas', [False, True])
+async def test_multiple_primary_segments_before_vad_stop_preserve_order(include_deltas):
+    emitted = []
+
+    async def send_event(event):
+        emitted.append(encode_server_event(event))
+
+    session = RealtimeTranscriptionSession(
+        send_event=send_event, session_service=object(),
+        workflow_settings=_Settings(), model='audio',
+        target=_profile().audio_workflow, aha_version='v1',
+    )
+    await session._handle_workflow_event('speech_started', SpeechStarted(0, 16000))
+
+    def result(text, start, final=True):
+        return AsrInferencer.Result(
+            transcript=text, is_final=final, start_sample=start,
+            end_sample=start + 8000, sample_rate=16000, turn_completed=True,
+        )
+
+    for text, start in [('第一位', 0), ('第二位', 8000)]:
+        if include_deltas:
+            await session._handle_workflow_event('primary_transcript', result(text[:1], start, False))
+        await session._handle_workflow_event('primary_transcript', result(text, start))
+    await session._handle_workflow_event('speech_stopped', SpeechStopped(0, 24000, 16000))
+    # 没有后续结果或 EOF 也应排空所有已到达的转写。
+    assert not session._deferred_primary_results
+    assert not session._pending_items
+    await session._handle_workflow_event('primary_transcript', result('第三位', 16000))
+
+    completed = [e for e in emitted if e['type'] == 'conversation.item.input_audio_transcription.completed']
+    assert [e['transcript'] for e in completed] == ['第一位', '第二位', '第三位']
+    assert len({e['item_id'] for e in completed}) == 3
+    committed = [e for e in emitted if e['type'] == 'input_audio_buffer.committed']
+    assert [e['item_id'] for e in committed] == [e['item_id'] for e in completed]
+    assert not session._pending_items
+    assert not session._deferred_primary_results

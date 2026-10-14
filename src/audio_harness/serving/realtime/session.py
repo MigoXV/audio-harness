@@ -1651,8 +1651,9 @@ class RealtimeTranscriptionSession:
                 (
                     item
                     for item in matching_items
-                    if item.start_sample <= event.source_start_sample
-                    and item.end_sample >= event.source_end_sample
+                    # 一个持续说话人轮次可以横跨多个 VAD item；关联轮次
+                    # 起点所在的真实 item，而非误挂到切换后的 active item。
+                    if item.start_sample <= event.source_start_sample < item.end_sample
                 ),
                 None,
             )
@@ -1941,6 +1942,13 @@ class RealtimeTranscriptionSession:
         await self._handle_primary_transcript(event)
 
     async def _handle_primary_transcript(self, event: AsrInferencer.Result) -> None:
+        # 一个 VAD item 可对应多个说话人转写。先按到达顺序处理旧结果，
+        # 避免新结果创建的 item 被 _emit_committed_item 内的旧结果消费。
+        while self._deferred_primary_results:
+            await self._apply_primary_transcript(self._deferred_primary_results.popleft())
+        await self._apply_primary_transcript(event)
+
+    async def _apply_primary_transcript(self, event: AsrInferencer.Result) -> None:
         if not self._pending_items:
             await self._emit_committed_item(
                 _TranscriptItem(
@@ -1948,6 +1956,7 @@ class RealtimeTranscriptionSession:
                     start_sample=event.start_sample,
                     end_sample=event.end_sample,
                 ),
+                drain_deferred=False,
             )
         item = self._pending_items[0]
         if self._interim_suppressed_item_id != item.item_id:
@@ -2073,6 +2082,7 @@ class RealtimeTranscriptionSession:
         item: _TranscriptItem,
         *,
         append_pending: bool = True,
+        drain_deferred: bool = True,
     ) -> None:
         if append_pending:
             self._pending_items.append(item)
@@ -2112,10 +2122,13 @@ class RealtimeTranscriptionSession:
         )
         self._previous_item_id = item.item_id
 
-        while self._deferred_primary_results and self._pending_items:
-            await self._handle_primary_transcript(
-                self._deferred_primary_results.popleft()
-            )
+        if drain_deferred:
+            # 一个 VAD 段可能已有多条 final；全部排空，即使第一个
+            # final 消耗了原生 item，也为后续结果建立各自的生命周期。
+            while self._deferred_primary_results:
+                await self._apply_primary_transcript(
+                    self._deferred_primary_results.popleft()
+                )
 
     async def _emit_completed_transcription(
         self,

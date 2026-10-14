@@ -13,6 +13,7 @@ export const AUDIO_PORT_META: Readonly<Record<string, AudioPortMeta>> = {
   pcm_chunk: { label: "PCM", ...audio },
   vad_audio_chunk: { label: "VAD 专用音频", ...audio },
   audio_segment: { label: "音频片段", ...segment },
+  speech_audio_chunk: { label: "流式语音块", ...segment },
   diarization_segment: { label: "说话人片段", ...segment },
   transcription: { label: "转写", ...transcript },
   speech_started: { label: "开始事件", ...event },

@@ -1985,6 +1985,16 @@ export interface components {
              */
             speech_pre_roll_seconds: number;
             /**
+             * Speech Chunk Seconds
+             * @default 1
+             */
+            speech_chunk_seconds: number;
+            /**
+             * Speech Chunk Holdback Seconds
+             * @default 1
+             */
+            speech_chunk_holdback_seconds: number;
+            /**
              * Progress Interval Seconds
              * @default 0.2
              */
