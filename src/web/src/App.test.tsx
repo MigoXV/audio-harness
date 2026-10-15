@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
+import { ApiError } from "./api/client";
 import { THEME_STORAGE_KEY } from "./styles/themePreference";
 import type { AudioHarnessApi, AudioWorkflowDocument, VoiceAgentDefinition } from "./api/types";
 
@@ -110,6 +111,32 @@ function renderApp(api: AudioHarnessApi, path = "/") {
 }
 
 describe("typed audio workflow control plane", () => {
+  it.each(["unconfigured", "unavailable", "pending"])("allows editing and saving with %s vector storage", async (state) => {
+    const { api, saveAudioWorkflowDraft } = fakeApi();
+    if (state === "unconfigured") {
+      vi.mocked(api.getVectorInfrastructure).mockResolvedValue({ configured: false, ready: false, grpc_target: null, http_url: null });
+    } else if (state === "unavailable") {
+      vi.mocked(api.listVectorSpaces).mockRejectedValue(new ApiError(503, "qdrant_unavailable", "Qdrant 不可用"));
+    } else {
+      vi.mocked(api.listVectorSpaces).mockReturnValue(new Promise(() => {}));
+    }
+    renderApp(api, "/audio-workflows/wf-1/build");
+    expect(await screen.findByRole("region", { name: "语音工作流画布" }, { timeout: 10_000 })).toBeVisible();
+    if (state === "unconfigured") {
+      expect(await screen.findByText(/尚未配置向量存储/)).toBeVisible();
+      expect(api.listVectorSpaces).not.toHaveBeenCalled();
+    } else if (state === "unavailable") {
+      expect(await screen.findByText(/向量空间读取失败/)).toBeVisible();
+    }
+    fireEvent.click(await screen.findByLabelText("节点 asr"));
+    fireEvent.click(screen.getByRole("checkbox", { name: "移除转写标点" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+    await waitFor(() => expect(saveAudioWorkflowDraft).toHaveBeenCalledWith("wf-1", expect.objectContaining({
+      nodes: expect.arrayContaining([expect.objectContaining({ id: "asr", config: { remove_punctuation: true } })]),
+    }), 2));
+    expect(await screen.findByText("草稿 r3", { selector: "small" })).toBeVisible();
+  }, 15_000);
+
   it.each(["workflow", "agent"])("keeps the %s draft and inspector while probing an engine", async (kind) => {
     const { api, saveAudioWorkflowDraft, saveVoiceAgentDraft } = fakeApi();
     const workflow = kind === "workflow";
