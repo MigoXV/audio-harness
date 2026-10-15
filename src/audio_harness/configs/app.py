@@ -6,7 +6,7 @@ from pathlib import Path
 from pydantic import Field, field_validator, model_validator
 
 from audio_harness.configs.base import StrictModel
-from audio_harness.configs.serving import HttpConfig, LimitsConfig
+from audio_harness.configs.serving import AhaGrpcConfig, HttpConfig, LimitsConfig
 from audio_harness.configs.webrtc import WebRtcConfig
 from audio_harness.configs.workflow import WorkflowRuntimeConfig
 
@@ -49,6 +49,7 @@ class AppConfig(StrictModel):
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     workflow: WorkflowRuntimeConfig = Field(default_factory=WorkflowRuntimeConfig)
     http: HttpConfig = Field(default_factory=HttpConfig)
+    aha_grpc: AhaGrpcConfig = Field(default_factory=AhaGrpcConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
     voices: VoiceConfig = Field(default_factory=VoiceConfig)
     received_audio_cache: ReceivedAudioCacheStorageConfig = Field(
@@ -68,6 +69,10 @@ class AppConfig(StrictModel):
         defaults = cls()
         return cls.model_validate(
             {
+                "aha_grpc": {
+                    "host": os.getenv("AHA_GRPC_HOST", defaults.aha_grpc.host),
+                    "port": os.getenv("AHA_GRPC_PORT", str(defaults.aha_grpc.port)),
+                },
                 "database": {
                     "url": os.getenv("DATABASE_URL", defaults.database.url),
                 },

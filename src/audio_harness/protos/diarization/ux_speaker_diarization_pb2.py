@@ -25,7 +25,7 @@ _sym_db = _symbol_database.Default()
 from google.protobuf import duration_pb2 as google_dot_protobuf_dot_duration__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n=audio_harness/protos/diarization/ux_speaker_diarization.proto\x12\x05ux_sd\x1a\x1egoogle/protobuf/duration.proto\"\x8b\x01\n\x06\x43onfig\x12-\n\x08\x65ncoding\x18\x01 \x01(\x0e\x32\x1b.ux_sd.Config.AudioEncoding\x12\x19\n\x11sample_rate_hertz\x18\x02 \x01(\r\"7\n\rAudioEncoding\x12\x18\n\x14\x45NCODING_UNSPECIFIED\x10\x00\x12\x0c\n\x08LINEAR16\x10\x01\"=\n\rDetectRequest\x12\x1d\n\x06\x63onfig\x18\x01 \x01(\x0b\x32\r.ux_sd.Config\x12\r\n\x05\x61udio\x18\x02 \x01(\x0c\"9\n\x0e\x44\x65tectResponse\x12\'\n\x07results\x18\x01 \x03(\x0b\x32\x16.ux_sd.DetectionResult\"~\n\x0f\x44\x65tectionResult\x12-\n\nstart_time\x18\x01 \x01(\x0b\x32\x19.google.protobuf.Duration\x12+\n\x08\x65nd_time\x18\x02 \x01(\x0b\x32\x19.google.protobuf.Duration\x12\x0f\n\x07speaker\x18\x03 \x01(\r2\x93\x01\n\x14UxSpeakerDiarization\x12\x37\n\x06\x44\x65tect\x12\x14.ux_sd.DetectRequest\x1a\x15.ux_sd.DetectResponse\"\x00\x12\x42\n\x0fStreamingDetect\x12\x14.ux_sd.DetectRequest\x1a\x15.ux_sd.DetectResponse\"\x00\x30\x01\x42)\n\tcom.ux.sdB\tUxSdProtoP\x01Z\x0fulang.com/sd;sdb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n=audio_harness/protos/diarization/ux_speaker_diarization.proto\x12\x05ux_sd\x1a\x1egoogle/protobuf/duration.proto\"W\n\x15\x44uplexStreamingConfig\x12\x1d\n\x06\x63onfig\x18\x01 \x01(\x0b\x32\r.ux_sd.Config\x12\x1f\n\x17input_buffer_latency_ms\x18\x02 \x01(\r\"|\n\x1c\x44uplexStreamingDetectRequest\x12.\n\x06\x63onfig\x18\x01 \x01(\x0b\x32\x1c.ux_sd.DuplexStreamingConfigH\x00\x12\x17\n\raudio_content\x18\x02 \x01(\x0cH\x00\x42\x13\n\x11streaming_request\"\x7f\n\x1d\x44uplexStreamingDetectResponse\x12-\n\x07results\x18\x01 \x03(\x0b\x32\x1c.ux_sd.DuplexDetectionResult\x12/\n\x0cprocess_time\x18\x02 \x01(\x0b\x32\x19.google.protobuf.Duration\"\x98\x01\n\x15\x44uplexDetectionResult\x12\x12\n\nsegment_id\x18\x01 \x01(\x04\x12\x0f\n\x07speaker\x18\x02 \x01(\r\x12-\n\nstart_time\x18\x03 \x01(\x0b\x32\x19.google.protobuf.Duration\x12+\n\x08\x65nd_time\x18\x04 \x01(\x0b\x32\x19.google.protobuf.Duration\"\x8b\x01\n\x06\x43onfig\x12-\n\x08\x65ncoding\x18\x01 \x01(\x0e\x32\x1b.ux_sd.Config.AudioEncoding\x12\x19\n\x11sample_rate_hertz\x18\x02 \x01(\r\"7\n\rAudioEncoding\x12\x18\n\x14\x45NCODING_UNSPECIFIED\x10\x00\x12\x0c\n\x08LINEAR16\x10\x01\"=\n\rDetectRequest\x12\x1d\n\x06\x63onfig\x18\x01 \x01(\x0b\x32\r.ux_sd.Config\x12\r\n\x05\x61udio\x18\x02 \x01(\x0c\"9\n\x0e\x44\x65tectResponse\x12\'\n\x07results\x18\x01 \x03(\x0b\x32\x16.ux_sd.DetectionResult\"~\n\x0f\x44\x65tectionResult\x12-\n\nstart_time\x18\x01 \x01(\x0b\x32\x19.google.protobuf.Duration\x12+\n\x08\x65nd_time\x18\x02 \x01(\x0b\x32\x19.google.protobuf.Duration\x12\x0f\n\x07speaker\x18\x03 \x01(\r2\xfd\x01\n\x14UxSpeakerDiarization\x12\x37\n\x06\x44\x65tect\x12\x14.ux_sd.DetectRequest\x1a\x15.ux_sd.DetectResponse\"\x00\x12\x42\n\x0fStreamingDetect\x12\x14.ux_sd.DetectRequest\x1a\x15.ux_sd.DetectResponse\"\x00\x30\x01\x12h\n\x15\x44uplexStreamingDetect\x12#.ux_sd.DuplexStreamingDetectRequest\x1a$.ux_sd.DuplexStreamingDetectResponse\"\x00(\x01\x30\x01\x42)\n\tcom.ux.sdB\tUxSdProtoP\x01Z\x0fulang.com/sd;sdb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -33,16 +33,24 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'audio_harness.protos.diariz
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'\n\tcom.ux.sdB\tUxSdProtoP\001Z\017ulang.com/sd;sd'
-  _globals['_CONFIG']._serialized_start=105
-  _globals['_CONFIG']._serialized_end=244
-  _globals['_CONFIG_AUDIOENCODING']._serialized_start=189
-  _globals['_CONFIG_AUDIOENCODING']._serialized_end=244
-  _globals['_DETECTREQUEST']._serialized_start=246
-  _globals['_DETECTREQUEST']._serialized_end=307
-  _globals['_DETECTRESPONSE']._serialized_start=309
-  _globals['_DETECTRESPONSE']._serialized_end=366
-  _globals['_DETECTIONRESULT']._serialized_start=368
-  _globals['_DETECTIONRESULT']._serialized_end=494
-  _globals['_UXSPEAKERDIARIZATION']._serialized_start=497
-  _globals['_UXSPEAKERDIARIZATION']._serialized_end=644
+  _globals['_DUPLEXSTREAMINGCONFIG']._serialized_start=104
+  _globals['_DUPLEXSTREAMINGCONFIG']._serialized_end=191
+  _globals['_DUPLEXSTREAMINGDETECTREQUEST']._serialized_start=193
+  _globals['_DUPLEXSTREAMINGDETECTREQUEST']._serialized_end=317
+  _globals['_DUPLEXSTREAMINGDETECTRESPONSE']._serialized_start=319
+  _globals['_DUPLEXSTREAMINGDETECTRESPONSE']._serialized_end=446
+  _globals['_DUPLEXDETECTIONRESULT']._serialized_start=449
+  _globals['_DUPLEXDETECTIONRESULT']._serialized_end=601
+  _globals['_CONFIG']._serialized_start=604
+  _globals['_CONFIG']._serialized_end=743
+  _globals['_CONFIG_AUDIOENCODING']._serialized_start=688
+  _globals['_CONFIG_AUDIOENCODING']._serialized_end=743
+  _globals['_DETECTREQUEST']._serialized_start=745
+  _globals['_DETECTREQUEST']._serialized_end=806
+  _globals['_DETECTRESPONSE']._serialized_start=808
+  _globals['_DETECTRESPONSE']._serialized_end=865
+  _globals['_DETECTIONRESULT']._serialized_start=867
+  _globals['_DETECTIONRESULT']._serialized_end=993
+  _globals['_UXSPEAKERDIARIZATION']._serialized_start=996
+  _globals['_UXSPEAKERDIARIZATION']._serialized_end=1249
 # @@protoc_insertion_point(module_scope)

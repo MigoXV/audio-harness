@@ -14,7 +14,7 @@ import httpx
 from fastapi import FastAPI
 
 from audio_harness.api.routers.vectors import create_vector_router
-from audio_harness.configs import AppConfig, QdrantConfig
+from audio_harness.configs.app import AppConfig, QdrantConfig
 from audio_harness.engines.models import EngineApi, EngineKind
 from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.protos.qdrant import points_pb2, qdrant_common_pb2

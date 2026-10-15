@@ -292,6 +292,17 @@ commit 完成全部 Workflow 输出后，会再发送一个更高 revision 的�
 
 引擎流失败后，节点会在下一批次重连并重放历史 embedding，因此后续成功 revision 仍可能重新分配所有历史 speaker ID。
 
+## 流式端到端分离的兼容语义
+
+`streaming_speaker_diarization` 节点使用以上相同事件，不新增 Sortformer 专用事件族。主转写和说话人转写仍分别按来源轮次和分离片段组织。
+
+- 每个上游候选轮次形成一个 batch；确定水位覆盖该轮次后输出已确定的 `local.delta`（有已知说话人时）与完整 `local.completed`，无须等待整个上传流关闭。未确定边界和 `-1` 不对外发送。
+- `local_speaker_id` 仍带 batch 命名空间，对外 `segment_id` 在 local、转写和 cluster 中一致。
+- cluster 仍是递增 revision 的全量快照，但其身份来自模型：speaker `1..8` 对应全局 `speaker_id=0..7`。不会调用声纹聚类或重分配已有身份；稳定范围限于单个工作流 RPC。
+- 重叠发言收敛为现有单说话人区间；无身份音频仍进入 ASR，但没有伪造的 cluster assignment。
+- 故障后保留上一成功快照，剩余轮次未知身份直通；终止时发送 `cluster.failed(final=true)`。与旧聚类路径不同，此节点不在下一 batch 重连或重放向量。
+- 正常 half-close 排空尾部音频后继续由现有收尾逻辑发送最终全量快照；静音输入允许空 assignments，最终 `processed_audio_ms` 包含尾部静音。
+
 ## 客户端状态建议
 
 ```text

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 
-from audio_harness.configs import CapacityConfig
+from audio_harness.configs.serving import CapacityConfig
 from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
 from audio_harness.serving.capacity_settings import CapacitySettingsSnapshot
 from audio_harness.sessions.limits import ResizableSessionLimiter

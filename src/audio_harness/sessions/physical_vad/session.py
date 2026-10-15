@@ -6,14 +6,14 @@ from uuid import uuid4
 
 from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.media.pcm import PcmChunk, VadAudioChunk
-from audio_harness.sessions.contracts import SegmentCandidate
+from audio_harness.sessions.contracts import SegmentCandidate, SpeechAudioChunk
 from audio_harness.workflows.events import SpeechStarted, SpeechStopped, VadProgress
 from audio_harness.workflows.models import PhysicalVadConfig
 
 
 PhysicalEmission = tuple[
     str,
-    SegmentCandidate | SpeechStarted | SpeechStopped | VadProgress,
+    SegmentCandidate | SpeechAudioChunk | SpeechStarted | SpeechStopped | VadProgress,
 ]
 
 
@@ -134,6 +134,8 @@ class PhysicalVadSession:
         config: PhysicalVadConfig,
         sample_rate: int,
         inferencer: VadInferencer,
+        *,
+        speech_chunks_enabled: bool = False,
     ) -> None:
         self._config = config
         self._sample_rate = sample_rate
@@ -147,6 +149,39 @@ class PhysicalVadSession:
         self._segment_start: int | None = None
         self._physical_segment_id: str | None = None
         self._last_processed = 0
+        self._speech_chunks_enabled = speech_chunks_enabled
+        if speech_chunks_enabled and config.speech_chunk_seconds + config.speech_chunk_holdback_seconds > config.audio_buffer_seconds:
+            raise ValueError("语音块时长与尾部保留时长之和不能超过音频缓冲时长")
+        self._chunk_samples = max(1, round(config.speech_chunk_seconds * sample_rate))
+        self._holdback_samples = round(config.speech_chunk_holdback_seconds * sample_rate)
+        self._chunk_start: int | None = None
+
+    def _speech_chunks(self, end: int, *, completed: bool) -> list[PhysicalEmission]:
+        if not self._speech_chunks_enabled:
+            return []
+        assert self._speech_start is not None
+        assert self._physical_segment_id is not None
+        start = self._chunk_start
+        assert start is not None
+        if end < start:
+            raise ValueError("VAD 结束边界早于已输出语音块，请增大 speech_chunk_holdback_seconds")
+        result: list[PhysicalEmission] = []
+        while end - start >= self._chunk_samples:
+            stop = start + self._chunk_samples
+            result.append(("speech_chunks", SpeechAudioChunk(
+                self._audio.slice(start, stop), start, stop,
+                self._speech_start, self._physical_segment_id,
+                completed=completed and stop == end,
+            )))
+            start = stop
+        if completed and (start < end or not result):
+            result.append(("speech_chunks", SpeechAudioChunk(
+                self._audio.slice(start, end), start, end,
+                self._speech_start, self._physical_segment_id, completed=True,
+            )))
+            start = end
+        self._chunk_start = start
+        return result
 
     @property
     def end_sample(self) -> int:
@@ -194,6 +229,7 @@ class PhysicalVadSession:
         assert self._segment_start is not None
         assert self._physical_segment_id is not None
         result: list[PhysicalEmission] = []
+        result.extend(self._speech_chunks(end, completed=True))
         item = self._segment(
             self._segment_start,
             end,
@@ -217,6 +253,7 @@ class PhysicalVadSession:
         if reopen:
             self._speech_start = end
             self._segment_start = end
+            self._chunk_start = end
             self._physical_segment_id = f"pseg_{uuid4().hex}"
             result.append(
                 (
@@ -231,6 +268,7 @@ class PhysicalVadSession:
         else:
             self._speech_start = None
             self._segment_start = None
+            self._chunk_start = None
             self._physical_segment_id = None
         return result
 
@@ -252,6 +290,7 @@ class PhysicalVadSession:
                 if self._speech_start is None:
                     self._speech_start = start
                     self._segment_start = start
+                    self._chunk_start = start
                     self._physical_segment_id = f"pseg_{uuid4().hex}"
                     result.append(
                         (
@@ -290,6 +329,7 @@ class PhysicalVadSession:
                 else:
                     self._speech_start = None
                     self._segment_start = None
+                    self._chunk_start = None
                     self._physical_segment_id = None
         if self._segment_start is not None:
             while self._segment_start + self._max_samples < processed:
@@ -300,12 +340,16 @@ class PhysicalVadSession:
                         reopen=True,
                     )
                 )
+            assert self._chunk_start is not None
+            safe_end = max(self._chunk_start, processed - self._holdback_samples)
+            result.extend(self._speech_chunks(safe_end, completed=False))
         return result
 
     def finish(self) -> list[PhysicalEmission]:
         if self._speech_start is None or self._audio.end_sample <= self._speech_start:
             self._speech_start = None
             self._segment_start = None
+            self._chunk_start = None
             self._physical_segment_id = None
             return []
         assert self._segment_start is not None

@@ -1,6 +1,6 @@
 # Realtime API 接入
 
-Audio Harness 在同一套 OpenAI Realtime 事件模型上提供 WebSocket 与 WebRTC。WebSocket 适合服务端、脚本和调试；WebRTC 适合浏览器/移动端，音频走 RTP、事件走 DataChannel。
+Audio Harness 在同一套 OpenAI Realtime 事件模型上提供 WebSocket、WebRTC 与 [aha-grpc](aha-grpc.md)。WebSocket 适合服务端、脚本和调试；WebRTC 适合浏览器/移动端，音频走 RTP、事件走 DataChannel。
 
 OpenAI 官方资料：[WebSocket](https://developers.openai.com/api/docs/guides/realtime-websocket)、[WebRTC](https://developers.openai.com/api/docs/guides/realtime-webrtc)、[Conversation](https://developers.openai.com/api/docs/guides/realtime-conversations)、[VAD](https://developers.openai.com/api/docs/guides/realtime-vad)、[客户端事件](https://platform.openai.com/docs/api-reference/realtime-client-events)、[服务端事件](https://platform.openai.com/docs/api-reference/realtime-server-events)。这些链接定义上游完整能力；本项目只承诺[已实现事件子集](openai-realtime.md)。
 
@@ -58,6 +58,8 @@ ws://localhost:8000/v1/realtime?model=meeting-agent
 
 ## 进一步阅读
 
+- [Python SDK 构建、安装与调用](python-sdk.md)
+- [aha-grpc TLS 双向流与强类型协议](aha-grpc.md)
 - [OpenAI 原生兼容子集](openai-realtime.md)
 - [AHA v1 事件](aha-v1.md)
 - [WebRTC 信令与媒体](webrtc.md)

@@ -73,13 +73,14 @@ curl -sS -X POST "http://localhost:8000/api/v1/audio-workflows/$WORKFLOW_ID/publ
 | --- | --- | --- | --- | --- |
 | `automatic_gain_control` | `audio: pcm_chunk` | `audio: pcm_chunk` | 无直接 Engine | attack、decay、soft-knee、初始电平和末级补偿；固定七段曲线 |
 | `streaming_denoise` | `audio: pcm_chunk` | `audio: vad_audio_chunk` | `ux_denoise` | `denoised_weight` 可空，默认关闭混合；默认 `fail_open` |
-| `physical_vad` | `audio: pcm_chunk` 或 `detection_audio: vad_audio_chunk`，两者互斥 | `segments: audio_segment`、`speech_started`、`speech_stopped` | `ux_vad` | 分段时长、缓冲、pre-roll、进度间隔、FireRed 后处理 |
+| `physical_vad` | `audio: pcm_chunk` 或 `detection_audio: vad_audio_chunk`，两者互斥 | `segments: audio_segment`、`speech_chunks: speech_audio_chunk`、`speech_started`、`speech_stopped` | `ux_vad` | 分段时长、缓冲、pre-roll、语音块时长／尾部保留、进度间隔、FireRed 后处理 |
 | `semantic_vad` | `segments: audio_segment` | `segments`、`speech_stopped`、`turn_progress` | `ux_vad` | `max_buffer_seconds`，默认 `fail_open` |
 | `asr` | `segments: audio_segment`，也接受 `diarization_segment` | `transcripts`、`speaker_transcripts` | `ux_speech` | `remove_punctuation` |
 | `audio_embedding` | `segments` | `embeddings` | `engine_feature` | 算法、维度、归一化 |
 | `vector_search` | `embeddings` | `results` | 无直接 Engine | Collection、Named Vector、top-k、阈值、filter |
 | `speaker_filter` | `segments`、`results` | 通过的 `segments`、`decisions`、`speech_started/stopped` | 无直接 Engine | Speaker ID 白名单、独立门控分数；未匹配和故障均 fail-closed |
 | `speaker_diarization` | `segments` | diarization `segments`、`local_results` | `ux_speaker_diarization` | 批次最短/最长秒数、送入 ASR 的最短分段秒数（`min_asr_segment_seconds`，默认 0.5）、可空的 `postprocessing`；默认使用 `audio_harness.diarization.vad_coverage` v1，显式 `null` 保留旧行为 |
+| `streaming_speaker_diarization` | `audio: pcm_chunk` 和 `segments: audio_segment` 或 `speech_audio_chunk`，两个输入均必需 | diarization `segments`、`local_results`、`cluster_results` | `ux_speaker_diarization_duplex` | 模型输入缓冲 320／640／1040 ms、待处理音频上限、累计片段上限 |
 | `speaker_clustering` | diarization `segments` | `results` | `engine_feature` | embedding/聚类算法、参数、最大向量数 |
 
 客户端不应把本表硬编码为动态插件目录；编辑器应调用 `/audio-node-types` 读取当前端口和 `config_schema`。
@@ -90,6 +91,27 @@ curl -sS -X POST "http://localhost:8000/api/v1/audio-workflows/$WORKFLOW_ID/publ
 纯降噪或加权波形。两个输入必须且只能连接一个。
 `denoised_weight=w` 时检测音频为 `(1-w) × 原音 + w × 降噪音频`；字段为 `null`
 时直接使用纯降噪音频。
+
+`physical_vad.speech_chunks` 是图内专用的有效语音块出口，只能连接
+`streaming_speaker_diarization.segments`，不能直接连接普通 ASR、语义 VAD 或绑定工作流出口。
+它与完整的 `segments` 出口使用相同的原始 PCM 和物理段身份，增量块不会触发新的
+`speech_started/stopped`。默认 `speech_chunk_seconds=1`、
+`speech_chunk_holdback_seconds=1`，仅在该出口有消费者时启用增量处理。
+保留时长用于等待可能回溯的停顿边界，应覆盖引擎实际的回溯范围；边界回溯到已输出
+音频范围时明确失败，不能撤回已经送入 ASR 的音频。结束时排空全部尾部，
+没有剩余 PCM 时仍发出一次轮次结束标记。语音块时长与保留时长之和不能超过音频缓冲时长。
+
+流式分离持续接收含静音的完整音频。有效语音块仅进入缓存，不会直接成为 ASR 请求。
+开放的说话人片段通过 `diarization_local.delta` 增量更新，重复更新保持相同的
+`batch_id` 和 `segment_id`；只有模型边界闭合且对应 PCM 收齐后才发布
+`diarization_local.completed` 并将完整片段送入 ASR。正常 EOF 排空模型闭合后的尾部，
+超过缓存限制或推理失败时显式失败开放，不静默丢弃有效语音。
+同一物理段的分角色转写共享 `item_source_id`，下游 ASR 的 `transcripts` 在该段完成后
+合并输出一次；`min_asr_segment_seconds` 对闭合的完整片段生效。流式会议模板的独立
+主转写分支仍由语义 VAD 划分轮次。旧 `segments` 输入继续按原行为处理。
+迁移已有工作流时，先更新并重启服务，通过 `GET /audio-node-types` 确认新增出口，
+再读取当前 draft，将流式分离 `segments` 入边改为主物理 VAD 的 `speech_chunks`，
+使用 `expected_revision` 保存，校验后发布。完整 `audio` 输入仍需与 VAD 同源，包含静音。
 
 `automatic_gain_control` 是无前瞻、跨块保持包络状态的本地 `PCM → PCM` 节点，输出
 连接 `physical_vad.audio` 后，VAD 与所有后续节点都会使用 AGC 波形。默认参数为

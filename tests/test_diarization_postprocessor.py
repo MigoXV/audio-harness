@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from audio_harness.inferencers.diarization import (
-    DiarizationInferencer,
-    DiarizationPostprocessor,
-)
+from audio_harness.inferencers.diarization.base import DiarizationInferencer
+from audio_harness.inferencers.diarization.postprocessor import DiarizationPostprocessor
 
 
 RawSegment = DiarizationInferencer.Segment

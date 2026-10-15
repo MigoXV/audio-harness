@@ -12,6 +12,11 @@ class HttpConfig(StrictModel):
     tls_key_file: Path | None = None
 
 
+class AhaGrpcConfig(StrictModel):
+    host: str = Field(default="0.0.0.0", min_length=1)
+    port: int = Field(default=50051, ge=0, le=65535)
+
+
 class LimitsConfig(StrictModel):
     max_message_bytes: int = Field(default=4 * 1024 * 1024, gt=0)
 

@@ -1,8 +1,10 @@
 # Audio Harness
 
-Audio Harness 是一个面向实时语音推理的异步编排服务。它把推理引擎、语音工作流、语音智能体配置和协议接入拆成独立边界，通过 OpenAI Realtime WebSocket 与 WebRTC 提供数据面。
+Audio Harness 是一个面向实时语音推理的异步编排服务。它把推理引擎、语音工作流、语音智能体配置和协议接入拆成独立边界，通过 OpenAI Realtime WebSocket、WebRTC 与 aha-grpc 提供数据面。
 
 当前版本采用全新的数据库基线，不兼容旧版 Pipeline、Stage Workflow 或历史业务数据。
+
+Web UI 采用 MANAS 工作空间布局与苍渊·白垣双主题，默认白垣。导航、页面原型、共享变量和代码入口见 [UI 与 Figma 同步说明](docs/ui-figma-sync.md)。
 
 ## 核心设计
 
@@ -23,7 +25,7 @@ HTTP 控制面
     ├── AgentBackendCatalog          │       │
     └── RealtimeModelCatalog         │       │
                                       │       └── 不可变引擎快照租约
-Realtime / WebRTC 数据面 ───────────┘
+Realtime / WebRTC / aha-grpc 数据面 ───────────┘
 ```
 
 协议层不读取数据库、不解析业务图，也不负责创建推理客户端。进程组合根在启动时装配服务；会话只持有活动工作流快照、容量租约和有界队列。
@@ -39,7 +41,9 @@ Realtime / WebRTC 数据面 ───────────┘
 | Physical VAD | `audio: pcm_chunk` 或 `detection_audio: vad_audio_chunk`（互斥） | `audio_segment`、`speech_started`、`speech_stopped` | `ux_vad` |
 | Semantic VAD | `audio_segment` | `audio_segment`、`speech_stopped`、`transcription` | `ux_vad` |
 | ASR | `audio_segment` | `transcription` | `ux_speech` |
-| Speaker Diarization | `audio_segment` | `audio_segment`、`diarization_local_result` | `ux_speaker_diarization` |
+| Speaker Diarization | `audio_segment` | `diarization_segment`、`diarization_local_result` | `ux_speaker_diarization` |
+| Streaming Speaker Diarization | `pcm_chunk` ＋ `audio_segment`（均必需） | `diarization_segment`、`diarization_local_result`、`diarization_cluster_result` | `ux_speaker_diarization_duplex` |
+| Speaker Clustering | `diarization_segment` | `diarization_cluster_result` | `engine_feature` |
 | Audio Embedding | `audio_segment` | `embedding` | `engine_feature` |
 | Vector Search | `embedding` | `vector_search_result` | 无 |
 | Speaker Filter | `audio_segment`、`vector_search_result` | `audio_segment`、`speaker_filter_result`、VAD 事件 | 无 |
@@ -127,6 +131,49 @@ ASR 节点可以独立开启“移除转写标点”，在节点输出进入工�
 
 工作流的语义文档与画布 `layout` 分开保存。发布时重新编译草稿、准备全部引擎，然后原子写入不可变 revision；活动会话不会被后续草稿或引擎资产修改热改。
 
+## Sortformer／Nemotron-3 流式说话人分离
+
+在“推理引擎”中注册能力类型为“说话人分离”、实现为“Sortformer 双向流（Nemotron-3）”的引擎，填入服务的 `host:port`。对应资产使用 `kind=diarization`、`api=ux_speaker_diarization_duplex`、`protocol=grpc`。对方服务必须加载 Nemotron-3；普通 Sortformer 模型的旧接口不能用于这个节点。
+
+在工作流编辑器中应用“流式会议”模板，绑定 VAD、ASR 和新分离引擎，然后保存、校验并发布。模板保留主转写、预览、语义轮次和人物搜索分支，以一个 `streaming_speaker_diarization` 节点替代分离＋聚类两个节点。现有工作流不会自动迁移或激活。
+
+新节点必须同时连接：
+
+- `audio`：完整、连续的 16 kHz 单声道 PCM S16LE，包含静音；可来自图输入或 AGC。
+- `segments`：优先连接物理 VAD 的 `speech_chunks`，在讲话过程中持续取得有效语音块；也兼容旧的 `segments` 整段入口，但旧入口仍需等待 VAD／语义轮次结束。
+
+输出 `segments` 连接分角色 ASR；`local_results` 绑定 `diarization_local`；`cluster_results` 绑定 `diarization_cluster`。分角色 ASR 的 `speaker_transcripts` 继续绑定 `speaker_transcript`。
+
+```json
+{
+  "id": "streaming-speaker-diarization",
+  "kind": "streaming_speaker_diarization",
+  "engine_id": "注册后的引擎ID",
+  "config": {
+    "input_buffer_latency_ms": 320,
+    "min_asr_segment_seconds": 0.5,
+    "max_pending_audio_seconds": 120,
+    "max_segments": 10000
+  }
+}
+```
+
+模型持续接收完整音频，`process_time` 表示从音频起点算起、包含静音的确定进度。物理 VAD 的传输分包只用于缓存有效语音，不决定 ASR 分段；物理语音段的结束标记是分段硬边界。确认换人前（包括同一说话人的模型片段已经闭合时），节点仅通过 `diarization_local.delta` 更新同一 `batch_id` 和 `segment_id` 的已确定范围；只有确认后续出现不同的说话人，或当前物理 VAD 段结束，并收齐对应有效语音后，才发布 `diarization_local.completed`、提交全局身份分配，并把完整片段一次送入分角色 ASR。不会因 320 ms 或 1 秒传输分块而切碎转写，也不等待整条输入流结束。同一物理 VAD 段内，同一说话人的多个模型片段继续合并；物理 VAD 段之间必须切断，即使身份相同也不能跨过非语音间隙合并。会话结束时排空最后一个轮次。`min_asr_segment_seconds` 继续作用于完整说话人轮次，默认 0.5 秒。
+
+同一持续说话人轮次的 `item_source_id` 保持一致，该分角色 ASR 的 `transcripts` 在该轮次处理完成后返回一次；模板的独立主转写分支仍沿用语义 VAD 轮次。重叠、间隙和无身份音频沿用现有单说话人覆盖语义，不对同一段音频重复转写。旧的整段 `segments` 入口继续使用原先的轮次对齐行为。
+
+物理 VAD 新增 `speech_chunks` 出口，仅可接到流式分离的 `segments` 输入；原有 `segments` 出口继续向语义 VAD、主转写和人物搜索提供完整分段。`speech_chunk_seconds` 默认 **1 秒**，控制增量语音块时长；`speech_chunk_holdback_seconds` 默认 **1 秒**，为延迟到达、可能回溯的 VAD 结束边界保留尾部音频。结束时立即排空尾部，必要时使用不含 PCM 的结束标记关闭轮次。尾部保留应覆盖实际 VAD 服务的结束边界回溯时间；如果结束位置早于已输出音频，工作流会明确报错并提示增大保留时长。仅在引擎保证边界不回溯时，才可将保留设为 `0`。这两个时长之和不能超过音频缓冲时长。
+
+实际首个结果仍取决于 VAD 起点确认、语音块时长、尾部保留、分离模型确定进度及 ASR 耗时，不能把模型的 320 ms 输入缓冲视为端到端延迟保证。新“流式会议”模板已接入 `physical-vad.speech_chunks`；已有工作流需在更新服务后将流式分离的 `segments` 入边从整段出口改接到主物理 VAD 的 `speech_chunks`，再保存、校验和发布。如果物理 VAD 使用 AGC，分离的连续 `audio` 输入也必须使用同一 AGC 音频时间轴。
+
+输入缓冲可选 **320、640、1040 ms**，默认 320；这是模型缓冲档位，不保证响应间隔或端到端延迟。请求超时留空表示客户端不设置整条 RPC 的 deadline；填写时约束整个流的寿命。Realtime 继续使用已有重采样路径，其内部音频为 16 kHz。
+
+对外仍返回现有 `x_aha.diarization.local.*`、分角色转写和 `x_aha.diarization.cluster.*` 事件。增量入口以确认换人或物理 VAD 段结束后完成的说话人轮次形成 batch，预览与完成事件复用身份；旧的整段入口按候选轮次形成 batch，局部 speaker 使用 batch 命名空间；模型 speaker `1..8` 直接映射为该工作流 RPC 内全局 ID `0..7`，每次新增分配发布完整聚类快照。新分离路径不调用声纹特征或聚类服务；人物搜索分支仍独立使用特征服务。
+
+正常结束会 half-close 并排空尾部结果，再发布最终快照；空输入不建立业务 RPC，纯静音最终 assignments 为空。失败保留上一成功快照，并让剩余轮次以未知身份直通 ASR，同一工作流内不自动重连。`max_pending_audio_seconds` 同时限制待处理语音量和时间轴历史保留长度；超出历史范围的迟到轮次、模型累计片段数或输出片段数超过 `max_segments`，都会显式失败开放，不静默丢弃音频。speaker 身份不跨 RPC、commit 后的新工作流或客户端会话复用。
+
+详细线协议见 [gRPC 推理协议](docs/engine-integration/grpc-protocols.md)。
+
 ## 目录结构
 
 ```text
@@ -148,7 +195,8 @@ src/audio_harness/
 │   ├── diarization/    # 说话人分离批处理与结果映射会话
 │   └── speaker_clustering/ # 跨批次说话人聚类会话
 ├── serving/            # 进程容量、状态与协议服务
-│   ├── realtime/       # OpenAI Realtime WebSocket 适配器
+│   ├── realtime/       # 共享 Realtime 核心与 WebSocket 适配器
+│   ├── aha_grpc/       # aha-grpc 编解码、TLS 双向流及异步客户端
 │   └── webrtc/         # WebRTC 适配器
 └── database/           # SQLAlchemy 模型与单一 Alembic 基线
 
@@ -159,6 +207,14 @@ src/web/
     ├── components/AudioGraphEditor.tsx
     └── components/DeploymentPanel.tsx # 工作流与语音智能体共用的显式接入面板
 ```
+
+Python 符号统一从定义模块导入，例如
+`from audio_harness.configs.app import AppConfig`，
+`from audio_harness.workflows.service import AudioWorkflowService`。
+各包的 `__init__.py` 不再重导出类型或服务；共享的 `Inferencer` 联合类型位于
+`audio_harness.inferencers.types`。Realtime 协议、二进制契约与 JSON/Base64 编解码
+直接使用 `aha.contracts.protocol`、`aha.contracts.binary` 和
+`aha.contracts.json_codec`，旧服务端导入路径已移除。
 
 ## 数据库策略
 
@@ -173,8 +229,13 @@ src/web/
 
 ## 安装与启动
 
+服务端共享协议来自独立的 `aha-python` SDK（Python 导入名为 `aha`）。
+当前尚未纳入本仓库 Poetry 依赖，安装项目依赖后还需从本地构建的 wheel 安装 SDK：
+
 ```bash
 poetry install
+poetry -C /workspace/libs/aha-python build
+poetry run python -m pip install /workspace/libs/aha-python/dist/aha_python-0.1.0-py3-none-any.whl
 cd src/web
 pnpm install
 pnpm build
@@ -182,11 +243,14 @@ cd ../..
 poetry run audio-harness serve
 ```
 
+`serve` 同时强制启动 aha-grpc TLS，默认监听 `0.0.0.0:50051`，与 HTTP 共用证书和私钥，不提供启停开关。WS 与 gRPC 使用同一套 Realtime 业务逻辑，gRPC 音频为原始 bytes，默认启用 AHA v1。接入说明见 [aha-grpc 协议](docs/realtime-api/aha-grpc.md) 和 [Python 示例](examples/aha_grpc_python_demo/README.md)。
+
 常用环境变量：
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `DATABASE_URL` | `sqlite+aiosqlite:///./data-bin/sqlite/audio-harness.db` | SQLite 数据库 |
+| `AHA_GRPC_HOST` / `AHA_GRPC_PORT` | `0.0.0.0` / `50051` | aha-grpc TLS 地址与端口 |
 | `HTTP_HOST` / `HTTP_PORT` | `0.0.0.0` / `8000` | HTTP、WSS 与 WebRTC 信令地址 |
 | `VOICE_STORAGE_DIR` | `./data-bin/voices` | 参考音频目录 |
 | `RECEIVED_AUDIO_CACHE_DIR` | `./data-bin/cache` | 接收音频缓存根目录 |
@@ -221,6 +285,8 @@ Qdrant 是 Collection、Named Vector、Point 和 payload 的唯一事实来源�
 只有白名单人物达到门控分数时才将音频送入 ASR；未匹配、低分和检索失败均静默拒绝。
 完整字段、curl 示例和 `x_aha.vector.*` 事件分别见[向量检索接口](docs/control-plane/vectors.md)
 与 [AHA v1 协议](docs/realtime-api/aha-v1.md)。
+
+推理引擎页面支持在列表行中直接编辑连接配置或复检，点击名称查看健康诊断与工作流/智能体引用。Responses 模型目录与 Qwen TTS 音色目录在详情中按需读取；停用、删除前会检查引用。保存与复检分别反馈结果，复检失败会保留已保存的配置。
 
 控制台按语音工作流、语音智能体、Agent Backends、推理引擎和接入运行等任务域组织。首次启动后的推荐顺序：
 

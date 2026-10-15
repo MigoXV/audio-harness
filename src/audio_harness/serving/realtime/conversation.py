@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import binascii
 import copy
 import io
 import wave
@@ -47,7 +46,7 @@ class RealtimeConversation:
         previous_item_id: str | None = None,
     ) -> tuple[dict[str, Any], str | None]:
         payload = (
-            item.model_dump(mode="json", exclude_none=True)
+            item.model_dump(mode="python", exclude_none=True)
             if hasattr(item, "model_dump")
             else copy.deepcopy(item)
         )
@@ -69,9 +68,7 @@ class RealtimeConversation:
         payload.setdefault("object", "realtime.item")
         payload["status"] = "completed"
         actual_previous = (
-            previous_item_id
-            if previous_item_id is not None
-            else self.last_item_id
+            previous_item_id if previous_item_id is not None else self.last_item_id
         )
         if previous_item_id is None:
             self._order.append(identifier)
@@ -128,7 +125,7 @@ class RealtimeConversation:
                         param=f"{param}.image_url",
                     )
                 if part_type in {"input_audio", "output_audio"} and not (
-                    isinstance(part.get("audio"), str)
+                    isinstance(part.get("audio"), bytes)
                     or isinstance(part.get("transcript"), str)
                 ):
                     raise ConversationMutationError(
@@ -278,15 +275,13 @@ class RealtimeConversation:
                 elif part_type == "input_audio":
                     transcript = part.get("transcript")
                     if transcript:
-                        content.append(
-                            {"type": "input_text", "text": str(transcript)}
-                        )
+                        content.append({"type": "input_text", "text": str(transcript)})
                     elif part.get("audio"):
                         content.append(
                             {
                                 "type": "input_audio",
                                 "input_audio": {
-                                    "data": _pcm_base64_to_wav(part["audio"]),
+                                    "data": _pcm_to_responses_wav(part["audio"]),
                                     "format": "wav",
                                 },
                             }
@@ -317,15 +312,14 @@ class RealtimeConversation:
         return None
 
 
-def _pcm_base64_to_wav(value: str) -> str:
-    try:
-        pcm = base64.b64decode(value, validate=True)
-    except (binascii.Error, ValueError) as exc:
+def _pcm_to_responses_wav(pcm: bytes) -> str:
+    """Responses API projection: core conversation audio remains raw PCM."""
+    if not isinstance(pcm, bytes):
         raise ConversationMutationError(
-            "input_audio.audio 必须是合法的 base64",
-            code="invalid_audio_base64",
+            "input_audio.audio 必须是 PCM bytes",
+            code="invalid_audio",
             param="item.content.audio",
-        ) from exc
+        )
     if len(pcm) % 2:
         raise ConversationMutationError(
             "input_audio PCM S16LE 字节数必须为偶数",

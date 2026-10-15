@@ -6,7 +6,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, File, Form, Response, UploadFile, status
 
-from audio_harness.configs import QdrantConfig
+from audio_harness.configs.app import QdrantConfig
 from audio_harness.schemas.vectors import (
     AudioSpeakerSearchRead, DestroyRequest, InfrastructureRead, PayloadReplace, ScrollRequest,
     SpeakerMatchRead,

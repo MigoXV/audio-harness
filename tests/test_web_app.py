@@ -7,9 +7,9 @@ import httpx
 import pytest
 
 import audio_harness.api.app as api_app_module
-from audio_harness.api import create_http_app
-from audio_harness.configs import AppConfig
-from audio_harness.database import upgrade_database
+from audio_harness.api.app import create_http_app
+from audio_harness.configs.app import AppConfig
+from audio_harness.database.session import upgrade_database
 from audio_harness.serving.host import AudioHarnessHost
 
 

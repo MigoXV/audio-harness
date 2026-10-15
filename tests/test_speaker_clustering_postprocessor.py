@@ -5,12 +5,12 @@ import math
 import numpy as np
 import pytest
 
-from audio_harness.inferencers.embedding import (
+from audio_harness.inferencers.embedding.postprocessor import (
     ClusteredSpeakerAudio,
-    EngineFeatureInferencer,
     SpeakerAudioSegment,
     SpeakerClusteringPostprocessor,
 )
+from audio_harness.inferencers.embedding.base import EngineFeatureInferencer
 
 
 def _pcm(value: int, samples: int = 1) -> bytes:

@@ -12,7 +12,7 @@ from audio_harness.database.models import AudioWorkflow, AudioWorkflowRevision
 from audio_harness.engines.catalog import EngineCatalog
 from audio_harness.engines.models import EngineApi, EngineKind
 from audio_harness.engines.pool import InferencerPool
-from audio_harness.inferencers.embedding import EngineFeatureInferencer
+from audio_harness.inferencers.embedding.base import EngineFeatureInferencer
 from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
 from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.media.decode import decode_audio

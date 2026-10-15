@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from audio_harness.inferencers.diarization import DummyDiarizationInferencer
+from audio_harness.inferencers.diarization.dummy import DummyDiarizationInferencer
 
 
 @pytest.mark.asyncio

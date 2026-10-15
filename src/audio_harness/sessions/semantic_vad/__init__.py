@@ -1,3 +1,1 @@
-from audio_harness.sessions.semantic_vad.session import SemanticVadSession
-
-__all__ = ["SemanticVadSession"]
+"""语义 VAD 执行会话。"""

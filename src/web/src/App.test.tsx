@@ -4,12 +4,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
+import { ApiError } from "./api/client";
+import { THEME_STORAGE_KEY } from "./styles/themePreference";
 import type { AudioHarnessApi, AudioWorkflowDocument, VoiceAgentDefinition } from "./api/types";
+
+vi.mock("./features/engines/console.css", () => ({}));
 
 const document: AudioWorkflowDocument = {
   schema_version: 1,
   nodes: [
-    { id: "physical-vad", kind: "physical_vad", engine_id: "vad-1", config: { min_segment_seconds: .5, max_segment_seconds: 60, audio_buffer_seconds: 120, speech_pre_roll_seconds: .3, progress_interval_seconds: .2 } },
+    { id: "physical-vad", kind: "physical_vad", engine_id: "vad-1", config: { min_segment_seconds: .5, max_segment_seconds: 60, audio_buffer_seconds: 120, speech_pre_roll_seconds: .3, speech_chunk_seconds: 1, speech_chunk_holdback_seconds: 1, progress_interval_seconds: .2 } },
     { id: "asr", kind: "asr", engine_id: "asr-1", config: { remove_punctuation: false } },
   ],
   edges: [
@@ -45,7 +49,9 @@ function fakeApi() {
     probe_latency_ms: 2, consecutive_failures: 0, next_probe_at: null, source: null, details: {}, revision: 1,
     created_at: "2026-08-09T00:00:00Z", updated_at: "2026-08-09T00:00:00Z",
   });
+  const engineItems = [engine("vad-1", "vad", "ux_vad"), engine("asr-1", "asr", "ux_speech"), engine("llm-1", "llm", "responses"), engine("tts-1", "tts", "qwen_tts_duplex"), engine("embedding-1", "embedding", "engine_feature"), engine("denoise-1", "denoise", "ux_denoise")];
   const api = {
+    getEngine: vi.fn().mockImplementation(async (id: string) => engineItems.find((item) => item.id === id)),
     getRuntimeOverview: vi.fn().mockResolvedValue({
       status: "ready", control_plane: "ready", issues: [],
       realtime: { state: "ready", public_routes: 1, internal_routes: 0 },
@@ -66,17 +72,18 @@ function fakeApi() {
     listAudioNodeTypes: vi.fn().mockResolvedValue([
       { kind: "automatic_gain_control", display_name: "自动增益控制", required_api: null, inputs: [{ name: "audio", kind: "pcm_chunk" }], outputs: [{ name: "audio", kind: "pcm_chunk" }], config_schema: {} },
       { kind: "streaming_denoise", display_name: "在线降噪", required_api: "ux_denoise", inputs: [{ name: "audio", kind: "pcm_chunk" }], outputs: [{ name: "audio", kind: "vad_audio_chunk" }], config_schema: {} },
-      { kind: "physical_vad", display_name: "物理 VAD", required_api: "ux_vad", inputs: [{ name: "audio", kind: "pcm_chunk" }, { name: "detection_audio", kind: "vad_audio_chunk" }], outputs: [{ name: "segments", kind: "audio_segment" }, { name: "speech_started", kind: "speech_started" }, { name: "speech_stopped", kind: "speech_stopped" }], input_groups: [{ name: "audio_source", ports: ["audio", "detection_audio"], minimum: 1, maximum: 1 }], config_schema: {} },
+      { kind: "physical_vad", display_name: "物理 VAD", required_api: "ux_vad", inputs: [{ name: "audio", kind: "pcm_chunk" }, { name: "detection_audio", kind: "vad_audio_chunk" }], outputs: [{ name: "segments", kind: "audio_segment" }, { name: "speech_chunks", kind: "speech_audio_chunk" }, { name: "speech_started", kind: "speech_started" }, { name: "speech_stopped", kind: "speech_stopped" }], input_groups: [{ name: "audio_source", ports: ["audio", "detection_audio"], minimum: 1, maximum: 1 }], config_schema: {} },
       { kind: "semantic_vad", display_name: "语义 VAD", required_api: "ux_vad", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "segments", kind: "audio_segment" }, { name: "speech_stopped", kind: "speech_stopped" }, { name: "turn_progress", kind: "transcription" }], config_schema: {} },
       { kind: "asr", display_name: "语音识别", required_api: "ux_speech", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "transcripts", kind: "transcription" }, { name: "speaker_transcripts", kind: "speaker_transcription" }], config_schema: {} },
       { kind: "audio_embedding", display_name: "语音特征向量提取", required_api: "engine_feature", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "embeddings", kind: "embedding" }], config_schema: {} },
       { kind: "vector_search", display_name: "人物搜索", required_api: null, inputs: [{ name: "embeddings", kind: "embedding" }], outputs: [{ name: "results", kind: "vector_search_result" }], config_schema: {} },
       { kind: "speaker_filter", display_name: "说话人过滤", required_api: null, inputs: [{ name: "segments", kind: "audio_segment" }, { name: "results", kind: "vector_search_result" }], outputs: [{ name: "segments", kind: "audio_segment" }, { name: "speech_started", kind: "speech_started" }, { name: "speech_stopped", kind: "speech_stopped" }, { name: "decisions", kind: "speaker_filter_result" }], config_schema: {} },
       { kind: "speaker_diarization", display_name: "说话人分离", required_api: "ux_speaker_diarization", inputs: [{ name: "segments", kind: "audio_segment" }], outputs: [{ name: "segments", kind: "diarization_segment" }, { name: "local_results", kind: "diarization_local_result" }], config_schema: {} },
+      { kind: "streaming_speaker_diarization", display_name: "流式说话人分离", required_api: "ux_speaker_diarization_duplex", inputs: [{ name: "audio", kind: "pcm_chunk" }, { name: "segments", kind: "audio_segment", accepted_kinds: ["speech_audio_chunk"] }], outputs: [{ name: "segments", kind: "diarization_segment" }, { name: "local_results", kind: "diarization_local_result" }, { name: "cluster_results", kind: "diarization_cluster_result" }], config_schema: {} },
       { kind: "speaker_clustering", display_name: "说话人聚类", required_api: "engine_feature", inputs: [{ name: "segments", kind: "diarization_segment" }], outputs: [{ name: "results", kind: "diarization_cluster_result" }], config_schema: {} },
     ]),
     listAudioWorkflowRevisions: vi.fn().mockResolvedValue([]),
-    listEngines: vi.fn().mockResolvedValue({ items: [engine("vad-1", "vad", "ux_vad"), engine("asr-1", "asr", "ux_speech"), engine("llm-1", "llm", "responses"), engine("tts-1", "tts", "qwen_tts_duplex"), engine("embedding-1", "embedding", "engine_feature"), engine("denoise-1", "denoise", "ux_denoise")], total: 6, limit: 200, offset: 0 }),
+    listEngines: vi.fn().mockResolvedValue({ items: engineItems, total: 6, limit: 200, offset: 0 }),
     listEngineModels: vi.fn().mockResolvedValue({ engine_id: "llm-1", engine_revision: 1, items: ["deepseek-chat", "deepseek-reasoner"] }),
     getRuntimeStatus: vi.fn().mockResolvedValue({ realtime: { active: 2, capacity: 64, rejected: 1 }, webrtc: { active: 1, capacity: 64, rejected: 0 }, asr: { active: 2, capacity: 8, rejected: 0 }, responses: { active: 1, capacity: 8, rejected: 0 }, tts: { active: 1, capacity: 1, rejected: 2 }, started_at: "2026-08-09T00:00:00Z" }),
     getCapacitySettings: vi.fn().mockResolvedValue({ realtime: { max_sessions: 64 }, webrtc: { max_sessions: 64 }, max_asr_concurrency: 8, max_responses_concurrency: 8, max_tts_concurrency: 1, revision: 1, updated_at: "2026-08-09T00:00:00Z" }),
@@ -104,6 +111,114 @@ function renderApp(api: AudioHarnessApi, path = "/") {
 }
 
 describe("typed audio workflow control plane", () => {
+  it.each(["unconfigured", "unavailable", "pending"])("allows editing and saving with %s vector storage", async (state) => {
+    const { api, saveAudioWorkflowDraft } = fakeApi();
+    if (state === "unconfigured") {
+      vi.mocked(api.getVectorInfrastructure).mockResolvedValue({ configured: false, ready: false, grpc_target: null, http_url: null });
+    } else if (state === "unavailable") {
+      vi.mocked(api.listVectorSpaces).mockRejectedValue(new ApiError(503, "qdrant_unavailable", "Qdrant 不可用"));
+    } else {
+      vi.mocked(api.listVectorSpaces).mockReturnValue(new Promise(() => {}));
+    }
+    renderApp(api, "/audio-workflows/wf-1/build");
+    expect(await screen.findByRole("region", { name: "语音工作流画布" }, { timeout: 10_000 })).toBeVisible();
+    if (state === "unconfigured") {
+      expect(await screen.findByText(/尚未配置向量存储/)).toBeVisible();
+      expect(api.listVectorSpaces).not.toHaveBeenCalled();
+    } else if (state === "unavailable") {
+      expect(await screen.findByText(/向量空间读取失败/)).toBeVisible();
+    }
+    fireEvent.click(await screen.findByLabelText("节点 asr"));
+    fireEvent.click(screen.getByRole("checkbox", { name: "移除转写标点" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+    await waitFor(() => expect(saveAudioWorkflowDraft).toHaveBeenCalledWith("wf-1", expect.objectContaining({
+      nodes: expect.arrayContaining([expect.objectContaining({ id: "asr", config: { remove_punctuation: true } })]),
+    }), 2));
+    expect(await screen.findByText("草稿 r3", { selector: "small" })).toBeVisible();
+  }, 15_000);
+
+  it.each(["workflow", "agent"])("keeps the %s draft and inspector while probing an engine", async (kind) => {
+    const { api, saveAudioWorkflowDraft, saveVoiceAgentDraft } = fakeApi();
+    const workflow = kind === "workflow";
+    const engineId = workflow ? "asr-1" : "llm-1";
+    const original = await api.getEngine(engineId);
+    vi.mocked(api.getEngine).mockResolvedValueOnce(original).mockResolvedValue({ ...original, status_basis: "已更新探测结果" });
+    vi.mocked(api.probeEngine).mockResolvedValue({} as Awaited<ReturnType<AudioHarnessApi["probeEngine"]>>);
+    renderApp(api, workflow ? "/audio-workflows/wf-1/build" : "/voice-agents/agent-1/build");
+    fireEvent.click(await screen.findByLabelText(workflow ? "节点 asr" : "节点 Responses"));
+    if (workflow) fireEvent.click(screen.getByRole("checkbox", { name: "移除转写标点" }));
+    else fireEvent.change(screen.getByLabelText("系统提示词"), { target: { value: "保留快捷面板前的草稿" } });
+    const trigger = screen.getByRole("button", { name: "查看引擎" });
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole("dialog", { name: "引擎详情" });
+    await within(dialog).findByText(original.name);
+    fireEvent.click(within(dialog).getByRole("button", { name: "复检" }));
+    expect(await within(dialog).findByText("已更新探测结果")).toBeVisible();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "引擎详情" })).not.toBeInTheDocument());
+    expect(screen.getByLabelText(workflow ? "节点配置面板" : "智能体节点配置面板")).toBeVisible();
+    await waitFor(() => expect(trigger).toHaveFocus());
+    if (workflow) expect(screen.getByRole("checkbox", { name: "移除转写标点" })).toBeChecked();
+    else expect(screen.getByLabelText("系统提示词")).toHaveValue("保留快捷面板前的草稿");
+    expect(screen.getByText("有未保存修改")).toBeVisible();
+    expect(api.listEngines).toHaveBeenCalledTimes(1);
+    expect(saveAudioWorkflowDraft).not.toHaveBeenCalled();
+    expect(saveVoiceAgentDraft).not.toHaveBeenCalled();
+  });
+
+  it("retains the unsaved draft guard when entering engine management from the quick view", async () => {
+    const { api } = fakeApi();
+    renderApp(api, "/voice-agents/agent-1/build");
+    fireEvent.click(await screen.findByLabelText("节点 Responses"));
+    fireEvent.change(screen.getByLabelText("系统提示词"), { target: { value: "暂不保存" } });
+    fireEvent.click(screen.getByRole("button", { name: "查看引擎" }));
+    fireEvent.click(await screen.findByRole("link", { name: "进入引擎管理" }));
+    const guard = await screen.findByRole("alertdialog");
+    expect(guard).toHaveTextContent("还有未保存的修改");
+    fireEvent.click(within(guard).getByRole("button", { name: "继续编辑" }));
+    fireEvent.click(screen.getByRole("button", { name: "关闭引擎详情" }));
+    expect(screen.getByLabelText("系统提示词")).toHaveValue("暂不保存");
+  });
+
+  it("persists the theme without resetting a creation form", async () => {
+    window.localStorage.removeItem(THEME_STORAGE_KEY);
+    const { api } = fakeApi();
+    const view = renderApp(api, "/audio-workflows");
+    fireEvent.click(await screen.findByRole("button", { name: "新建语音工作流" }));
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "Theme Draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "切换到苍渊主题" }));
+    expect(window.document.documentElement.dataset.theme).toBe("abyssus");
+    expect(screen.getByLabelText("名称")).toHaveValue("Theme Draft");
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("abyssus");
+    view.unmount();
+    renderApp(api, "/audio-workflows");
+    expect(screen.getByRole("button", { name: "切换到白垣主题" })).toBeVisible();
+    window.localStorage.removeItem(THEME_STORAGE_KEY);
+  });
+
+  it("keeps the selected node and dirty prompt while switching themes", async () => {
+    window.localStorage.removeItem(THEME_STORAGE_KEY);
+    const { api } = fakeApi(); renderApp(api, "/voice-agents/agent-1/build");
+    fireEvent.click(await screen.findByLabelText("节点 Responses"));
+    fireEvent.change(screen.getByLabelText("系统提示词"), { target: { value: "保留未保存的提示词" } });
+    fireEvent.click(screen.getByRole("button", { name: "切换到苍渊主题" }));
+    expect(screen.getByLabelText("系统提示词")).toHaveValue("保留未保存的提示词");
+    expect(screen.getByLabelText("智能体节点配置面板")).toBeVisible();
+    expect(screen.getByText("有未保存修改")).toBeVisible();
+    window.localStorage.removeItem(THEME_STORAGE_KEY);
+  });
+
+  it("allows theme changes when browser storage is unavailable", async () => {
+    const read = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("storage unavailable"); });
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("storage unavailable"); });
+    try {
+      const { api } = fakeApi(); renderApp(api, "/audio-workflows");
+      fireEvent.click(screen.getByRole("button", { name: "切换到苍渊主题" }));
+      expect(window.document.documentElement.dataset.theme).toBe("abyssus");
+      expect(await screen.findByText("主语音图")).toBeVisible();
+    } finally { read.mockRestore(); write.mockRestore(); }
+  });
+
   it("uses audio workflows as the product home", async () => {
     const { api } = fakeApi(); renderApp(api);
     expect(screen.getByRole("link", { name: "Audio Harness 首页" })).toContainHTML('src="/audio-harness-logo.svg"');
@@ -353,6 +468,28 @@ describe("typed audio workflow control plane", () => {
         initial_level_db: -12,
         output_gain_db: 6,
       },
+    });
+  });
+
+  it("saves streaming meeting inputs and latency configuration", async () => {
+    const { api, saveAudioWorkflowDraft } = fakeApi();
+    renderApp(api, "/audio-workflows/wf-1/build");
+    fireEvent.click(await screen.findByRole("button", { name: /^流式会议/ }));
+    fireEvent.click(screen.getByRole("button", { name: "确认应用" }));
+    fireEvent.click(await screen.findByLabelText("节点 physical-vad"));
+    expect(screen.getByLabelText(/流式语音块时长/)).toHaveValue(1);
+    expect(screen.getByLabelText(/语音尾部保留/)).toHaveValue(1);
+    fireEvent.change(screen.getByLabelText(/流式语音块时长/), { target: { value: "0.8" } });
+    fireEvent.change(screen.getByLabelText(/语音尾部保留/), { target: { value: "0.6" } });
+    fireEvent.click(await screen.findByLabelText("节点 streaming-speaker-diarization"));
+    fireEvent.change(screen.getByLabelText("输入缓冲（毫秒）"), { target: { value: "640" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+    await waitFor(() => {
+      const saved = saveAudioWorkflowDraft.mock.calls.at(-1)?.[1] as AudioWorkflowDocument;
+      expect(saved.nodes.find((node) => node.kind === "streaming_speaker_diarization")?.config?.input_buffer_latency_ms).toBe(640);
+      expect(saved.edges.filter((edge) => edge.target.node_id === "streaming-speaker-diarization").map((edge) => edge.target.port).sort()).toEqual(["audio", "segments"]);
+      expect(saved.edges.find((edge) => edge.target.node_id === "streaming-speaker-diarization" && edge.target.port === "segments")?.source).toEqual({ kind: "node", node_id: "physical-vad", port: "speech_chunks" });
+      expect(saved.nodes.find((node) => node.kind === "physical_vad")?.config).toMatchObject({ speech_chunk_seconds: 0.8, speech_chunk_holdback_seconds: 0.6 });
     });
   });
 
@@ -671,14 +808,17 @@ describe("typed audio workflow control plane", () => {
     const { api } = fakeApi(); renderApp(api, "/engines");
     expect(await screen.findByRole("heading", { name: "推理引擎" })).toBeVisible();
     expect(screen.queryByText("人工连通性校验通过")).not.toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("button", { name: /VAD-1/ }));
-    fireEvent.click(screen.getByRole("button", { name: /ASR-1/ }));
-    expect(await screen.findAllByText("人工连通性校验通过")).toHaveLength(2);
+    fireEvent.click(await screen.findByRole("button", { name: "VAD-1" }));
+    expect(await screen.findByText("人工连通性校验通过")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "关闭引擎详情" }));
+    fireEvent.click(screen.getByRole("button", { name: "ASR-1" }));
+    expect(await screen.findByText("人工连通性校验通过")).toBeVisible();
   });
 
   it("fills a new engine slug from its name and preserves a manual override", async () => {
     const { api } = fakeApi(); renderApp(api, "/engines");
-    fireEvent.click(await screen.findByRole("button", { name: "注册引擎" }));
+    await screen.findByRole("button", { name: "VAD-1" });
+    fireEvent.click(screen.getByRole("button", { name: "注册引擎" }));
     fireEvent.change(screen.getByLabelText("名称"), { target: { value: "Primary ASR" } });
     expect(screen.getByDisplayValue("primary-asr")).toBeVisible();
     fireEvent.change(screen.getByDisplayValue("primary-asr"), { target: { value: "custom-asr" } });
@@ -689,19 +829,27 @@ describe("typed audio workflow control plane", () => {
   it("provides safe engine lifecycle actions", async () => {
     const { api } = fakeApi(); renderApp(api, "/engines");
     await screen.findByRole("heading", { name: "推理引擎" });
-    fireEvent.click((await screen.findAllByRole("button", { name: "停用" }))[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "VAD-1" }));
+    const detail = await screen.findByRole("dialog", { name: "引擎详情" });
+    await waitFor(() => expect(within(detail).getByRole("button", { name: "停用" })).toBeEnabled());
+    fireEvent.click(within(detail).getByRole("button", { name: "停用" }));
     expect(await screen.findByRole("alertdialog", { name: "停用引擎？" })).toBeVisible();
+    await waitFor(() => expect(screen.getByRole("button", { name: "确认停用" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "确认停用" }));
     await waitFor(() => expect(api.updateEngine).toHaveBeenCalledWith("vad-1", { enabled: false }));
   });
 
-  it("re-enables a disabled engine from its collapsed card", async () => {
+  it("re-enables a disabled engine from its details", async () => {
     const { api } = fakeApi();
     const response = await api.listEngines();
     const disabled = { ...response.items[0], enabled: false, status: "disabled" as const };
     api.listEngines = vi.fn().mockResolvedValue({ ...response, items: [disabled, ...response.items.slice(1)] });
+    api.getEngine = vi.fn().mockResolvedValue(disabled);
     renderApp(api, "/engines");
-    fireEvent.click(await screen.findByRole("button", { name: "启用" }));
+    fireEvent.click(await screen.findByRole("button", { name: "VAD-1" }));
+    const detail = await screen.findByRole("dialog", { name: "引擎详情" });
+    await waitFor(() => expect(within(detail).getByRole("button", { name: "启用" })).toBeEnabled());
+    fireEvent.click(within(detail).getByRole("button", { name: "启用" }));
     await waitFor(() => expect(api.updateEngine).toHaveBeenCalledWith("vad-1", { enabled: true }));
   });
 
@@ -710,9 +858,12 @@ describe("typed audio workflow control plane", () => {
     api.getEngineUsage = vi.fn().mockResolvedValue({ engine_id: "vad-1", references: ["主语音图 草稿"] });
     renderApp(api, "/engines");
     await screen.findByRole("heading", { name: "推理引擎" });
-    fireEvent.click((await screen.findAllByRole("button", { name: "停用" }))[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "VAD-1" }));
+    const detail = await screen.findByRole("dialog", { name: "引擎详情" });
+    await waitFor(() => expect(within(detail).getByRole("button", { name: "停用" })).toBeEnabled());
+    fireEvent.click(within(detail).getByRole("button", { name: "停用" }));
     expect(await screen.findByRole("alertdialog", { name: "当前不能停用引擎" })).toBeVisible();
-    expect(screen.getByText("主语音图 草稿")).toBeVisible();
+    expect(within(screen.getByRole("alertdialog")).getByText("主语音图 草稿")).toBeVisible();
     expect(screen.queryByRole("button", { name: "确认停用" })).not.toBeInTheDocument();
   });
 

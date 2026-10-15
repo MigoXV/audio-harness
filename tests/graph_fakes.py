@@ -98,7 +98,7 @@ class StaticRouteService:
     def __init__(self, target) -> None:
         self.target = target
 
-    def resolve(self, model: str, *, allow_internal: bool = False):
+    async def resolve(self, model: str, *, allow_internal: bool = False):
         del allow_internal
         if model != "gpt-4o-transcribe":
             raise RuntimeError(f"模型路由不存在: {model}")

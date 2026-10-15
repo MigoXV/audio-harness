@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 
 import grpc
 
-from audio_harness.configs import EngineEndpoint
+from audio_harness.configs.engine import EngineEndpoint
 from audio_harness.inferencers.denoise.base import DenoiseInferencer
 from audio_harness.inferencers.transports.grpc import GrpcTransport, raise_grpc_error
 from audio_harness.protos.denoise import ux_denoise_pb2 as denoise_pb2

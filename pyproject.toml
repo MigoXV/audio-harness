@@ -29,6 +29,7 @@ dependencies = [
     "alembic (>=1.16.5,<2.0.0)",
     "soxr (>=1.1.0,<2.0.0)",
     "websockets (>=15,<16)",
+    "aha-python (>=0.1.0,<0.2.0)",
 ]
 
 [project.scripts]

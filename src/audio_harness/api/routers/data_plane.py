@@ -3,18 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 
+from aha.contracts.protocol import AHA_REALTIME_SESSION_ADAPTER
 from fastapi import APIRouter, Query, Request, Response, WebSocket, status
 from pydantic import ValidationError
 
 from audio_harness.errors import CapacityExceededError
-from audio_harness.serving.realtime import (
-    RealtimeConnectionMode,
-    RealtimeTranscriptionService,
-)
-from audio_harness.serving.realtime.protocol import (
-    AHA_REALTIME_SESSION_ADAPTER,
-)
-from audio_harness.serving.webrtc import WebRtcCallService
+from audio_harness.serving.realtime.core import RealtimeConnectionMode
+from audio_harness.serving.realtime.connection import RealtimeTranscriptionService
+from audio_harness.serving.webrtc.service import WebRtcCallService
 
 
 def _error(status_code: int, code: str, message: str) -> Response:

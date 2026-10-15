@@ -6,16 +6,15 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
+from aha.contracts.protocol import AHA_REALTIME_SERVER_EVENT_ADAPTER
 import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from audio_harness.inferencers.diarization import (
-    DiarizationInferencer,
-    DiarizationPostprocessor,
-    DummyDiarizationInferencer,
-)
-from audio_harness.inferencers.embedding import EngineFeatureInferencer
+from audio_harness.inferencers.diarization.base import DiarizationInferencer
+from audio_harness.inferencers.diarization.postprocessor import DiarizationPostprocessor
+from audio_harness.inferencers.diarization.dummy import DummyDiarizationInferencer
+from audio_harness.inferencers.embedding.base import EngineFeatureInferencer
 from audio_harness.engines.models import (
     EngineApi,
     EngineAssetData,
@@ -23,30 +22,22 @@ from audio_harness.engines.models import (
     EngineProtocol,
     EngineStatus,
 )
-from audio_harness.inferencers.asr import AsrInferencer
-from audio_harness.inferencers.vad import VadInferencer
+from audio_harness.inferencers.asr.base import AsrInferencer
+from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.media.pcm import PcmChunk
 from audio_harness.sessions.contracts import (
     DiarizationContext as _DiarizationContext,
     SegmentCandidate as _SegmentCandidate,
     TimelineSpan as _TimelineSpan,
 )
-from audio_harness.sessions.diarization import (
-    DiarizationBatcher,
-    DiarizationSession,
-)
-from audio_harness.sessions.speaker_clustering import SpeakerClusteringSession
-from audio_harness.serving.realtime.protocol import (
-    AHA_REALTIME_SERVER_EVENT_ADAPTER,
-)
+from audio_harness.sessions.diarization.batching import DiarizationBatcher
+from audio_harness.sessions.diarization.session import DiarizationSession
+from audio_harness.sessions.speaker_clustering.session import SpeakerClusteringSession
 from audio_harness.serving.realtime.session import RealtimeTranscriptionSession
-from audio_harness.workflows import (
+from audio_harness.workflows.models import (
     AsrNode,
     AudioEdge,
-    AudioInferenceRequest,
-    AudioRuntimeConfig,
     AudioWorkflowDocument,
-    AudioWorkflowRuntime,
     FailurePolicy,
     GraphInputRef,
     NamedOutputBinding,
@@ -56,8 +47,17 @@ from audio_harness.workflows import (
     PhysicalVadNode,
     SpeakerDiarizationNode,
     SpeakerClusteringNode,
-    compile_audio_graph,
+    SpeakerClusteringNodeConfig,
+    SpeakerClusteringPostprocessingOptions,
+    SpeakerDiarizationNodeConfig,
+    SpeakerDiarizationPostprocessingOptions,
 )
+from audio_harness.workflows.runtime import (
+    AudioInferenceRequest,
+    AudioRuntimeConfig,
+    AudioWorkflowRuntime,
+)
+from audio_harness.workflows.compiler import compile_audio_graph
 from audio_harness.workflows.events import (
     DiarizationClusterAssignment,
     DiarizationClusterResult,
@@ -65,12 +65,6 @@ from audio_harness.workflows.events import (
     DiarizationSegment,
     SpeakerTranscriptionResult,
     VadProgress,
-)
-from audio_harness.workflows.models import (
-    SpeakerClusteringNodeConfig,
-    SpeakerClusteringPostprocessingOptions,
-    SpeakerDiarizationNodeConfig,
-    SpeakerDiarizationPostprocessingOptions,
 )
 def _event_payload(event) -> dict:
     return (

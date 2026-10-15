@@ -6,11 +6,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from audio_harness.configs import WorkflowRuntimeConfig
+from audio_harness.configs.workflow import WorkflowRuntimeConfig
 from audio_harness.inferencers.asr.base import AsrInferencer
 from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
 from audio_harness.inferencers.vad.base import VadInferencer
-from audio_harness.sessions.audio_workflow import AudioWorkflowSessionService
+from audio_harness.sessions.audio_workflow.session import AudioWorkflowSessionService
 from audio_harness.sessions.limits import ResizableSessionLimiter
 from audio_harness.workflows.settings import WorkflowSettingsSnapshot
 from tests.graph_fakes import static_audio_workflow

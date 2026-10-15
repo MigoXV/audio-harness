@@ -69,7 +69,7 @@ def test_conversation_projects_text_image_audio_and_tool_items() -> None:
                 },
                 {
                     "type": "input_audio",
-                    "audio": base64.b64encode(pcm).decode("ascii"),
+                    "audio": pcm,
                 },
             ],
         }
@@ -88,9 +88,7 @@ def test_conversation_projects_text_image_audio_and_tool_items() -> None:
         "input_image",
         "input_audio",
     ]
-    wav_data = base64.b64decode(
-        projected[0]["content"][2]["input_audio"]["data"]
-    )
+    wav_data = base64.b64decode(projected[0]["content"][2]["input_audio"]["data"])
     with wave.open(io.BytesIO(wav_data), "rb") as audio:
         assert audio.getframerate() == 24_000
         assert audio.getnchannels() == 1

@@ -1,4 +1,5 @@
 import { createGlobalTheme, createThemeContract } from "@vanilla-extract/css";
+import tokens from "./av.tokens.json";
 
 export const vars = createThemeContract({
   color: {
@@ -6,6 +7,9 @@ export const vars = createThemeContract({
     line: null, lineStrong: null, accent: null, accentHover: null, accentSoft: null,
     success: null, successSoft: null, warning: null, warningSoft: null, danger: null, dangerSoft: null,
     overlay: null, inverse: null,
+    selected: null, hover: null, focus: null, primaryBg: null, primaryText: null,
+    roleInput: null, roleProcessor: null, roleOutput: null,
+    portAudio: null, portSegment: null, portTranscript: null, portEvent: null, portVector: null,
   },
   space: { x1: null, x2: null, x3: null, x4: null, x5: null, x6: null, x8: null, x12: null },
   radius: { sm: null, md: null, pill: null },
@@ -14,17 +18,35 @@ export const vars = createThemeContract({
   motion: { fast: null },
 });
 
-createGlobalTheme(":root", vars, {
-  color: {
-    canvas: "#f7f7f5", surface: "#fbfbf9", surfaceMuted: "#f1f2ef", text: "#202522",
-    textMuted: "#69716c", textFaint: "#929993", line: "rgba(17, 24, 39, 0.09)",
-    lineStrong: "rgba(17, 24, 39, 0.14)", accent: "#28684f", accentHover: "#20543f",
-    accentSoft: "#eaf2ed", success: "#287154", successSoft: "#eaf2ed", warning: "#9a6a20",
-    warningSoft: "#f7f0e2", danger: "#a1453f", dangerSoft: "#f7eae8", overlay: "rgba(25, 30, 27, .34)", inverse: "#fff",
-  },
+const common = {
   space: { x1: "4px", x2: "8px", x3: "12px", x4: "16px", x5: "20px", x6: "24px", x8: "32px", x12: "48px" },
-  radius: { sm: "4px", md: "7px", pill: "999px" },
-  font: { body: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif', mono: '"SFMono-Regular", Consolas, "Liberation Mono", monospace' },
-  shadow: { floating: "0 12px 32px rgba(25, 30, 27, .14)" },
+  radius: { sm: "6px", md: "8px", pill: "999px" },
+  font: { body: '"Inter Variable", Inter, "Noto Sans SC", system-ui, sans-serif', mono: 'Cousine, "SFMono-Regular", Consolas, monospace' },
   motion: { fast: "160ms" },
-});
+};
+
+for (const theme of ["vallum", "abyssus"] as const) {
+  const palette = tokens.semantic[theme];
+  const color = (role: keyof typeof palette) => palette[role].$value;
+  createGlobalTheme(theme === "vallum" ? ':root, [data-theme="vallum"]' : '[data-theme="abyssus"]', vars, {
+    ...common,
+    color: {
+      canvas: color("bgPrimary"), surface: color("surface"), surfaceMuted: color("surfaceSubtle"),
+      text: color("textPrimary"), textMuted: color("textSecondary"), textFaint: color("textSecondary"),
+      line: color("border"), lineStrong: color("borderStrong"), accent: color("accentStrong"),
+      accentHover: color("accentStrong"), accentSoft: color("selected"), selected: color("selected"),
+      hover: color("hover"), focus: color("focus"),
+      primaryBg: theme === "vallum" ? tokens.color.vallum.inkBone.$value : color("accent"),
+      primaryText: theme === "vallum" ? tokens.color.vallum.paleStone.$value : color("onAccent"),
+      inverse: theme === "vallum" ? tokens.color.vallum.paleStone.$value : color("onAccent"),
+      success: tokens.color.status.success.$value, successSoft: color("surfaceSubtle"),
+      warning: tokens.color.status.warning.$value, warningSoft: color("surfaceSubtle"),
+      danger: tokens.color.status.danger.$value, dangerSoft: color("surfaceSubtle"),
+      overlay: `color-mix(in srgb, ${color("textPrimary")} 32%, transparent)`,
+      roleInput: color("accentStrong"), roleProcessor: color("borderStrong"), roleOutput: color("textSecondary"),
+      portAudio: color("accentStrong"), portSegment: color("textSecondary"),
+      portTranscript: color("textSecondary"), portEvent: color("textSecondary"), portVector: color("accentStrong"),
+    },
+    shadow: { floating: `0 8px 24px color-mix(in srgb, ${color("textPrimary")} 12%, transparent)` },
+  });
+}

@@ -5,17 +5,18 @@ import logging
 import unicodedata
 import time
 from collections.abc import AsyncIterator, Mapping
-from contextlib import asynccontextmanager
+from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
 from audio_harness.errors import CapacityExceededError
-from audio_harness.inferencers import Inferencer
+from audio_harness.inferencers.types import Inferencer
 from audio_harness.inferencers.asr.base import AsrInferencer
 from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.inferencers.embedding.base import EngineFeatureInferencer
-from audio_harness.inferencers.diarization import DiarizationInferencer
-from audio_harness.inferencers.denoise import DenoiseInferencer
+from audio_harness.inferencers.diarization.base import DiarizationInferencer
+from audio_harness.inferencers.diarization.streaming_base import StreamingDiarizationInferencer
+from audio_harness.inferencers.denoise.base import DenoiseInferencer
 from audio_harness.media.agc import RealtimeAutomaticGainControl
 from audio_harness.media.pcm import PcmChunk, VadAudioChunk, mix_pcm_s16le
 from audio_harness.workflows.compiler import (
@@ -43,6 +44,7 @@ from audio_harness.workflows.models import (
     NodeOutputRef,
     PhysicalVadNode,
     SpeakerDiarizationNode,
+    StreamingSpeakerDiarizationNode,
     SpeakerClusteringNode,
     SemanticVadNode,
     AudioEmbeddingNode,
@@ -52,12 +54,14 @@ from audio_harness.workflows.models import (
 )
 from audio_harness.sessions.contracts import (
     SegmentCandidate as _SegmentCandidate,
+    SpeechAudioChunk,
     candidate_physical_segment_ids,
 )
-from audio_harness.sessions.diarization import DiarizationSession
-from audio_harness.sessions.physical_vad import PhysicalVadSession
-from audio_harness.sessions.semantic_vad import SemanticVadSession
-from audio_harness.sessions.speaker_clustering import SpeakerClusteringSession
+from audio_harness.sessions.diarization.session import DiarizationSession
+from audio_harness.sessions.diarization.streaming import StreamingDiarizationSession
+from audio_harness.sessions.physical_vad.session import PhysicalVadSession
+from audio_harness.sessions.semantic_vad.session import SemanticVadSession
+from audio_harness.sessions.speaker_clustering.session import SpeakerClusteringSession
 from audio_harness.vectors.service import VectorService
 
 logger = logging.getLogger(__name__)
@@ -197,6 +201,7 @@ class _EdgeRouter:
                     PortKind.PCM_CHUNK,
                     PortKind.VAD_AUDIO_CHUNK,
                     PortKind.AUDIO_SEGMENT,
+                    PortKind.SPEECH_AUDIO_CHUNK,
                     PortKind.DIARIZATION_SEGMENT,
                 }
                 else config.result_queue_capacity
@@ -358,6 +363,7 @@ class AudioWorkflowRuntime:
             str,
             EngineFeatureInferencer,
         ] = {}
+        self._streaming_diarization_inferencers: dict[str, StreamingDiarizationInferencer] = {}
         self._diarization_inferencers: dict[str, DiarizationInferencer] = {}
         self._denoise_inferencers: dict[str, DenoiseInferencer] = {}
         for node_id, node in plan.nodes.items():
@@ -391,6 +397,10 @@ class AudioWorkflowRuntime:
                         f"节点 {node_id} 需要 EngineFeatureInferencer"
                     )
                 self._engine_feature_inferencers[node_id] = inferencer
+            elif node.spec.kind == "streaming_speaker_diarization":
+                if not isinstance(inferencer, StreamingDiarizationInferencer):
+                    raise TypeError(f"节点 {node_id} 需要 StreamingDiarizationInferencer")
+                self._streaming_diarization_inferencers[node_id] = inferencer
             elif node.spec.kind == "speaker_diarization":
                 if not isinstance(inferencer, DiarizationInferencer):
                     raise TypeError(
@@ -593,6 +603,8 @@ class AudioWorkflowRuntime:
                 )
             elif node.spec.kind == "audio_embedding":
                 await self._audio_embedding(node_id, node, request, router)
+            elif node.spec.kind == "streaming_speaker_diarization":
+                await self._streaming_speaker_diarization(node_id, node, request, router)
             elif node.spec.kind == "speaker_diarization":
                 await self._speaker_diarization(
                     node_id,
@@ -752,6 +764,7 @@ class AudioWorkflowRuntime:
             definition.config,
             request.recognition.sample_rate,
             self._vad_inferencers[node_id],
+            speech_chunks_enabled=router.has_consumers(node_id, "speech_chunks"),
         )
 
         input_port = (
@@ -768,7 +781,7 @@ class AudioWorkflowRuntime:
             audio(),
             progress_enabled=router.has_consumers(node_id, "progress"),
         ):
-            if port.startswith("speech_") and not request.include_vad_events:
+            if port in {"speech_started", "speech_stopped"} and not request.include_vad_events:
                 continue
             await router.emit(node_id, port, payload)
 
@@ -839,7 +852,7 @@ class AudioWorkflowRuntime:
                     context.min_asr_segment_seconds
                     * request.recognition.sample_rate
                 )
-                if segment_samples < minimum_samples:
+                if segment_samples == 0 or segment_samples < minimum_samples:
                     if context.source_completed:
                         ordered = [
                             text
@@ -1068,6 +1081,29 @@ class AudioWorkflowRuntime:
 
         async for port, payload in session.run(candidates()):
             await router.emit(node_id, port, payload)
+
+    async def _streaming_speaker_diarization(
+        self, node_id: str, node: CompiledAudioNode,
+        request: AudioInferenceRequest, router: _EdgeRouter,
+    ) -> None:
+        definition = cast(StreamingSpeakerDiarizationNode, node.definition)
+        session = StreamingDiarizationSession(
+            definition.config, request.recognition.sample_rate,
+            self._streaming_diarization_inferencers[node_id],
+            queue_capacity=self._runtime_config.result_queue_capacity,
+        )
+
+        async def audio():
+            async for item in _items(router.input(node_id, "audio")):
+                yield cast(PcmChunk, item)
+
+        async def candidates():
+            async for item in _items(router.input(node_id, "segments")):
+                yield cast(_SegmentCandidate | SpeechAudioChunk, item)
+
+        async with aclosing(session.run(audio(), candidates())) as emissions:
+            async for port, payload in emissions:
+                await router.emit(node_id, port, payload)
 
     async def _speaker_clustering(
         self,

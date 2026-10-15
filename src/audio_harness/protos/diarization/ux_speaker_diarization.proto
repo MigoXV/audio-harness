@@ -13,6 +13,44 @@ service UxSpeakerDiarization {
   rpc Detect(DetectRequest) returns (DetectResponse) {}
   rpc StreamingDetect(DetectRequest)
       returns (stream DetectResponse) {}
+  rpc DuplexStreamingDetect(stream DuplexStreamingDetectRequest)
+      returns (stream DuplexStreamingDetectResponse) {}
+}
+
+message DuplexStreamingConfig {
+  // Nemotron-3: mono LINEAR16, 16000 Hz only.
+  Config config = 1;
+  // 0 means 320 ms. Supported: 320, 640, 1040 ms.
+  uint32 input_buffer_latency_ms = 2;
+}
+
+message DuplexStreamingDetectRequest {
+  // Exactly one configuration message first, then nonempty PCM messages.
+  // Half-close the request stream to flush the remaining audio.
+  oneof streaming_request {
+    DuplexStreamingConfig config = 1;
+    bytes audio_content = 2;
+  }
+}
+
+message DuplexStreamingDetectResponse {
+  // Incremental updates, including (-1, -1) for continuing open segments.
+  // Sent after each inference block, even when results is empty (silence).
+  repeated DuplexDetectionResult results = 1;
+  // Exclusive, immutable decision watermark, relative to the audio start.
+  // Includes silence; excludes uncommitted lookahead. Not wall-clock latency.
+  google.protobuf.Duration process_time = 2;
+}
+
+message DuplexDetectionResult {
+  // Unique within this RPC; merge boundary updates by this ID.
+  uint64 segment_id = 1;
+  // 1-based speaker identity, scoped to this RPC (Nemotron-3: 1..8).
+  uint32 speaker = 2;
+  // seconds=-1, nanos=0 means this update has no such boundary.
+  google.protobuf.Duration start_time = 3;
+  // A nonnegative end closes the segment permanently.
+  google.protobuf.Duration end_time = 4;
 }
 
 message Config {

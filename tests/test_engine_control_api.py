@@ -7,8 +7,8 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from audio_harness.configs import AppConfig
-from audio_harness.database import require_fresh_database, upgrade_database
+from audio_harness.configs.app import AppConfig
+from audio_harness.database.session import require_fresh_database, upgrade_database
 from audio_harness.errors import (
     EngineDeadlineError,
     EngineUnavailableError,

@@ -16,18 +16,14 @@ from audio_harness.engines.models import (
     EngineStatus,
 )
 from audio_harness.inferencers.asr.base import AsrInferencer
-from audio_harness.inferencers.denoise import DenoiseInferencer
+from audio_harness.inferencers.denoise.base import DenoiseInferencer
 from audio_harness.inferencers.vad.base import VadInferencer
 from audio_harness.media.agc import RealtimeAutomaticGainControl
 from audio_harness.media.pcm import PcmChunk
-from audio_harness.workflows import (
+from audio_harness.workflows.models import (
     AsrNode,
     AudioEdge,
-    AudioGraphValidationError,
-    AudioInferenceRequest,
-    AudioRuntimeConfig,
     AudioWorkflowDocument,
-    AudioWorkflowRuntime,
     AutomaticGainControlConfig,
     AutomaticGainControlNode,
     GraphInputRef,
@@ -37,7 +33,15 @@ from audio_harness.workflows import (
     PhysicalVadConfig,
     PhysicalVadNode,
     StreamingDenoiseNode,
+)
+from audio_harness.workflows.compiler import (
+    AudioGraphValidationError,
     compile_audio_graph,
+)
+from audio_harness.workflows.runtime import (
+    AudioInferenceRequest,
+    AudioRuntimeConfig,
+    AudioWorkflowRuntime,
 )
 
 

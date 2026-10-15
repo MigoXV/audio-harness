@@ -10,6 +10,13 @@ from typing import Any
 from typing import cast
 from uuid import uuid4
 
+from aha.contracts.json_codec import decode_client_event, encode_server_event
+from aha.contracts.protocol import (
+    AHA_REALTIME_CLIENT_EVENT_ADAPTER,
+    AHA_REALTIME_SERVER_EVENT_ADAPTER,
+    AhaRealtimeSession,
+    AhaV1ServerEventBase,
+)
 from aiortc import (
     RTCConfiguration,
     RTCDataChannel,
@@ -19,7 +26,7 @@ from aiortc import (
 )
 from pydantic import ValidationError
 
-from audio_harness.configs import WebRtcConfig
+from audio_harness.configs.webrtc import WebRtcConfig
 from audio_harness.agent_backends.base import AgentBackendGateway
 from audio_harness.inferencers.limits import ResizableConcurrencyLimiter
 from audio_harness.errors import CapacityExceededError
@@ -33,18 +40,12 @@ from audio_harness.serving.webrtc.tracks import (
     IncomingAudioPump,
     ServerAudioTrack,
 )
-from audio_harness.sessions.audio_workflow import (
+from audio_harness.sessions.audio_workflow.session import (
     AudioWorkflowSessionReservation,
     AudioWorkflowSessionService,
 )
 from audio_harness.serving.realtime.tools import ToolRegistry
 from audio_harness.serving.realtime.agent import VoiceResolver
-from audio_harness.serving.realtime.protocol import (
-    AHA_REALTIME_CLIENT_EVENT_ADAPTER,
-    AHA_REALTIME_SERVER_EVENT_ADAPTER,
-    AhaRealtimeSession,
-    AhaV1ServerEventBase,
-)
 from audio_harness.workflows.settings import WorkflowSettingsStore
 from audio_harness.voice_agents.service import ActiveVoiceAgent
 from audio_harness.workflows.models import PhysicalVadNode
@@ -123,7 +124,6 @@ class WebRtcCall:
             clear_audio=self._output_track.clear,
             voice_resolver=voice_resolver,
             finish_audio=self._output_track.finish,
-            transport="webrtc",
             received_audio_cache_dir=received_audio_cache_dir,
             agent_backend_gateway=agent_backend_gateway,
         )
@@ -353,8 +353,8 @@ class WebRtcCall:
             return
         try:
             raw = json.loads(message)
-            event = AHA_REALTIME_CLIENT_EVENT_ADAPTER.validate_python(raw)
-        except (json.JSONDecodeError, ValidationError) as exc:
+            event = decode_client_event(raw)
+        except (ValueError, ValidationError) as exc:
             await self._realtime.send_error(
                 message=f"Realtime 事件格式不合法: {exc}",
                 code="invalid_event",
@@ -385,16 +385,9 @@ class WebRtcCall:
         channel = self._data_channel
         if channel is None or channel.readyState != "open":
             raise RuntimeError("oai-events DataChannel 尚未打开")
-        payload = (
-            event.model_dump(mode="json", exclude_none=True)
-            if hasattr(event, "model_dump")
-            else event
-        )
+        payload = encode_server_event(event)
         validated = AHA_REALTIME_SERVER_EVENT_ADAPTER.validate_python(payload)
-        if (
-            isinstance(validated, AhaV1ServerEventBase)
-            and self._aha_version != "v1"
-        ):
+        if isinstance(validated, AhaV1ServerEventBase) and self._aha_version != "v1":
             raise RuntimeError("AHA extension event was not negotiated")
         channel.send(
             json.dumps(

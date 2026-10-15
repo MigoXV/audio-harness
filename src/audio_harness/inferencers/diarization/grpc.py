@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 
 import grpc
 
-from audio_harness.configs import EngineEndpoint
+from audio_harness.configs.engine import EngineEndpoint
 from audio_harness.inferencers.diarization.base import DiarizationInferencer
 from audio_harness.inferencers.transports.grpc import GrpcTransport, raise_grpc_error
 from audio_harness.protos.diarization import (

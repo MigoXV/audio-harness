@@ -7,6 +7,8 @@ from pathlib import Path
 import typer
 
 from audio_harness.commands.types import (
+    GrpcHostOption,
+    GrpcPortOption,
     HttpHostOption,
     HttpPortOption,
     LogLevelOption,
@@ -17,8 +19,9 @@ from audio_harness.commands.types import (
     WebRtcIceServersJsonOption,
     WebRtcNegotiationTimeoutOption,
 )
-from audio_harness.configs import AppConfig, IceServerConfig, parse_ice_servers_json
-from audio_harness.database import require_fresh_database, upgrade_database
+from audio_harness.configs.app import AppConfig
+from audio_harness.configs.webrtc import IceServerConfig, parse_ice_servers_json
+from audio_harness.database.session import require_fresh_database, upgrade_database
 from audio_harness.serving.runner import run_server
 
 logger = logging.getLogger(__name__)
@@ -35,6 +38,8 @@ def apply_serve_overrides(
     ice_servers: list[IceServerConfig],
     webrtc_negotiation_timeout_seconds: float,
     webrtc_disconnected_grace_seconds: float,
+    grpc_host: str | None = None,
+    grpc_port: int | None = None,
 ) -> AppConfig:
     http_config = config.http.model_copy(
         update={
@@ -47,18 +52,20 @@ def apply_serve_overrides(
     return config.model_copy(
         update={
             "http": http_config,
+            "aha_grpc": config.aha_grpc.model_copy(
+                update={
+                    **({"host": grpc_host} if grpc_host is not None else {}),
+                    **({"port": grpc_port} if grpc_port is not None else {}),
+                }
+            ),
             "limits": config.limits.model_copy(
                 update={"max_message_bytes": max_message_bytes}
             ),
             "webrtc": config.webrtc.model_copy(
                 update={
                     "ice_servers": ice_servers,
-                    "negotiation_timeout_seconds": (
-                        webrtc_negotiation_timeout_seconds
-                    ),
-                    "disconnected_grace_seconds": (
-                        webrtc_disconnected_grace_seconds
-                    ),
+                    "negotiation_timeout_seconds": (webrtc_negotiation_timeout_seconds),
+                    "disconnected_grace_seconds": (webrtc_disconnected_grace_seconds),
                 }
             ),
         }
@@ -69,6 +76,8 @@ def serve(
     max_message_bytes: MaxMessageBytesOption = 4 * 1024 * 1024,
     http_host: HttpHostOption = None,
     http_port: HttpPortOption = None,
+    grpc_host: GrpcHostOption = None,
+    grpc_port: GrpcPortOption = None,
     tls_cert_file: TlsCertFileOption = Path("model-bin/realtime-tls/cert.pem"),
     tls_key_file: TlsKeyFileOption = Path("model-bin/realtime-tls/key.pem"),
     webrtc_ice_servers_json: WebRtcIceServersJsonOption = "[]",
@@ -91,15 +100,13 @@ def serve(
         max_message_bytes=max_message_bytes,
         http_host=http_host,
         http_port=http_port,
+        grpc_host=grpc_host,
+        grpc_port=grpc_port,
         tls_cert_file=tls_cert_file,
         tls_key_file=tls_key_file,
         ice_servers=ice_servers,
-        webrtc_negotiation_timeout_seconds=(
-            webrtc_negotiation_timeout_seconds
-        ),
-        webrtc_disconnected_grace_seconds=(
-            webrtc_disconnected_grace_seconds
-        ),
+        webrtc_negotiation_timeout_seconds=(webrtc_negotiation_timeout_seconds),
+        webrtc_disconnected_grace_seconds=(webrtc_disconnected_grace_seconds),
     )
     require_fresh_database(config.database.url)
     logger.info("升级 SQLite 数据库: url=%s", config.database.url)

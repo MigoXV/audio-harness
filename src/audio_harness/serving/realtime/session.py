@@ -12,6 +12,34 @@ from typing import Any, Literal
 from typing import cast
 from uuid import uuid4
 
+from aha.contracts.protocol import (
+    AhaAgentBackendApprovalResponseEvent,
+    AhaAgentBackendCancelEvent,
+    AhaAgentBackendQuestionResponseEvent,
+    AhaDiarizationClusterCompletedEvent,
+    AhaDiarizationClusterFailedEvent,
+    AhaDiarizationLocalCompletedEvent,
+    AhaDiarizationLocalDeltaEvent,
+    AhaDiarizationLocalFailedEvent,
+    AhaInputAudioTranscriptionInterimClearedEvent,
+    AhaInputAudioTranscriptionInterimEvent,
+    AhaRealtimeClientEvent,
+    AhaRealtimeTranscriptionSessionCreateRequest,
+    AhaSessionCreatedEvent,
+    AhaSessionUpdatedEvent,
+    AhaSpeakerTranscriptionCompletedEvent,
+    AhaSpeakerTranscriptionDeltaEvent,
+    AhaSpeakerTranscriptionFailedEvent,
+    AhaSpeakerFilterFailedEvent,
+    AhaSpeakerFilterMatchedEvent,
+    AhaSpeakerFilterRejectedEvent,
+    AhaVadPhysicalSpeechStartedEvent,
+    AhaVadPhysicalSpeechStoppedEvent,
+    AhaVadTurnCompletedEvent,
+    AhaVadProgressEvent,
+    AhaVectorSearchCompletedEvent,
+    AhaVectorSearchFailedEvent,
+)
 from openai.types.realtime import (
     ConversationItemCreateEvent,
     ConversationItemDeleteEvent,
@@ -57,36 +85,8 @@ from audio_harness.serving.realtime.agent import (
     RealtimeAgentRuntime,
     VoiceResolver,
 )
-from audio_harness.serving.realtime.protocol import (
-    AhaAgentBackendApprovalResponseEvent,
-    AhaAgentBackendCancelEvent,
-    AhaAgentBackendQuestionResponseEvent,
-    AhaDiarizationClusterCompletedEvent,
-    AhaDiarizationClusterFailedEvent,
-    AhaDiarizationLocalCompletedEvent,
-    AhaDiarizationLocalDeltaEvent,
-    AhaDiarizationLocalFailedEvent,
-    AhaInputAudioTranscriptionInterimClearedEvent,
-    AhaInputAudioTranscriptionInterimEvent,
-    AhaRealtimeClientEvent,
-    AhaRealtimeTranscriptionSessionCreateRequest,
-    AhaSessionCreatedEvent,
-    AhaSessionUpdatedEvent,
-    AhaSpeakerTranscriptionCompletedEvent,
-    AhaSpeakerTranscriptionDeltaEvent,
-    AhaSpeakerTranscriptionFailedEvent,
-    AhaSpeakerFilterFailedEvent,
-    AhaSpeakerFilterMatchedEvent,
-    AhaSpeakerFilterRejectedEvent,
-    AhaVadPhysicalSpeechStartedEvent,
-    AhaVadPhysicalSpeechStoppedEvent,
-    AhaVadTurnCompletedEvent,
-    AhaVadProgressEvent,
-    AhaVectorSearchCompletedEvent,
-    AhaVectorSearchFailedEvent,
-)
 from audio_harness.serving.realtime.tools import ToolRegistry
-from audio_harness.sessions.audio_workflow import (
+from audio_harness.sessions.audio_workflow.session import (
     AudioWorkflowSession,
     AudioWorkflowSessionReservation,
     AudioWorkflowSessionService,
@@ -115,13 +115,12 @@ logger = logging.getLogger(__name__)
 
 INPUT_SAMPLE_RATE = 24_000
 ENGINE_SAMPLE_RATE = 16_000
-SUPPORTED_INPUT_SAMPLE_RATES = frozenset(
-    {ENGINE_SAMPLE_RATE, INPUT_SAMPLE_RATE}
-)
+SUPPORTED_INPUT_SAMPLE_RATES = frozenset({ENGINE_SAMPLE_RATE, INPUT_SAMPLE_RATE})
 
 EventSender = Callable[[Any], Awaitable[None]]
 AudioEventHandler = Callable[[InputAudioBufferAppendEvent], Awaitable[None]]
 _DEFAULT_TURN_DETECTION = object()
+
 
 def event_id() -> str:
     return f"event_{uuid4().hex}"
@@ -186,7 +185,7 @@ def session_values(
     default_language: str,
 ) -> tuple[str, str]:
     payload = session.model_dump(
-        mode="json",
+        mode="python",
         exclude_none=False,
         exclude_unset=True,
     )
@@ -218,7 +217,7 @@ def _transcription_audio_settings(
     session: AhaRealtimeTranscriptionSessionCreateRequest,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     payload = session.model_dump(
-        mode="json",
+        mode="python",
         exclude_none=False,
         exclude_unset=True,
     )
@@ -240,9 +239,7 @@ def _transcription_audio_settings(
         not isinstance(turn_detection, dict)
         or turn_detection.get("type") not in {"server_vad", "semantic_vad"}
     ):
-        raise ValueError(
-            "turn_detection 只支持 server_vad、semantic_vad 或 null"
-        )
+        raise ValueError("turn_detection 只支持 server_vad、semantic_vad 或 null")
     return audio_format, turn_detection
 
 
@@ -319,7 +316,6 @@ class RealtimeTranscriptionSession:
         clear_audio: AudioClearer | None = None,
         voice_resolver: VoiceResolver | None = None,
         finish_audio: AudioFinisher | None = None,
-        transport: Literal["websocket", "webrtc"] = "websocket",
         session_identifier: str | None = None,
         received_audio_cache_dir: Path = Path("./data-bin/cache"),
         agent_backend_gateway: AgentBackendGateway | None = None,
@@ -328,9 +324,7 @@ class RealtimeTranscriptionSession:
         self._session_service = session_service
         self._workflow_config = workflow_settings.current().config
         self._workflow = (
-            target.audio_workflow
-            if isinstance(target, ActiveVoiceAgent)
-            else target
+            target.audio_workflow if isinstance(target, ActiveVoiceAgent) else target
         )
         physical_vad = speech_started_physical_vad(self._workflow.plan)
         if physical_vad is None:
@@ -340,7 +334,7 @@ class RealtimeTranscriptionSession:
         self._reservation = reservation
         self._audio_event_handler = audio_event_handler
         self._aha_version = aha_version
-        self._transport = transport
+        self._can_clear_output_audio = clear_audio is not None
         self.session_id = session_identifier or session_id()
         self._received_audio_cache = (
             ReceivedAudioCache(
@@ -348,9 +342,7 @@ class RealtimeTranscriptionSession:
                 block_seconds=(
                     self._workflow_config.received_audio_cache_block_seconds
                 ),
-                file_seconds=(
-                    self._workflow_config.received_audio_cache_file_seconds
-                ),
+                file_seconds=(self._workflow_config.received_audio_cache_file_seconds),
                 root=received_audio_cache_dir,
             )
             if self._workflow_config.received_audio_cache_enabled
@@ -363,10 +355,7 @@ class RealtimeTranscriptionSession:
             "rate": INPUT_SAMPLE_RATE,
         }
         self._turn_detection: dict[str, Any] | None = {"type": "server_vad"}
-        if (
-            initial_session is not None
-            and isinstance(target, ActiveAudioWorkflow)
-        ):
+        if initial_session is not None and isinstance(target, ActiveAudioWorkflow):
             self.model, self.language = session_values(
                 initial_session,
                 default_model=self.model,
@@ -402,7 +391,7 @@ class RealtimeTranscriptionSession:
             if initial_session is not None:
                 self._agent.update_options(
                     initial_session.model_dump(
-                        mode="json",
+                        mode="python",
                         exclude_none=False,
                         exclude_unset=True,
                     )
@@ -426,19 +415,16 @@ class RealtimeTranscriptionSession:
         self._deferred_speech_starts: deque[SpeechStarted] = deque()
         self._vad_turn: _VadTurnState | None = None
         self._vad_turns: dict[str, _VadTurnState] = {}
-        self._physical_vad_segments: dict[
-            str, _PhysicalVadSegmentState
-        ] = {}
+        self._physical_vad_segments: dict[str, _PhysicalVadSegmentState] = {}
         self._pending_physical_vad_starts: deque[str] = deque()
         self._physical_vad_tombstones: set[str] = set()
         self._physical_vad_tombstone_order: deque[str] = deque()
         self._workflow_event_sequence = 0
         self._pending_items: deque[_TranscriptItem] = deque()
+        self._deferred_primary_results: deque[AsrInferencer.Result] = deque()
         # 分角色 ASR 可在 primary completed 之后才返回；保留已提交 turn 的
         # 时间范围，才能把迟到的 segment 关联回正确的 Realtime item_id。
-        self._speaker_item_history: deque[_TranscriptItem] = deque(
-            maxlen=2_048
-        )
+        self._speaker_item_history: deque[_TranscriptItem] = deque(maxlen=2_048)
         self._interim_segments: dict[tuple[int, int], str] = {}
         self._interim_item_id: str | None = None
         self._interim_revision = 0
@@ -453,9 +439,7 @@ class RealtimeTranscriptionSession:
         self._workflow_failure: BaseException | None = None
         self._cluster_latest_result: DiarizationClusterResult | None = None
         self._cluster_last_completed: DiarizationClusterResult | None = None
-        self._speaker_contexts: dict[
-            tuple[int, int, int], SpeakerContext
-        ] = {}
+        self._speaker_contexts: dict[tuple[int, int, int], SpeakerContext] = {}
         self._cluster_output_enabled = any(
             output.name == "diarization_cluster"
             for output in self._workflow.plan.definition.outputs
@@ -533,10 +517,7 @@ class RealtimeTranscriptionSession:
                 elif isinstance(event, AhaAgentBackendQuestionResponseEvent):
                     await self._agent.submit_backend_question(
                         event.request_id,
-                        [
-                            answer.model_dump(mode="json")
-                            for answer in event.answers
-                        ],
+                        [answer.model_dump(mode="python") for answer in event.answers],
                     )
                 else:
                     await self._agent.cancel_backend()
@@ -747,11 +728,9 @@ class RealtimeTranscriptionSession:
                 )
             return
         if isinstance(event, OutputAudioBufferClearEvent):
-            if self._transport != "webrtc" or self._agent is None:
+            if not self._can_clear_output_audio or self._agent is None:
                 await self.send_error(
-                    message=(
-                        "output_audio_buffer.clear 仅支持 WebRTC 或 SIP 连接"
-                    ),
+                    message=("output_audio_buffer.clear 仅支持 WebRTC 或 SIP 连接"),
                     code="invalid_value",
                     client_event_id=event.event_id,
                     param="type",
@@ -818,6 +797,10 @@ class RealtimeTranscriptionSession:
     async def finish_audio(self) -> None:
         await self._finish_workflow(send_results=True)
 
+    async def finish_input(self) -> None:
+        if self._agent is not None:
+            await self._agent.finish_input()
+
     async def send_error(
         self,
         *,
@@ -849,6 +832,7 @@ class RealtimeTranscriptionSession:
             self._deferred_speech_starts.clear()
             self._discard_vad_state()
             self._pending_items.clear()
+            self._deferred_primary_results.clear()
             self._speaker_item_history.clear()
             self._manual_audio_buffer.clear()
             self._audio_started = False
@@ -898,15 +882,12 @@ class RealtimeTranscriptionSession:
         if self._agent is not None:
             try:
                 payload = event.session.model_dump(
-                    mode="json",
+                    mode="python",
                     exclude_none=False,
                     exclude_unset=True,
                 )
                 requested_model = payload.get("model")
-                if (
-                    requested_model is not None
-                    and requested_model != self.model
-                ):
+                if requested_model is not None and requested_model != self.model:
                     raise ValueError("session model 在建连后不可修改")
                 self._agent.update_options(payload)
                 self.session = self._agent.session_document(model=self.model)
@@ -929,7 +910,7 @@ class RealtimeTranscriptionSession:
         try:
             requested = AhaRealtimeTranscriptionSessionCreateRequest.model_validate(
                 event.session.model_dump(
-                    mode="json",
+                    mode="python",
                     exclude_none=False,
                     exclude_unset=True,
                 )
@@ -1670,8 +1651,9 @@ class RealtimeTranscriptionSession:
                 (
                     item
                     for item in matching_items
-                    if item.start_sample <= event.source_start_sample
-                    and item.end_sample >= event.source_end_sample
+                    # 一个持续说话人轮次可以横跨多个 VAD item；关联轮次
+                    # 起点所在的真实 item，而非误挂到切换后的 active item。
+                    if item.start_sample <= event.source_start_sample < item.end_sample
                 ),
                 None,
             )
@@ -1698,12 +1680,8 @@ class RealtimeTranscriptionSession:
                 "batch_id": event.batch_id,
                 "local_speaker_id": event.local_speaker_id,
                 "speaker": event.speaker,
-                "audio_start_ms": round(
-                    event.start_sample * 1000 / event.sample_rate
-                ),
-                "audio_end_ms": round(
-                    event.end_sample * 1000 / event.sample_rate
-                ),
+                "audio_start_ms": round(event.start_sample * 1000 / event.sample_rate),
+                "audio_end_ms": round(event.end_sample * 1000 / event.sample_rate),
             }
             if event.language_code is not None:
                 common["language"] = event.language_code
@@ -1715,17 +1693,13 @@ class RealtimeTranscriptionSession:
                 event_class = AhaSpeakerTranscriptionCompletedEvent
             else:
                 common["error"] = {
-                    "code": event.error_code
-                    or "speaker_transcription_failed",
+                    "code": event.error_code or "speaker_transcription_failed",
                     "message": event.error_message or "说话人片段转写失败",
                 }
                 event_class = AhaSpeakerTranscriptionFailedEvent
             await self._send_event(
                 event_class(
-                    type=(
-                        "x_aha.input_audio_transcription.speaker."
-                        f"{event.phase}"
-                    ),
+                    type=("x_aha.input_audio_transcription.speaker." f"{event.phase}"),
                     **common,
                 )
             )
@@ -1790,12 +1764,8 @@ class RealtimeTranscriptionSession:
                 return
             common = {
                 "event_id": event_id(),
-                "audio_start_ms": round(
-                    event.start_sample * 1000 / event.sample_rate
-                ),
-                "audio_end_ms": round(
-                    event.end_sample * 1000 / event.sample_rate
-                ),
+                "audio_start_ms": round(event.start_sample * 1000 / event.sample_rate),
+                "audio_end_ms": round(event.end_sample * 1000 / event.sample_rate),
             }
             if event.status == "matched":
                 assert event.speaker_id is not None and event.score is not None
@@ -1828,9 +1798,7 @@ class RealtimeTranscriptionSession:
                 )
             if event.status != "matched":
                 physical_segment_ids = self._physical_segment_ids(event)
-                if self._all_physical_ids_are_tombstones(
-                    physical_segment_ids
-                ):
+                if self._all_physical_ids_are_tombstones(physical_segment_ids):
                     logger.debug(
                         "忽略已关闭物理段的说话人过滤结果: %s",
                         physical_segment_ids,
@@ -1847,8 +1815,7 @@ class RealtimeTranscriptionSession:
                     if matching:
                         turn = self._vad_turn
                         physical_segment_ids = tuple(
-                            segment.physical_segment_id
-                            for segment in matching
+                            segment.physical_segment_id for segment in matching
                         )
                 if turn is None:
                     logger.warning(
@@ -1861,9 +1828,7 @@ class RealtimeTranscriptionSession:
                     )
                 else:
                     turn.discarded = True
-                    last = self._physical_vad_segments.get(
-                        physical_segment_ids[-1]
-                    )
+                    last = self._physical_vad_segments.get(physical_segment_ids[-1])
                     if last is not None:
                         last.resolution = "rejected"
                     await self._try_finalize_vad_turn(turn)
@@ -1959,6 +1924,31 @@ class RealtimeTranscriptionSession:
             return
         if not isinstance(event, AsrInferencer.Result):
             return
+        if (
+            not self._pending_items
+            and not self._manual_commit_enabled
+            and (self._active_item_id is not None or self._vad_turn is not None)
+        ):
+            # Independent DAG outlets can deliver ASR before the VAD stop under
+            # backpressure. Wait for that item's lifecycle instead of inventing
+            # a second item. Bound the deferred branch just like other queues.
+            if (
+                len(self._deferred_primary_results)
+                >= self._workflow_config.result_queue_capacity
+            ):
+                raise RuntimeError("主转写等待 VAD 边界的结果队列已满")
+            self._deferred_primary_results.append(event)
+            return
+        await self._handle_primary_transcript(event)
+
+    async def _handle_primary_transcript(self, event: AsrInferencer.Result) -> None:
+        # 一个 VAD item 可对应多个说话人转写。先按到达顺序处理旧结果，
+        # 避免新结果创建的 item 被 _emit_committed_item 内的旧结果消费。
+        while self._deferred_primary_results:
+            await self._apply_primary_transcript(self._deferred_primary_results.popleft())
+        await self._apply_primary_transcript(event)
+
+    async def _apply_primary_transcript(self, event: AsrInferencer.Result) -> None:
         if not self._pending_items:
             await self._emit_committed_item(
                 _TranscriptItem(
@@ -1966,6 +1956,7 @@ class RealtimeTranscriptionSession:
                     start_sample=event.start_sample,
                     end_sample=event.end_sample,
                 ),
+                drain_deferred=False,
             )
         item = self._pending_items[0]
         if self._interim_suppressed_item_id != item.item_id:
@@ -1984,10 +1975,7 @@ class RealtimeTranscriptionSession:
                 ConversationItemInputAudioTranscriptionDeltaEvent(
                     event_id=event_id(),
                     item_id=item.item_id,
-                    type=(
-                        "conversation.item."
-                        "input_audio_transcription.delta"
-                    ),
+                    type=("conversation.item." "input_audio_transcription.delta"),
                     content_index=0,
                     delta=delta,
                     logprobs=None,
@@ -2094,6 +2082,7 @@ class RealtimeTranscriptionSession:
         item: _TranscriptItem,
         *,
         append_pending: bool = True,
+        drain_deferred: bool = True,
     ) -> None:
         if append_pending:
             self._pending_items.append(item)
@@ -2114,7 +2103,7 @@ class RealtimeTranscriptionSession:
             role="user",
             status="completed",
             type="message",
-        ).model_dump(mode="json", exclude_none=True)
+        ).model_dump(mode="python", exclude_none=True)
         await self._send_event(
             {
                 "event_id": event_id(),
@@ -2132,6 +2121,14 @@ class RealtimeTranscriptionSession:
             }
         )
         self._previous_item_id = item.item_id
+
+        if drain_deferred:
+            # 一个 VAD 段可能已有多条 final；全部排空，即使第一个
+            # final 消耗了原生 item，也为后续结果建立各自的生命周期。
+            while self._deferred_primary_results:
+                await self._apply_primary_transcript(
+                    self._deferred_primary_results.popleft()
+                )
 
     async def _emit_completed_transcription(
         self,

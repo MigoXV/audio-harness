@@ -6,29 +6,30 @@ import logging
 from audio_harness.agent_backends.catalog import AgentBackendCatalog
 from audio_harness.agent_backends.dsh import DshWebGateway
 from audio_harness.agent_backends.health import AgentBackendHealthMonitor
-from audio_harness.api import create_http_app
-from audio_harness.configs import AppConfig, CapacityConfig
-from audio_harness.database import Database
+from audio_harness.api.app import create_http_app
+from audio_harness.configs.app import AppConfig
+from audio_harness.configs.serving import CapacityConfig
+from audio_harness.database.session import Database
 from audio_harness.engines.health import EngineHealthMonitor
 from audio_harness.engines.catalog import EngineCatalog
 from audio_harness.engines.inferencer_factory import create_inferencer
 from audio_harness.engines.pool import InferencerPool
+from audio_harness.serving.aha_grpc.server import AhaGrpcServer
 from audio_harness.serving.model_catalog import RealtimeModelCatalog
 from audio_harness.serving.capacity import ServingCapacity
 from audio_harness.serving.capacity_settings import CapacitySettingsStore
-from audio_harness.serving.realtime import RealtimeTranscriptionService
+from audio_harness.serving.realtime.connection import RealtimeTranscriptionService
 from audio_harness.serving.realtime.tools import ToolRegistry
 from audio_harness.serving.status import ServingStatusService
-from audio_harness.serving.webrtc import WebRtcCallService
-from audio_harness.sessions.audio_workflow import AudioWorkflowSessionService
-from audio_harness.voice_agents import (
-    VoiceAgentRepository,
-    VoiceAgentService,
-)
+from audio_harness.serving.webrtc.service import WebRtcCallService
+from audio_harness.sessions.audio_workflow.session import AudioWorkflowSessionService
+from audio_harness.voice_agents.repository import VoiceAgentRepository
+from audio_harness.voice_agents.service import VoiceAgentService
 from audio_harness.voice_agents.voices import VoiceAssetStore
 from audio_harness.workflows.settings import WorkflowSettingsStore
-from audio_harness.workflows import AudioWorkflowRepository, AudioWorkflowService
-from audio_harness.vectors import VectorService
+from audio_harness.workflows.repository import AudioWorkflowRepository
+from audio_harness.workflows.service import AudioWorkflowService
+from audio_harness.vectors.service import VectorService
 from audio_harness.vectors.qdrant import QdrantGateway
 
 logger = logging.getLogger(__name__)
@@ -58,9 +59,7 @@ class AudioHarnessHost:
             self.database.session_factory,
             self.agent_backend_gateway,
         )
-        self.agent_backend_health = AgentBackendHealthMonitor(
-            self.agent_backends
-        )
+        self.agent_backend_health = AgentBackendHealthMonitor(self.agent_backends)
 
         self.audio_workflows = AudioWorkflowService(
             AudioWorkflowRepository(self.database.session_factory),
@@ -84,9 +83,7 @@ class AudioHarnessHost:
             database=self.database,
             models=self.realtime_models,
         )
-        self.capacity_settings = CapacitySettingsStore(
-            self.database.session_factory
-        )
+        self.capacity_settings = CapacitySettingsStore(self.database.session_factory)
         self.capacity = ServingCapacity(CapacityConfig())
         self.capacity_settings.subscribe(self.capacity.apply)
         self.voice_store = VoiceAssetStore(
@@ -105,9 +102,7 @@ class AudioHarnessHost:
             qdrant_limiter=self.capacity.qdrant,
         )
 
-        self.realtime_sessions = self._session_service(
-            self.capacity.realtime_sessions
-        )
+        self.realtime_sessions = self._session_service(self.capacity.realtime_sessions)
         self.webrtc_sessions = self._session_service(self.capacity.webrtc_sessions)
 
         self.realtime_service = RealtimeTranscriptionService(
@@ -120,11 +115,10 @@ class AudioHarnessHost:
             tts_limiter=self.capacity.tts,
             voice_resolver=self.voice_store.resolve,
             tool_registry=self.tool_registry,
-            received_audio_cache_dir=(
-                config.received_audio_cache.storage_dir
-            ),
+            received_audio_cache_dir=(config.received_audio_cache.storage_dir),
             agent_backend_gateway=self.agent_backend_gateway,
         )
+        self.grpc_server = AhaGrpcServer(config, self.realtime_service)
         self.webrtc_service = WebRtcCallService(
             config=config.webrtc,
             session_service=self.webrtc_sessions,
@@ -136,9 +130,7 @@ class AudioHarnessHost:
             tts_limiter=self.capacity.tts,
             voice_resolver=self.voice_store.resolve,
             tool_registry=self.tool_registry,
-            received_audio_cache_dir=(
-                config.received_audio_cache.storage_dir
-            ),
+            received_audio_cache_dir=(config.received_audio_cache.storage_dir),
             agent_backend_gateway=self.agent_backend_gateway,
         )
         self.http_app = create_http_app(
@@ -178,18 +170,18 @@ class AudioHarnessHost:
             await self.capacity.apply(initial_capacity)
             await self.audio_workflows.initialize()
             await self.voice_agents.initialize()
+            await self.grpc_server.start()
             self.engine_health.start()
             self.agent_backend_health.start()
-        except Exception:
-            await self.inferencer_pool.close()
-            await self.database.close()
-            self._closed = True
+        except BaseException:
+            await self.stop()
             raise
 
     async def stop(self) -> None:
         if self._closed:
             return
         self._closed = True
+        await self.grpc_server.stop()
         await self.engine_health.close()
         await self.agent_backend_health.close()
         await self.webrtc_service.close()

@@ -1,4 +1,1 @@
-from audio_harness.inferencers.asr.base import AsrInferencer
-from audio_harness.inferencers.asr.grpc import UxSpeechAsrInferencer
-
-__all__ = ["AsrInferencer", "UxSpeechAsrInferencer"]
+"""语音识别推理客户端。"""

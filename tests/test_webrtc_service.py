@@ -20,16 +20,13 @@ from openai.types.realtime import RealtimeServerEvent
 from pydantic import TypeAdapter
 
 from audio_harness.serving.capacity import ServingCapacity
-from audio_harness.configs import (
-    CapacityConfig,
-    WebRtcConfig,
-    WorkflowRuntimeConfig,
-)
+from audio_harness.configs.serving import CapacityConfig
+from audio_harness.configs.webrtc import WebRtcConfig
+from audio_harness.configs.workflow import WorkflowRuntimeConfig
 from audio_harness.inferencers.asr.base import AsrInferencer
 from audio_harness.inferencers.vad.base import VadInferencer
-from audio_harness.serving.webrtc import WebRtcCallService
-from audio_harness.serving.webrtc.service import WebRtcCall
-from audio_harness.sessions.audio_workflow import AudioWorkflowSessionService
+from audio_harness.serving.webrtc.service import WebRtcCallService, WebRtcCall
+from audio_harness.sessions.audio_workflow.session import AudioWorkflowSessionService
 from audio_harness.workflows.settings import WorkflowSettingsSnapshot
 from tests.graph_fakes import StaticRouteService, static_audio_workflow
 from tests.test_agent_runtime import _profile
@@ -173,7 +170,7 @@ def _build_service(
             config=WebRtcConfig(),
             session_service=sessions,
             workflow_settings=settings,
-            routes=StaticRouteService(target or workflow),
+            models=StaticRouteService(target or workflow),
             max_message_bytes=max_message_bytes,
             inferencer_pool=inferencer_pool,
         ),

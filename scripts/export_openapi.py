@@ -7,7 +7,7 @@ import argparse
 import json
 from pathlib import Path
 
-from audio_harness.configs import AppConfig, DatabaseConfig
+from audio_harness.configs.app import AppConfig, DatabaseConfig
 from audio_harness.serving.host import AudioHarnessHost
 
 

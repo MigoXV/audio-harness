@@ -1,42 +1,23 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 
+import { ShellNavigation } from "./components/ShellNavigation";
+
 import { apiClient } from "./api/client";
-import type { AudioHarnessApi, RuntimeOverview } from "./api/types";
+import type { AudioHarnessApi } from "./api/types";
 import { useRuntimeOverview } from "./features/health/useRuntimeOverview";
-import { EngineConsolePage } from "./pages/EngineConsolePage";
-import { AgentBackendPage } from "./pages/AgentBackendPage";
-import { RuntimePage } from "./pages/RuntimePage";
-import { WorkflowDetailPage } from "./pages/WorkflowDetailPage";
-import { WorkflowListPage } from "./pages/WorkflowListPage";
-import { VoiceAgentPage } from "./pages/VoiceAgentPage";
-import { VoiceAgentDetailPage } from "./pages/VoiceAgentDetailPage";
-import { VoiceAgentCreatePage } from "./pages/VoiceAgentCreatePage";
-import { VectorWorkspacePage } from "./pages/VectorWorkspacePage";
+
+const EngineConsolePage = lazy(() => import("./pages/EngineConsolePage").then((module) => ({ default: module.EngineConsolePage })));
+const AgentBackendPage = lazy(() => import("./pages/AgentBackendPage").then((module) => ({ default: module.AgentBackendPage })));
+const RuntimePage = lazy(() => import("./pages/RuntimePage").then((module) => ({ default: module.RuntimePage })));
+const WorkflowDetailPage = lazy(() => import("./pages/WorkflowDetailPage").then((module) => ({ default: module.WorkflowDetailPage })));
+const WorkflowListPage = lazy(() => import("./pages/WorkflowListPage").then((module) => ({ default: module.WorkflowListPage })));
+const VoiceAgentPage = lazy(() => import("./pages/VoiceAgentPage").then((module) => ({ default: module.VoiceAgentPage })));
+const VoiceAgentDetailPage = lazy(() => import("./pages/VoiceAgentDetailPage").then((module) => ({ default: module.VoiceAgentDetailPage })));
+const VoiceAgentCreatePage = lazy(() => import("./pages/VoiceAgentCreatePage").then((module) => ({ default: module.VoiceAgentCreatePage })));
+const VectorWorkspacePage = lazy(() => import("./pages/VectorWorkspacePage").then((module) => ({ default: module.VectorWorkspacePage })));
 
 interface AppProps { api?: AudioHarnessApi; }
-
-function statusText(overview: RuntimeOverview | null, failed: boolean): string {
-  if (failed) return "管理服务不可用";
-  if (!overview) return "正在连接";
-  if (overview.status === "ready") return "服务在线";
-  if (overview.status === "unavailable") return "管理服务不可用";
-  return `服务在线 · ${overview.issues.length} 项待配置`;
-}
-
-function ShellNavigation({ overview, failed, onRefresh }: { overview: RuntimeOverview | null; failed: boolean; onRefresh: () => void }) {
-  const state = failed || overview?.status === "unavailable" ? "error" : overview?.status === "ready" ? "healthy" : "warning";
-  return <>
-    <header className="topbar">
-      <NavLink className="brand" to="/audio-workflows" aria-label="Audio Harness 首页">
-        <img className="brand-mark" src="/audio-harness-logo.svg" alt="" />
-        <strong aria-hidden="true">Audio Harness</strong>
-      </NavLink>
-      <nav className="primary-navigation" aria-label="主导航"><NavLink to="/audio-workflows">语音工作流</NavLink><NavLink to="/voice-agents">语音智能体</NavLink><NavLink to="/agent-backends">后端智能体</NavLink><NavLink to="/vectors">向量检索</NavLink><NavLink to="/engines">推理引擎</NavLink><NavLink to="/runtime">接入与运行</NavLink></nav>
-      <div className="topbar-meta"><span className={`health-dot ${state}`} /><NavLink className="status-link" to="/runtime#access">{statusText(overview, failed)}</NavLink><button className="text-button" onClick={onRefresh}>刷新</button></div>
-    </header>
-  </>;
-}
 
 export function App({ api = apiClient }: AppProps) {
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -45,7 +26,7 @@ export function App({ api = apiClient }: AppProps) {
 
   return <div className="app-shell-new">
     <ShellNavigation overview={overview.data ?? null} failed={overview.isError} onRefresh={refreshAll} />
-    <div className="app-content"><Routes>
+    <div className="app-content"><Suspense fallback={<main className="workspace-page"><div className="empty-state" role="status" aria-live="polite">正在加载页面…</div></main>}><Routes>
       <Route path="/" element={<Navigate replace to="/audio-workflows" />} />
       <Route path="/audio-workflows" element={<WorkflowListPage api={api} refreshVersion={refreshVersion} />} />
       <Route path="/audio-workflows/:workflowId" element={<Navigate replace to="build" />} />
@@ -62,6 +43,6 @@ export function App({ api = apiClient }: AppProps) {
       <Route path="/orchestration" element={<Navigate replace to="/audio-workflows" />} />
       <Route path="/settings" element={<Navigate replace to="/runtime" />} />
       <Route path="*" element={<main className="workspace-page"><div className="empty-state"><strong>页面不存在</strong><NavLink to="/audio-workflows">返回工作流</NavLink></div></main>} />
-    </Routes></div>
+    </Routes></Suspense></div>
   </div>;
 }

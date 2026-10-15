@@ -1,21 +1,29 @@
-export interface AudioPortMeta { label: string; color: string }
+import { vars } from "../styles/theme.css";
 
-const FALLBACK_PORT_META: AudioPortMeta = { label: "未知类型", color: "#69716c" };
+export interface AudioPortMeta { label: string; color: string; shape: "circle" | "square" | "diamond"; line: "solid" | "dashed" }
+
+const audio = { color: vars.color.portAudio, shape: "circle", line: "solid" } as const;
+const segment = { color: vars.color.portSegment, shape: "square", line: "solid" } as const;
+const transcript = { color: vars.color.portTranscript, shape: "square", line: "solid" } as const;
+const event = { color: vars.color.portEvent, shape: "diamond", line: "dashed" } as const;
+const vector = { color: vars.color.portVector, shape: "diamond", line: "solid" } as const;
+const FALLBACK_PORT_META: AudioPortMeta = { label: "未知类型", ...event };
 
 export const AUDIO_PORT_META: Readonly<Record<string, AudioPortMeta>> = {
-  pcm_chunk: { label: "PCM", color: "#2563eb" },
-  vad_audio_chunk: { label: "VAD 专用音频", color: "#0891b2" },
-  audio_segment: { label: "音频片段", color: "#c2410c" },
-  diarization_segment: { label: "说话人片段", color: "#0e7490" },
-  transcription: { label: "转写", color: "#7c3aed" },
-  speech_started: { label: "开始事件", color: "#0f766e" },
-  speech_stopped: { label: "停止事件", color: "#be123c" },
-  embedding: { label: "Embedding", color: "#9a6700" },
-  vector_search_result: { label: "检索结果", color: "#b45309" },
-  speaker_filter_result: { label: "过滤判定", color: "#a21caf" },
-  diarization_local_result: { label: "局部分离", color: "#0369a1" },
-  speaker_transcription: { label: "说话人转写", color: "#6d28d9" },
-  diarization_cluster_result: { label: "全局聚类", color: "#047857" },
+  pcm_chunk: { label: "PCM", ...audio },
+  vad_audio_chunk: { label: "VAD 专用音频", ...audio },
+  audio_segment: { label: "音频片段", ...segment },
+  speech_audio_chunk: { label: "流式语音块", ...segment },
+  diarization_segment: { label: "说话人片段", ...segment },
+  transcription: { label: "转写", ...transcript },
+  speech_started: { label: "开始事件", ...event },
+  speech_stopped: { label: "停止事件", ...event },
+  embedding: { label: "Embedding", ...vector },
+  vector_search_result: { label: "检索结果", ...vector },
+  speaker_filter_result: { label: "过滤判定", ...event },
+  diarization_local_result: { label: "局部分离", ...vector },
+  speaker_transcription: { label: "说话人转写", ...transcript },
+  diarization_cluster_result: { label: "全局聚类", ...vector },
 };
 
 export function audioPortMeta(kind: string): AudioPortMeta {

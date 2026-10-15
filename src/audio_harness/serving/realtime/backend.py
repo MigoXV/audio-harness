@@ -118,9 +118,12 @@ class RealtimeAgentBackendRuntime:
         self._speak_notice = speak_notice
         self._summarize = summarize
         self._extension_events_enabled = extension_events_enabled
-        self._system_context = system_context or agent_backend_system_context_instructions(
-            snapshot,
-            binding,
+        self._system_context = (
+            system_context
+            or agent_backend_system_context_instructions(
+                snapshot,
+                binding,
+            )
         )
         self._session: AgentBackendSession | None = None
         self._session_lock = asyncio.Lock()
@@ -129,7 +132,10 @@ class RealtimeAgentBackendRuntime:
         self._pending: dict[str, _PendingInteraction] = {}
         self._pending_lock = asyncio.Lock()
         self._running = False
+        self._idle = asyncio.Event()
+        self._idle.set()
         self._closed = False
+        self._input_finished = False
         self._final_text = ""
         self._tool_results: list[str] = []
 
@@ -213,6 +219,7 @@ class RealtimeAgentBackendRuntime:
     ) -> None:
         session = await self.ensure_session()
         self._running = True
+        self._idle.clear()
         if mode == "queue":
             self._final_text = ""
             self._tool_results.clear()
@@ -222,6 +229,7 @@ class RealtimeAgentBackendRuntime:
         except BaseException:
             if mode == "queue":
                 self._running = False
+                self._idle.set()
             raise
 
     async def cancel(self, *, reason: str = "user_requested") -> bool:
@@ -236,6 +244,7 @@ class RealtimeAgentBackendRuntime:
             code=reason,
             message="Agent Backend 任务已取消",
         )
+        self._idle.set()
         return True
 
     async def submit_approval(
@@ -369,8 +378,17 @@ class RealtimeAgentBackendRuntime:
                 code="event_stream_failed",
                 message=_bounded_text(exc, 1_000),
             )
+            self._idle.set()
 
     async def _handle_event(self, event: AgentBackendEvent) -> None:
+        self._idle.clear()
+        try:
+            await self._dispatch_event(event)
+        finally:
+            if not self._running:
+                self._idle.set()
+
+    async def _dispatch_event(self, event: AgentBackendEvent) -> None:
         kind = event.kind
         if kind is AgentBackendEventKind.SESSION_STATUS:
             await self._emit(
@@ -400,7 +418,9 @@ class RealtimeAgentBackendRuntime:
             await self._emit(
                 "x_aha.agent_backend.tool.started",
                 seq=event.seq,
-                call_id=(str(event.data["call_id"]) if event.data.get("call_id") else None),
+                call_id=(
+                    str(event.data["call_id"]) if event.data.get("call_id") else None
+                ),
                 name=(str(event.data["name"]) if event.data.get("name") else None),
                 arguments=_bounded_text(
                     event.data.get("arguments", ""),
@@ -418,7 +438,9 @@ class RealtimeAgentBackendRuntime:
             await self._emit(
                 "x_aha.agent_backend.tool.completed",
                 seq=event.seq,
-                call_id=(str(event.data["call_id"]) if event.data.get("call_id") else None),
+                call_id=(
+                    str(event.data["call_id"]) if event.data.get("call_id") else None
+                ),
                 result=result,
                 error=(
                     _bounded_text(event.data["error"], 1_000)
@@ -492,6 +514,14 @@ class RealtimeAgentBackendRuntime:
                 )
 
     async def _register_approval(self, event: AgentBackendEvent) -> None:
+        if self._input_finished:
+            await self.cancel(reason="client_input_closed")
+            await self._emit(
+                "x_aha.agent_backend.failed",
+                code="client_input_closed",
+                message="请求流已结束，无法继续处理后台交互",
+            )
+            return
         if not event.request_id:
             return
         approval_id = str(event.data.get("approval_id") or "")
@@ -520,6 +550,14 @@ class RealtimeAgentBackendRuntime:
         )
 
     async def _register_question(self, event: AgentBackendEvent) -> None:
+        if self._input_finished:
+            await self.cancel(reason="client_input_closed")
+            await self._emit(
+                "x_aha.agent_backend.failed",
+                code="client_input_closed",
+                message="请求流已结束，无法继续处理后台交互",
+            )
+            return
         if not event.request_id:
             return
         questions = _safe_questions(event.data.get("questions"))
@@ -618,6 +656,7 @@ class RealtimeAgentBackendRuntime:
                 message="Agent Backend 任务超时并已取消",
             )
             await self._speak_notice("后台任务超时，我已经取消了它。")
+            self._idle.set()
         except asyncio.CancelledError:
             raise
 
@@ -662,6 +701,17 @@ class RealtimeAgentBackendRuntime:
             **payload,
         }
         await self._send_event(event)
+
+    async def finish_input(self) -> None:
+        self._input_finished = True
+        if self._pending:
+            await self.cancel(reason="client_input_closed")
+            await self._emit(
+                "x_aha.agent_backend.failed",
+                code="client_input_closed",
+                message="请求流已结束，无法继续处理后台交互",
+            )
+        await self._idle.wait()
 
     async def close(self) -> None:
         if self._closed:

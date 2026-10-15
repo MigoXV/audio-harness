@@ -29,7 +29,11 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
   const [document, setDocument] = useState<AudioWorkflowDocument | null>(null);
   const [nodeTypes, setNodeTypes] = useState<AudioNodeType[]>([]);
   const [engines, setEngines] = useState<EngineAsset[]>([]);
+  const updateEngine = useCallback((engine: EngineAsset) => {
+    setEngines((items) => items.some((item) => item.id === engine.id) ? items.map((item) => item.id === engine.id ? engine : item) : [...items, engine]);
+  }, []);
   const [vectorSpaces, setVectorSpaces] = useState<VectorSpace[]>([]);
+  const [vectorWarning, setVectorWarning] = useState<string | null>(null);
   const [validation, setValidation] = useState<AudioWorkflowValidation>({ valid: false, diagnostics: [], topological_order: [] });
   const [revisions, setRevisions] = useState<AudioWorkflowRevision[]>([]);
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -43,15 +47,13 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [items, draft, types, engineList, history, nextVectorSpaces] = await Promise.all([
+      const [items, draft, types, engineList, history] = await Promise.all([
         api.listAudioWorkflows(), api.getAudioWorkflowDraft(workflowId), api.listAudioNodeTypes(),
         api.listEngines({ limit: 200 }), api.listAudioWorkflowRevisions(workflowId),
-        typeof api.listVectorSpaces === "function" ? api.listVectorSpaces() : Promise.resolve([]),
       ]);
       const summary = items.find((item) => item.id === workflowId);
       if (!summary) throw new Error("语音工作流不存在");
       setWorkflow(summary); setDocument(draft.document); savedDocument.current = structuredClone(draft.document); setNodeTypes(types); setEngines(engineList.items); setRevisions(history);
-      setVectorSpaces(nextVectorSpaces);
       setDraftRevision(draft.revision); setSaveState("idle");
       setValidation(await api.validateAudioWorkflow(workflowId));
     } catch (reason) { setError(errorMessage(reason, "工作流读取失败。")); }
@@ -61,6 +63,26 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load, refreshVersion]);
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setVectorSpaces([]); setVectorWarning(null);
+      if (typeof api.listVectorSpaces !== "function") return;
+      try {
+        const infrastructure = await api.getVectorInfrastructure();
+        if (cancelled) return;
+        if (!infrastructure.configured) {
+          setVectorWarning("尚未配置向量存储，向量检索相关功能暂不可用；仍可编辑和保存工作流。");
+          return;
+        }
+        const spaces = await api.listVectorSpaces();
+        if (!cancelled) setVectorSpaces(spaces);
+      } catch (reason) {
+        if (!cancelled) setVectorWarning(`向量空间读取失败：${errorMessage(reason, "向量存储不可用。")} 仍可编辑和保存工作流。`);
+      }
+    }, 0);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [api, workflowId, refreshVersion]);
   useEffect(() => {
     if (tab === "overview") navigate(`/audio-workflows/${encodeURIComponent(workflowId)}/build`, { replace: true });
     if (tab === "publish") navigate(`/audio-workflows/${encodeURIComponent(workflowId)}/access`, { replace: true });
@@ -132,6 +154,7 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
     </section>
     <nav className="builder-detail-navigation" aria-label="工作流页面">{tabs.map(([key, label]) => <NavLink key={key} to={`/audio-workflows/${encodeURIComponent(workflowId)}/${key}`} className={tab === key ? "active" : ""}>{label}<span>›</span></NavLink>)}</nav>
     {error && <div className="builder-sidebar-alert alert alert-error">{error}<button onClick={() => setError(null)}>关闭</button></div>}
+    {vectorWarning && <div className="builder-sidebar-alert alert alert-warning" role="status">{vectorWarning}</div>}
     {saveState === "conflict" && <div className="builder-sidebar-alert alert alert-warning"><strong>服务器草稿已更新</strong><button className="secondary-button" onClick={() => void load()}>重新载入</button></div>}
   </>;
   const sidebarFooter = <div className="workflow-sidebar-footer">
@@ -144,6 +167,8 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
     <UnsavedChangesGuard when={hasUnsavedChanges} saving={saveState === "saving"} onSave={saveDraft} onDiscard={discardChanges} />
     {tab === "build" ? <AudioGraphEditor
       key={workflow.id}
+      api={api}
+      onEngineUpdated={updateEngine}
       document={document}
       nodeTypes={nodeTypes}
       engines={engines}

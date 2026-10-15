@@ -11,6 +11,7 @@
 | `ux_vad` | `grpc` | `ux_vad.UxVoiceActivityDetector` | Physical/Semantic VAD |
 | `engine_feature` | `grpc` | `pb.Engine` 的 Feature/StreamingClustering | Embedding/Clustering 节点 |
 | `ux_speaker_diarization` | `grpc` | `ux_sd.UxSpeakerDiarization` | Diarization 节点 |
+| `ux_speaker_diarization_duplex` | `grpc` | `ux_sd.UxSpeakerDiarization/DuplexStreamingDetect`，Nemotron-3、16 kHz | 流式分离合并节点 |
 | `dummy_diarize` | `dummy` | 内置：整批标记为 `speaker=0` | Diarization 节点 |
 | `qwen_tts_duplex` | `grpc` | `qwen_tts.service.v1.TtsService` | Voice Agent TTS |
 | `responses` | `https` | OpenAI-compatible Models + Responses | Voice Agent LLM |

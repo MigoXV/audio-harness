@@ -6,7 +6,8 @@ export type AudioGraphTemplateId =
   | "dual_physical_asr"
   | "dual_physical_semantic_asr"
   | "voice_agent"
-  | "meeting_complete";
+  | "meeting_complete"
+  | "meeting_streaming";
 
 type NodeKind = AudioNode["kind"];
 
@@ -45,6 +46,8 @@ function physicalVad(document: AudioWorkflowDocument) {
         max_segment_seconds: 60,
         audio_buffer_seconds: 120,
         speech_pre_roll_seconds: 0.3,
+        speech_chunk_seconds: 1,
+        speech_chunk_holdback_seconds: 1,
         progress_interval_seconds: 0.2,
         postprocessing: null,
       },
@@ -124,6 +127,8 @@ function interimPhysicalVad(
       max_segment_seconds: 2,
       audio_buffer_seconds: 10,
       speech_pre_roll_seconds: 0,
+      speech_chunk_seconds: 1,
+      speech_chunk_holdback_seconds: 1,
       progress_interval_seconds: 0.2,
       postprocessing: {
         processor: "firered.stream_vad" as const,
@@ -259,6 +264,31 @@ export function applyAudioGraphTemplate(
   vectorSpaces: readonly VectorSpace[] = [],
   engines: readonly EngineAsset[] = [],
 ): AudioWorkflowDocument {
+  if (template === "meeting_streaming") {
+    const base = applyAudioGraphTemplate(document, "meeting_complete", vectorSpaces, engines);
+    const existing = existingNode(document, "streaming_speaker_diarization", "streaming-speaker-diarization");
+    const node: Extract<AudioNode, { kind: "streaming_speaker_diarization" }> = {
+      id: "streaming-speaker-diarization", kind: "streaming_speaker_diarization",
+      engine_id: existing?.engine_id ?? engines.find((engine) => engine.enabled && engine.api === "ux_speaker_diarization_duplex")?.id ?? null,
+      config: { input_buffer_latency_ms: 320, min_asr_segment_seconds: 0.5, max_pending_audio_seconds: 120, max_segments: 10000, ...existing?.config },
+    };
+    const removed = new Set(["speaker-diarization", "speaker-clustering"]);
+    return {
+      ...base,
+      nodes: [...base.nodes.filter((value) => !removed.has(value.id)), node],
+      edges: [
+        ...base.edges.filter((edge) => !removed.has(edge.target.node_id) && !(edge.source.kind === "node" && removed.has(edge.source.node_id))),
+        { id: "audio-to-streaming-diarization", source: { kind: "input", name: "audio" }, target: { node_id: node.id, port: "audio" } },
+        { id: "speech-chunks-to-streaming-diarization", source: { kind: "node", node_id: "physical-vad", port: "speech_chunks" }, target: { node_id: node.id, port: "segments" } },
+        { id: "streaming-diarization-to-asr", source: { kind: "node", node_id: node.id, port: "segments" }, target: { node_id: "speaker-asr", port: "segments" } },
+      ],
+      outputs: base.outputs.map((output) => output.name === "diarization_local"
+        ? { ...output, source: { kind: "node", node_id: node.id, port: "local_results" } }
+        : output.name === "diarization_cluster"
+          ? { ...output, source: { kind: "node", node_id: node.id, port: "cluster_results" } } : output),
+      layout: { ...Object.fromEntries(Object.entries(base.layout ?? {}).filter(([id]) => !removed.has(id))), [node.id]: { x: 800, y: 400 } },
+    };
+  }
   const physical = physicalVad(document);
   const recognition = asr(document);
   if (template === "physical_asr") {

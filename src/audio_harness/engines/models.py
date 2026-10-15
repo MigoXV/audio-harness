@@ -24,6 +24,7 @@ class EngineApi(str, Enum):
     QWEN_TTS_DUPLEX = "qwen_tts_duplex"
     ENGINE_FEATURE = "engine_feature"
     UX_SPEAKER_DIARIZATION = "ux_speaker_diarization"
+    UX_SPEAKER_DIARIZATION_DUPLEX = "ux_speaker_diarization_duplex"
     DUMMY_DIARIZE = "dummy_diarize"
 
 

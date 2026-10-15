@@ -33,12 +33,14 @@ class UxSpeakerDiarizationStub:
     def __new__(cls, channel: _aio.Channel) -> UxSpeakerDiarizationAsyncStub: ...
     Detect: _grpc.UnaryUnaryMultiCallable[_ux_speaker_diarization_pb2.DetectRequest, _ux_speaker_diarization_pb2.DetectResponse]
     StreamingDetect: _grpc.UnaryStreamMultiCallable[_ux_speaker_diarization_pb2.DetectRequest, _ux_speaker_diarization_pb2.DetectResponse]
+    DuplexStreamingDetect: _grpc.StreamStreamMultiCallable[_ux_speaker_diarization_pb2.DuplexStreamingDetectRequest, _ux_speaker_diarization_pb2.DuplexStreamingDetectResponse]
 
 @_typing.type_check_only
 class UxSpeakerDiarizationAsyncStub(UxSpeakerDiarizationStub):
     def __init__(self, channel: _aio.Channel) -> None: ...
     Detect: _aio.UnaryUnaryMultiCallable[_ux_speaker_diarization_pb2.DetectRequest, _ux_speaker_diarization_pb2.DetectResponse]  # type: ignore[assignment]
     StreamingDetect: _aio.UnaryStreamMultiCallable[_ux_speaker_diarization_pb2.DetectRequest, _ux_speaker_diarization_pb2.DetectResponse]  # type: ignore[assignment]
+    DuplexStreamingDetect: _aio.StreamStreamMultiCallable[_ux_speaker_diarization_pb2.DuplexStreamingDetectRequest, _ux_speaker_diarization_pb2.DuplexStreamingDetectResponse]  # type: ignore[assignment]
 
 class UxSpeakerDiarizationServicer(metaclass=_abc_1.ABCMeta):
     @_abc_1.abstractmethod
@@ -54,5 +56,12 @@ class UxSpeakerDiarizationServicer(metaclass=_abc_1.ABCMeta):
         request: _ux_speaker_diarization_pb2.DetectRequest,
         context: _ServicerContext,
     ) -> _typing.Union[_abc.Iterator[_ux_speaker_diarization_pb2.DetectResponse], _abc.AsyncIterator[_ux_speaker_diarization_pb2.DetectResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def DuplexStreamingDetect(
+        self,
+        request_iterator: _MaybeAsyncIterator[_ux_speaker_diarization_pb2.DuplexStreamingDetectRequest],
+        context: _ServicerContext,
+    ) -> _typing.Union[_abc.Iterator[_ux_speaker_diarization_pb2.DuplexStreamingDetectResponse], _abc.AsyncIterator[_ux_speaker_diarization_pb2.DuplexStreamingDetectResponse]]: ...
 
 def add_UxSpeakerDiarizationServicer_to_server(servicer: UxSpeakerDiarizationServicer, server: _typing.Union[_grpc.Server, _aio.Server]) -> None: ...

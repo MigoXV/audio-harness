@@ -31,6 +31,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import type {
+  AudioHarnessApi,
   AudioNode,
   AudioNodeType,
   AudioWorkflowDocument,
@@ -43,9 +44,14 @@ import { layoutAudioGraph, needsAutoLayout, orderOutputPorts, orthogonalPath, ro
 import { audioPortMeta as portMeta } from "./audioPortMeta";
 import { collectGraphPortOffsets, type PortOffsets, type RoutePoint } from "./graphLayout";
 import { applyAudioGraphTemplate, type AudioGraphTemplateId } from "./audioGraphTemplates";
+import { EngineQuickView } from "./EngineQuickView";
 import { WorkbenchSidebar } from "./WorkbenchSidebar";
+import { vars } from "../styles/theme.css";
+import { isCompactWorkbench, useInspectorFocus } from "./useInspectorFocus";
 
 interface Props {
+  api: AudioHarnessApi;
+  onEngineUpdated: (engine: EngineAsset) => void;
   document: AudioWorkflowDocument;
   nodeTypes: AudioNodeType[];
   engines: EngineAsset[];
@@ -85,9 +91,9 @@ const OUTPUTS = [
 ];
 
 const ROLE_COLORS = {
-  input: "#2563eb",
-  processor: "#28684f",
-  output: "#7c3aed",
+  input: vars.color.roleInput,
+  processor: vars.color.roleProcessor,
+  output: vars.color.roleOutput,
 } as const;
 
 const GRAPH_NODE_WIDTH = 244;
@@ -182,11 +188,12 @@ function PortRow({ port, direction }: { port: { name: string; kind: string; labe
       id={port.name}
       type={direction === "input" ? "target" : "source"}
       position={direction === "input" ? Position.Left : Position.Right}
+      className={`port-shape-${meta.shape}`}
       style={{ top: "50%", background: meta.color }}
       title={`${port.name}: ${port.kind}`}
     />
     <span className="audio-port-name">{port.name}</span>
-    <code style={{ color: meta.color }}>{port.label ?? meta.label}</code>
+    <code>{port.label ?? meta.label}</code>
   </li>;
 }
 
@@ -286,6 +293,8 @@ function nodeConfig(kind: string): AudioNode {
         max_segment_seconds: 60,
         audio_buffer_seconds: 120,
         speech_pre_roll_seconds: 0.3,
+        speech_chunk_seconds: 1,
+        speech_chunk_holdback_seconds: 1,
         progress_interval_seconds: 0.2,
         postprocessing: null,
       },
@@ -302,6 +311,12 @@ function nodeConfig(kind: string): AudioNode {
   }
   if (kind === "audio_embedding") {
     return { id, kind, engine_id: null, config: { algorithm: "eres2netv2", expected_dimension: 192, normalize: true } } as AudioNode;
+  }
+  if (kind === "streaming_speaker_diarization") {
+    return {
+      id, kind, engine_id: null,
+      config: { input_buffer_latency_ms: 320, min_asr_segment_seconds: 0.5, max_pending_audio_seconds: 120, max_segments: 10000 },
+    };
   }
   if (kind === "speaker_diarization") {
     return {
@@ -355,6 +370,8 @@ export function AudioGraphEditor({
 }
 
 function AudioGraphEditorInner({
+  api,
+  onEngineUpdated,
   document,
   nodeTypes,
   engines,
@@ -471,7 +488,7 @@ function AudioGraphEditorInner({
     };
     const edgeStyle = (kind: string) => {
       const color = portMeta(kind).color;
-      return { type: "routed", className: `audio-edge edge-${kind}`, style: { stroke: color, strokeWidth: 2.25 }, markerEnd: { type: MarkerType.ArrowClosed, color } };
+      return { type: "routed", className: `audio-edge edge-${kind}`, style: { stroke: color, strokeWidth: 2.25, strokeDasharray: portMeta(kind).line === "dashed" ? "6 4" : undefined }, markerEnd: { type: MarkerType.ArrowClosed, color } };
     };
     const outputEdges = document.outputs.map((output, index) => ({
       id: `output:${output.name}`,
@@ -497,6 +514,7 @@ function AudioGraphEditorInner({
   const [flowNodes, setFlowNodes] = useState(initialNodes);
   const [flowEdges, setFlowEdges] = useState<GraphEdge[]>(initialEdges);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const focusSidebar = useInspectorFocus(selectedId);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [connectingKind, setConnectingKind] = useState<string | null>(null);
@@ -584,6 +602,8 @@ function AudioGraphEditorInner({
     max_segment_seconds: selected.config?.max_segment_seconds ?? 60,
     audio_buffer_seconds: selected.config?.audio_buffer_seconds ?? 120,
     speech_pre_roll_seconds: selected.config?.speech_pre_roll_seconds ?? 0.3,
+    speech_chunk_seconds: selected.config?.speech_chunk_seconds ?? 1,
+    speech_chunk_holdback_seconds: selected.config?.speech_chunk_holdback_seconds ?? 1,
     progress_interval_seconds: selected.config?.progress_interval_seconds ?? 0.2,
     postprocessing: selected.config?.postprocessing ?? null,
   } : null;
@@ -611,6 +631,11 @@ function AudioGraphEditorInner({
     postprocessing: selected.config?.postprocessing === undefined
       ? structuredClone(DIARIZATION_POSTPROCESSING_DEFAULTS)
       : selected.config.postprocessing,
+  } : null;
+  const selectedStreamingConfig = selected?.kind === "streaming_speaker_diarization" ? {
+    input_buffer_latency_ms: 320 as 320 | 640 | 1040,
+    min_asr_segment_seconds: 0.5, max_pending_audio_seconds: 120, max_segments: 10000,
+    ...selected.config,
   } : null;
   const selectedClusteringConfig = selected?.kind === "speaker_clustering" ? {
     embedding_algorithm: selected.config?.embedding_algorithm ?? "eres2netv2",
@@ -806,7 +831,7 @@ function AudioGraphEditorInner({
     });
   }, [flowEdges, selectedEdgeId, selectedId]);
 
-  const legendKinds = ["pcm_chunk", "vad_audio_chunk", "audio_segment", "diarization_segment", "embedding", "vector_search_result", "speaker_filter_result", "diarization_local_result", "diarization_cluster_result", "speaker_transcription", "transcription", "speech_started", "speech_stopped"];
+  const legendKinds = ["pcm_chunk", "vad_audio_chunk", "audio_segment", "speech_audio_chunk", "diarization_segment", "embedding", "vector_search_result", "speaker_filter_result", "diarization_local_result", "diarization_cluster_result", "speaker_transcription", "transcription", "speech_started", "speech_stopped"];
   return (
     <div className={`audio-builder ${sidebarOpen ? "palette-open" : "palette-closed"} ${selected ? "inspector-open" : ""}`}>
       <WorkbenchSidebar
@@ -816,7 +841,7 @@ function AudioGraphEditorInner({
         ariaLabel="工作流侧栏"
         content={sidebarContent}
         footer={sidebarFooter}
-        onOpenChange={onSidebarOpenChange}
+        onOpenChange={(open) => { if (open && isCompactWorkbench()) { setSelectedId(null); focusSidebar(); } onSidebarOpenChange(open); }}
       >
         <details className="audio-template-catalog" open={templatesOpen} onToggle={(event) => setTemplatesOpen(event.currentTarget.open)}>
           <summary><h2>快速模板</h2><span>自动连线</span><i aria-hidden="true">⌄</i></summary>
@@ -827,6 +852,7 @@ function AudioGraphEditorInner({
             <button onClick={() => setPendingTemplate("dual_physical_asr")}><strong>物理双路 VAD + ASR</strong><small>正式转写 + AHA 中间结果预览</small></button>
             <button onClick={() => setPendingTemplate("dual_physical_semantic_asr")}><strong>双路物理 + 语义 VAD + ASR</strong><small>正式分支语义判停 + AHA 中间结果预览</small></button>
             <button onClick={() => setPendingTemplate("voice_agent")}><strong>语音智能体</strong><small>仅允许声纹白名单中的说话人进入转写和智能体</small></button>
+            <button onClick={() => setPendingTemplate("meeting_streaming")}><strong>流式会议</strong><small>持续识别说话人，保留语义轮次与分角色转写</small></button>
             <button onClick={() => setPendingTemplate("meeting_complete")}><strong>会议系统完全体</strong><small>双路语义判停、正式与预览转写、语音特征向量提取与搜索</small></button>
           </div>
         </details>
@@ -862,7 +888,7 @@ function AudioGraphEditorInner({
           connectionLineStyle={{ stroke: portMeta(connectingKind ?? "").color, strokeWidth: 2.25 }}
           isValidConnection={validConnection}
           onPaneClick={() => { setSelectedId(null); setSelectedEdgeId(null); }}
-          onNodeClick={(_event, node) => { setSelectedEdgeId(null); setSelectedId(node.id.startsWith("$") ? null : node.id); }}
+          onNodeClick={(_event, node) => { setSelectedEdgeId(null); setSelectedId(node.id.startsWith("$") ? null : node.id); if (!node.id.startsWith("$") && isCompactWorkbench()) onSidebarOpenChange(false); }}
           onEdgeClick={(_event, edge) => { setSelectedId(null); setSelectedEdgeId(edge.id); }}
           onNodeDragStop={(_event, node) => {
             if (node.id.startsWith("$")) return;
@@ -876,25 +902,26 @@ function AudioGraphEditorInner({
           maxZoom={1.6}
           deleteKeyCode={["Backspace", "Delete"]}
         >
-          <Background gap={24} size={1} color="#d9dfdb" />
+          <Background gap={24} size={1} color={vars.color.line} />
           <Panel position="top-center" className="audio-graph-legend">
             <div className="role-legend"><span><i style={{ background: ROLE_COLORS.input }} />输入</span><span><i style={{ background: ROLE_COLORS.processor }} />处理</span><span><i style={{ background: ROLE_COLORS.output }} />输出</span></div>
-            <div className="type-legend">{legendKinds.map((kind) => <span key={kind}><i style={{ background: portMeta(kind).color }} />{portMeta(kind).label}</span>)}</div>
+            <div className="type-legend">{legendKinds.map((kind) => <span key={kind}><i className={`port-shape-${portMeta(kind).shape}`} style={{ background: portMeta(kind).color }} />{portMeta(kind).label}</span>)}</div>
           </Panel>
-          <MiniMap pannable zoomable nodeColor={(node) => ROLE_COLORS[node.data.role as keyof typeof ROLE_COLORS] ?? "#69716c"} />
+          <MiniMap pannable zoomable nodeColor={(node) => ROLE_COLORS[node.data.role as keyof typeof ROLE_COLORS] ?? vars.color.textMuted} maskColor={vars.color.overlay} />
           <Controls fitViewOptions={{ padding: 0.18, minZoom: 0.55, maxZoom: 1 }}>
             <ControlButton aria-label="自动排列" title="自动排列" onClick={() => void arrangeGraph()}>↔</ControlButton>
           </Controls>
         </ReactFlow>
       </section>
 
-      {selected && selectedSpec && <aside className="audio-inspector panel" aria-label="节点配置面板">
+      {selected && selectedSpec && <aside className="audio-inspector panel" aria-label="节点配置面板" onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setSelectedId(null); } }}>
         <header><div><span>节点配置</span><h2>{selected.id}</h2></div><button className="icon-button" aria-label="关闭节点配置" onClick={() => setSelectedId(null)}>×</button></header>
         <div className="audio-inspector-body">
           <div className={`inspector-state ${selectedEngineConfigured ? "configured" : "unconfigured"}`}><strong>{selectedSpec.display_name}</strong><span>{selectedSpec.required_api == null ? "基础设施节点" : selectedEngineConfigured ? "已绑定执行引擎" : selected.engine_id ? "所选引擎不可用" : "待绑定执行引擎"}</span></div>
           <label><span>节点 ID</span><input value={selected.id} disabled /></label>
-          {selectedSpec.required_api != null && <label><span>执行引擎</span><select value={selected.engine_id ?? ""} onChange={(event) => updateNode({ ...selected, engine_id: event.target.value || null } as AudioNode)}><option value="">未绑定</option>{engines.filter((engine) => engine.enabled && (engine.api === selectedSpec.required_api || (selectedSpec.required_api === "ux_speaker_diarization" && engine.api === "dummy_diarize")) && (!selectedSpec.required_capability || (Array.isArray(engine.details?.capabilities) && engine.details.capabilities.includes(selectedSpec.required_capability)))).map((engine) => <option key={engine.id} value={engine.id}>{engine.name} · {engine.status}</option>)}</select><small>需要 {selectedSpec.required_api}{selectedSpec.required_capability ? ` / ${selectedSpec.required_capability}` : ""} 能力</small></label>}
-          {Object.entries(selected.config ?? {}).filter(([key]) => !["postprocessing", "parameters", "clustering_algorithm", "remove_punctuation", "normalize", "include_embedding", "filter", "collection_name", "vector_name", "progress_interval_seconds", "allowed_speaker_ids", "min_score", "denoised_weight", "attack_seconds", "decay_seconds", "soft_knee_db", "initial_level_db", "output_gain_db"].includes(key)).map(([key, value]) => <label key={key}><span>{key}</span><input type={typeof value === "number" || value === null ? "number" : "text"} step="0.1" value={value == null ? "" : String(value)} onChange={(event) => updateNode({ ...selected, config: { ...(selected.config ?? {}), [key]: typeof value === "number" || value === null ? (event.target.value ? Number(event.target.value) : null) : event.target.value } } as AudioNode)} /></label>)}
+          {selectedSpec.required_api != null && <label><span>执行引擎</span><select value={selected.engine_id ?? ""} onChange={(event) => updateNode({ ...selected, engine_id: event.target.value || null } as AudioNode)}><option value="">未绑定</option>{selected.engine_id && !selectedEngineConfigured && <option value={selected.engine_id} disabled>{engines.find((engine) => engine.id === selected.engine_id)?.name ?? selected.engine_id} · 当前不可用</option>}{engines.filter((engine) => engine.enabled && (engine.api === selectedSpec.required_api || (selectedSpec.required_api === "ux_speaker_diarization" && engine.api === "dummy_diarize")) && (!selectedSpec.required_capability || (Array.isArray(engine.details?.capabilities) && engine.details.capabilities.includes(selectedSpec.required_capability)))).map((engine) => <option key={engine.id} value={engine.id}>{engine.name} · {engine.status}</option>)}</select><small>需要 {selectedSpec.required_api}{selectedSpec.required_capability ? ` / ${selectedSpec.required_capability}` : ""} 能力</small></label>}
+          {selectedSpec.required_api != null && <EngineQuickView api={api} engineId={selected.engine_id} onUpdated={onEngineUpdated} />}
+          {Object.entries(selected.config ?? {}).filter(([key]) => !["postprocessing", "parameters", "clustering_algorithm", "remove_punctuation", "normalize", "include_embedding", "filter", "collection_name", "vector_name", "progress_interval_seconds", "speech_chunk_seconds", "speech_chunk_holdback_seconds", "allowed_speaker_ids", "min_score", "denoised_weight", "attack_seconds", "decay_seconds", "soft_knee_db", "initial_level_db", "output_gain_db"].includes(key)).map(([key, value]) => <label key={key}><span>{key}</span><input type={typeof value === "number" || value === null ? "number" : "text"} step="0.1" value={value == null ? "" : String(value)} onChange={(event) => updateNode({ ...selected, config: { ...(selected.config ?? {}), [key]: typeof value === "number" || value === null ? (event.target.value ? Number(event.target.value) : null) : event.target.value } } as AudioNode)} /></label>)}
           {selected.kind === "audio_embedding" && <label className="switch-control"><input type="checkbox" checked={selected.config?.normalize ?? true} onChange={(event) => updateNode({ ...selected, config: { algorithm: selected.config?.algorithm ?? "eres2netv2", expected_dimension: selected.config?.expected_dimension ?? 192, normalize: event.target.checked } })} /><span>L2 归一化</span></label>}
           {selected.kind === "vector_search" && <><label><span>Voiceprint Collection</span><select value={selected.config.collection_name} onChange={(event) => { const space = vectorSpaces.find((item) => item.collection_name === event.target.value); if (space) updateNode({ ...selected, config: { ...selected.config, collection_name: space.collection_name, vector_name: space.vectors[0]?.name ?? "" } }); }}><option value="">请选择 voiceprint Collection</option>{vectorSpaces.filter((space) => space.template === "voiceprint").map((space) => <option value={space.collection_name} key={space.collection_name}>{space.collection_name}</option>)}</select></label><label><span>Named Vector</span><select value={selected.config.vector_name} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, vector_name: event.target.value } })}>{vectorSpaces.find((item) => item.collection_name === selected.config.collection_name)?.vectors.map((vector) => <option key={vector.name}>{vector.name}</option>)}</select></label><label><span>Filter JSON</span><textarea value={JSON.stringify(selected.config.filter ?? {}, null, 2)} onChange={(event) => { try { updateNode({ ...selected, config: { ...selected.config, filter: JSON.parse(event.target.value) } }); } catch { /* 保存前由校验提示 */ } }} /></label><label className="switch-control"><input type="checkbox" checked={selected.config.include_embedding} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, include_embedding: event.target.checked } })} /><span>在 AHA 事件中返回查询向量</span></label></>}
           {selected.kind === "speaker_filter" && <><label><span>允许的 Speaker ID</span><textarea value={selected.config.allowed_speaker_ids.join("\n")} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, allowed_speaker_ids: event.target.value.split("\n").map((value) => value.trim()).filter(Boolean) } })} /><small>每行一个，精确且区分大小写。</small></label><label><span>最低匹配分数</span><input type="number" step="0.01" value={selected.config.min_score} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, min_score: Number(event.target.value) } })} /><small>低于该分数、未命中或检索失败时均静默拒绝。</small></label></>}
@@ -912,6 +939,8 @@ function AudioGraphEditorInner({
             <label><span>末级补偿（dB）</span><input type="number" min="-24" max="24" step="0.5" value={selectedAgcConfig.output_gain_db} onChange={(event) => updateNode({ ...selected, config: { ...selectedAgcConfig, output_gain_db: Number(event.target.value) } })} /><small>固定曲线：-80/-80 | -55/-42 | -40/-28 | -30/-18 | -20/-13 | -10/-9 | 0/-6</small></label>
           </section>}
           {selected.kind === "physical_vad" && selectedPhysicalConfig && <section className="vad-postprocessing-settings">
+            <label><span>流式语音块时长（秒）</span><input type="number" min="0.01" step="0.1" value={selectedPhysicalConfig.speech_chunk_seconds} onChange={(event) => updateNode({ ...selected, config: { ...selectedPhysicalConfig, speech_chunk_seconds: Number(event.target.value) } })} /><small>语音块出口在讲话过程中持续输出；整段出口仍等待分段结束。</small></label>
+            <label><span>语音尾部保留（秒）</span><input type="number" min="0" step="0.1" value={selectedPhysicalConfig.speech_chunk_holdback_seconds} onChange={(event) => updateNode({ ...selected, config: { ...selectedPhysicalConfig, speech_chunk_holdback_seconds: Number(event.target.value) } })} /><small>为晚到的停顿边界保留尾部音频。应覆盖 VAD 的结束边界回溯时间。</small></label>
             <label><span>进度发送间隔（秒）</span><input type="number" min="0" step="0.1" value={selectedPhysicalConfig.progress_interval_seconds} onChange={(event) => updateNode({ ...selected, config: { ...selectedPhysicalConfig, progress_interval_seconds: Number(event.target.value) } })} /><small>默认 0.2 秒；设置为 0 时关闭进度事件。</small></label>
             <label className="switch-control"><input type="checkbox" checked={selectedPostprocessing != null} onChange={(event) => updateNode({ ...selected, config: { ...selectedPhysicalConfig, postprocessing: event.target.checked ? structuredClone(FIRERED_POSTPROCESSING_DEFAULTS) : null } })} /><span>自定义 FireRed 后处理</span></label>
             {selectedPostprocessing && <>
@@ -922,6 +951,14 @@ function AudioGraphEditorInner({
           {selected.kind === "speaker_diarization" && selectedDiarizationConfig && <section className="diarization-postprocessing-settings">
             <label className="switch-control"><input type="checkbox" checked={selectedDiarizationConfig.postprocessing != null} onChange={(event) => updateNode({ ...selected, config: { ...selectedDiarizationConfig, postprocessing: event.target.checked ? structuredClone(DIARIZATION_POSTPROCESSING_DEFAULTS) : null } })} /><span>启用 VAD 覆盖后处理</span><small>填充有效语音头尾与空洞，合并相邻同说话人片段，并在说话人切换后立即送入 ASR。</small></label>
             {selectedDiarizationConfig.postprocessing && <div className="inspector-state configured"><strong>audio_harness.diarization.vad_coverage</strong><span>协议版本 v1 · 稳定片段流式提交</span></div>}
+          </section>}
+          {selected.kind === "streaming_speaker_diarization" && selectedStreamingConfig && <section>
+            <h3>流式分离参数</h3>
+            <p className="muted">连接完整音频与 VAD／语义轮次两个输入；需要 Nemotron-3、16 kHz 单声道。</p>
+            <label><span>输入缓冲（毫秒）</span><select value={selectedStreamingConfig.input_buffer_latency_ms ?? 320} onChange={(event) => updateNode({ ...selected, config: { ...selectedStreamingConfig, input_buffer_latency_ms: Number(event.target.value) as 320 | 640 | 1040 } })}>{[320, 640, 1040].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+            <label><span>最短分角色转写（秒）</span><input type="number" min={0} step={0.1} value={selectedStreamingConfig.min_asr_segment_seconds ?? 0.5} onChange={(event) => updateNode({ ...selected, config: { ...selectedStreamingConfig, min_asr_segment_seconds: Number(event.target.value) } })} /></label>
+            <label><span>轮次缓冲与历史保留（秒）</span><input type="number" min={1} value={selectedStreamingConfig.max_pending_audio_seconds ?? 120} onChange={(event) => updateNode({ ...selected, config: { ...selectedStreamingConfig, max_pending_audio_seconds: Number(event.target.value) } })} /></label>
+            <label><span>最大片段数</span><input type="number" min={1} max={1000000} step={1} value={selectedStreamingConfig.max_segments ?? 10000} onChange={(event) => updateNode({ ...selected, config: { ...selectedStreamingConfig, max_segments: Number(event.target.value) } })} /></label>
           </section>}
           {selected.kind === "speaker_clustering" && selectedClusteringConfig && <section className="clustering-parameters-settings">
             <label><span>聚类算法</span><select value={selectedClusteringConfig.clustering_algorithm} onChange={(event) => updateNode({ ...selected, config: { ...selectedClusteringConfig, clustering_algorithm: event.target.value as "hdbscan" } })}><option value="hdbscan">HDBSCAN</option></select></label>

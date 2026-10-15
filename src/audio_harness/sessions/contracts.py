@@ -45,6 +45,27 @@ class SegmentCandidate(NamedTuple):
     physical_segment_ids: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class SpeechAudioChunk:
+    """同一物理语音段的增量 PCM；空的 completed 块只关闭轮次。"""
+
+    audio: bytes
+    start_sample: int
+    end_sample: int
+    source_start_sample: int
+    physical_segment_id: str
+    completed: bool = False
+
+    def as_candidate(self) -> SegmentCandidate:
+        return SegmentCandidate(
+            self.audio, self.start_sample, self.end_sample,
+            turn_completed=self.completed, evaluate_turn=False,
+            physical_segment_id=self.physical_segment_id,
+            physical_segment_completed=self.completed,
+            physical_segment_ids=(self.physical_segment_id,),
+        )
+
+
 def candidate_physical_segment_ids(
     candidate: SegmentCandidate,
 ) -> tuple[str, ...]:

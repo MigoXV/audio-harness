@@ -3867,6 +3867,9 @@
                   "$ref": "#/components/schemas/SpeakerDiarizationNode"
                 },
                 {
+                  "$ref": "#/components/schemas/StreamingSpeakerDiarizationNode"
+                },
+                {
                   "$ref": "#/components/schemas/SpeakerClusteringNode"
                 },
                 {
@@ -3888,6 +3891,7 @@
                   "speaker_diarization": "#/components/schemas/SpeakerDiarizationNode",
                   "speaker_filter": "#/components/schemas/SpeakerFilterNode",
                   "streaming_denoise": "#/components/schemas/StreamingDenoiseNode",
+                  "streaming_speaker_diarization": "#/components/schemas/StreamingSpeakerDiarizationNode",
                   "vector_search": "#/components/schemas/VectorSearchNode"
                 }
               }
@@ -4637,6 +4641,7 @@
           "qwen_tts_duplex",
           "engine_feature",
           "ux_speaker_diarization",
+          "ux_speaker_diarization_duplex",
           "dummy_diarize"
         ],
         "title": "EngineApi"
@@ -6000,6 +6005,18 @@
             "title": "Speech Pre Roll Seconds",
             "default": 0.3
           },
+          "speech_chunk_seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Speech Chunk Seconds",
+            "default": 1.0
+          },
+          "speech_chunk_holdback_seconds": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Speech Chunk Holdback Seconds",
+            "default": 1.0
+          },
           "progress_interval_seconds": {
             "type": "number",
             "minimum": 0.0,
@@ -6875,6 +6892,79 @@
           "id"
         ],
         "title": "StreamingDenoiseNode"
+      },
+      "StreamingSpeakerDiarizationConfig": {
+        "properties": {
+          "input_buffer_latency_ms": {
+            "type": "integer",
+            "enum": [
+              320,
+              640,
+              1040
+            ],
+            "title": "Input Buffer Latency Ms",
+            "default": 320
+          },
+          "min_asr_segment_seconds": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Min Asr Segment Seconds",
+            "default": 0.5
+          },
+          "max_pending_audio_seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Pending Audio Seconds",
+            "default": 120
+          },
+          "max_segments": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Segments",
+            "default": 10000
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "StreamingSpeakerDiarizationConfig"
+      },
+      "StreamingSpeakerDiarizationNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "streaming_speaker_diarization",
+            "title": "Kind",
+            "default": "streaming_speaker_diarization"
+          },
+          "engine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Id"
+          },
+          "config": {
+            "$ref": "#/components/schemas/StreamingSpeakerDiarizationConfig"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "StreamingSpeakerDiarizationNode"
       },
       "VadAudioPreviewRead": {
         "properties": {

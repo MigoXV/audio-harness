@@ -52,6 +52,8 @@ class PhysicalVadConfig(StrictModel):
     max_segment_seconds: float = Field(default=60.0, gt=0)
     audio_buffer_seconds: float = Field(default=120.0, gt=0)
     speech_pre_roll_seconds: float = Field(default=0.3, ge=0)
+    speech_chunk_seconds: float = Field(default=1.0, gt=0, allow_inf_nan=False)
+    speech_chunk_holdback_seconds: float = Field(default=1.0, ge=0, allow_inf_nan=False)
     progress_interval_seconds: float = Field(
         default=0.2,
         ge=0,
@@ -180,6 +182,22 @@ class SpeakerDiarizationNode(StrictModel):
     )
 
 
+class StreamingSpeakerDiarizationConfig(StrictModel):
+    input_buffer_latency_ms: Literal[320, 640, 1040] = 320
+    min_asr_segment_seconds: float = Field(default=0.5, ge=0, allow_inf_nan=False)
+    max_pending_audio_seconds: float = Field(default=120, gt=0, allow_inf_nan=False)
+    max_segments: int = Field(default=10000, gt=0, le=1000000)
+
+
+class StreamingSpeakerDiarizationNode(StrictModel):
+    id: str = Field(min_length=1, max_length=100, pattern=_IDENTIFIER)
+    kind: Literal["streaming_speaker_diarization"] = "streaming_speaker_diarization"
+    engine_id: str | None = None
+    config: StreamingSpeakerDiarizationConfig = Field(
+        default_factory=StreamingSpeakerDiarizationConfig
+    )
+
+
 class HdbscanClusteringParameters(StrictModel):
     min_cluster_size: int = Field(default=2, ge=2, strict=True)
     min_samples: int = Field(default=2, ge=1, strict=True)
@@ -298,6 +316,7 @@ AudioNode = Annotated[
     | AsrNode
     | AudioEmbeddingNode
     | SpeakerDiarizationNode
+    | StreamingSpeakerDiarizationNode
     | SpeakerClusteringNode
     | VectorSearchNode
     | SpeakerFilterNode,
