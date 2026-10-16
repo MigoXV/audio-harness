@@ -26,6 +26,7 @@ class EngineApi(str, Enum):
     UX_SPEAKER_DIARIZATION = "ux_speaker_diarization"
     UX_SPEAKER_DIARIZATION_DUPLEX = "ux_speaker_diarization_duplex"
     DUMMY_DIARIZE = "dummy_diarize"
+    DUMMY_CLUSTERING = "dummy_clustering"
 
 
 class EngineProtocol(str, Enum):

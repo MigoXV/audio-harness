@@ -24,6 +24,7 @@ from audio_harness.inferencers.denoise.base import DenoiseInferencer
 from audio_harness.inferencers.denoise.grpc import UxDenoiseInferencer
 from audio_harness.inferencers.embedding.base import EngineFeatureInferencer
 from audio_harness.inferencers.embedding.grpc import GrpcEngineFeatureInferencer
+from audio_harness.inferencers.embedding.dummy import DummyClusteringInferencer
 
 
 def snapshot(api: EngineApi, protocol: EngineProtocol) -> EngineSnapshot:
@@ -45,6 +46,7 @@ def snapshot(api: EngineApi, protocol: EngineProtocol) -> EngineSnapshot:
     [
         (EngineApi.UX_SPEAKER_DIARIZATION_DUPLEX, EngineProtocol.GRPC, UxStreamingDiarizationInferencer),
         (EngineApi.UX_DENOISE, EngineProtocol.GRPC, UxDenoiseInferencer),
+        (EngineApi.DUMMY_CLUSTERING, EngineProtocol.DUMMY, DummyClusteringInferencer),
         (EngineApi.UX_SPEECH, EngineProtocol.GRPC, UxSpeechAsrInferencer),
         (EngineApi.UX_VAD, EngineProtocol.GRPC, UxVadInferencer),
         (

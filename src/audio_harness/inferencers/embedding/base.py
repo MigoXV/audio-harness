@@ -26,6 +26,9 @@ class StreamingClusteringSession(ABC):
 class EngineFeatureInferencer(ABC):
     """统一提供音频向量提取与流式聚类能力。"""
 
+    # 真实聚类至少需要两个向量；占位实现可从首个向量返回稳定标签。
+    minimum_clustering_vectors: int = 2
+
     @abstractmethod
     async def ready(self) -> None: ...
 

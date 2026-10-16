@@ -1514,7 +1514,7 @@ export interface components {
          * EngineApi
          * @enum {string}
          */
-        EngineApi: "ux_denoise" | "ux_speech" | "ux_vad" | "responses" | "qwen_tts_duplex" | "engine_feature" | "ux_speaker_diarization" | "ux_speaker_diarization_duplex" | "dummy_diarize";
+        EngineApi: "ux_denoise" | "ux_speech" | "ux_vad" | "responses" | "qwen_tts_duplex" | "engine_feature" | "ux_speaker_diarization" | "ux_speaker_diarization_duplex" | "dummy_diarize" | "dummy_clustering";
         /** EngineCreate */
         EngineCreate: {
             /** Slug */

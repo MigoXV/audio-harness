@@ -9,6 +9,7 @@ from audio_harness.inferencers.responses.http import ResponsesInferencer
 from audio_harness.inferencers.tts.grpc import QwenDuplexTtsInferencer
 from audio_harness.inferencers.vad.grpc import UxVadInferencer
 from audio_harness.inferencers.embedding.grpc import GrpcEngineFeatureInferencer
+from audio_harness.inferencers.embedding.dummy import DummyClusteringInferencer
 from audio_harness.inferencers.diarization.dummy import DummyDiarizationInferencer
 from audio_harness.inferencers.diarization.grpc import UxSpeakerDiarizationInferencer
 from audio_harness.inferencers.diarization.streaming_grpc import UxStreamingDiarizationInferencer
@@ -30,6 +31,11 @@ def create_inferencer(
         and snapshot.api is EngineApi.RESPONSES
     ):
         return ResponsesInferencer(snapshot)
+    if (
+        snapshot.protocol is EngineProtocol.DUMMY
+        and snapshot.api is EngineApi.DUMMY_CLUSTERING
+    ):
+        return DummyClusteringInferencer()
     endpoint = EngineEndpoint(
         target=snapshot.target,
         connect_timeout_seconds=snapshot.connect_timeout_seconds,

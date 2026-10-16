@@ -4642,7 +4642,8 @@
           "engine_feature",
           "ux_speaker_diarization",
           "ux_speaker_diarization_duplex",
-          "dummy_diarize"
+          "dummy_diarize",
+          "dummy_clustering"
         ],
         "title": "EngineApi"
       },

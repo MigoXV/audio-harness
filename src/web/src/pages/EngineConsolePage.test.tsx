@@ -266,6 +266,15 @@ describe("engine management and diagnostics", () => {
     fill(dialog, /^名称/, "Built In"); fireEvent.click(within(dialog).getByRole("button", { name: "保存引擎" }));
     await waitFor(() => expect(api.createEngine).toHaveBeenCalledWith(expect.objectContaining({ api: "dummy_diarize", protocol: "dummy", target: "dummy://diarize" })));
   });
+  it("registers the built-in clustering implementation with its fixed address", async () => {
+    const { api, typed } = fixture(); setup(typed); await screen.findByRole("button", { name: asset.name });
+    fireEvent.click(screen.getByRole("button", { name: "注册引擎" })); const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("能力类型"), { target: { value: "embedding" } });
+    fireEvent.change(within(dialog).getByLabelText(/^实现/), { target: { value: "dummy" } });
+    expect(within(dialog).getByLabelText("内置地址")).toHaveAttribute("readonly");
+    fill(dialog, /^名称/, "Dummy Cluster"); fireEvent.click(within(dialog).getByRole("button", { name: "保存引擎" }));
+    await waitFor(() => expect(api.createEngine).toHaveBeenCalledWith(expect.objectContaining({ kind: "embedding", api: "dummy_clustering", protocol: "dummy", target: "dummy://clustering" })));
+  });
   it("validates VAD overrides and preserves unrelated extension data", async () => {
     const { api, typed } = fixture([{ ...asset, kind: "vad", api: "ux_vad" }]); setup(typed); const dialog = await edit();
     fireEvent.click(within(dialog).getByText("高级参数")); fireEvent.click(within(dialog).getByLabelText("覆盖 VAD 服务端默认后处理"));

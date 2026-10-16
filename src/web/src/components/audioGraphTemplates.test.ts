@@ -306,11 +306,11 @@ describe("audio graph templates", () => {
     });
   });
 
-  it("uses any enabled embedding engine for speaker clustering", () => {
+  it.each(["engine_feature", "dummy_clustering"] as const)("uses enabled %s for speaker clustering", (api) => {
     const embeddingEngine = {
       id: "embedding-without-capabilities",
       enabled: true,
-      api: "engine_feature",
+      api,
       details: {},
     } as EngineAsset;
 
