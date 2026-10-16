@@ -1,0 +1,12 @@
+{
+  "results": [
+    {
+      "engine_id": "59063787-9813-4719-ad7f-0f8fcbba06ea",
+      "name": "占位说话人聚类（统一编号 0）",
+      "revision": 1,
+      "outcome": "passed",
+      "message": null,
+      "latency_ms": 0.03488000947982073
+    }
+  ]
+}

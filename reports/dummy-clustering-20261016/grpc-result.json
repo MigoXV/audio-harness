@@ -1,0 +1,663 @@
+{
+  "protocol": "grpc",
+  "send_speed": 10,
+  "duration_s": 5.1299375,
+  "events": [
+    {
+      "elapsed_s": 0.06922545307315886,
+      "event_id": "event_bd48238557e94ea7aaa189b23f21ace4",
+      "session": {
+        "audio": {
+          "input": {
+            "format": {
+              "rate": 24000,
+              "type": "audio/pcm"
+            },
+            "turn_detection": {
+              "type": "server_vad"
+            }
+          }
+        },
+        "type": "transcription",
+        "id": "sess_cbb2b8b9576d488aa61fdc283d2c0ede",
+        "object": "realtime.transcription_session"
+      },
+      "type": "session.created"
+    },
+    {
+      "elapsed_s": 0.12778253597207367,
+      "event_id": "event_64f0e59644d94421b5d89150df164316",
+      "session": {
+        "audio": {
+          "input": {
+            "format": {
+              "rate": 16000,
+              "type": "audio/pcm"
+            },
+            "transcription": {
+              "language": "zh-CN",
+              "model": "ai-meeting"
+            },
+            "turn_detection": {
+              "create_response": false,
+              "prefix_padding_ms": 300,
+              "type": "server_vad"
+            }
+          }
+        },
+        "type": "transcription",
+        "id": "sess_cbb2b8b9576d488aa61fdc283d2c0ede",
+        "object": "realtime.transcription_session"
+      },
+      "type": "session.updated"
+    },
+    {
+      "elapsed_s": 0.14579277799930423,
+      "event_id": "event_e44c92f573084d56bd5c3b2d5eef6410",
+      "processed_audio_ms": 50,
+      "type": "x_aha.vad.progress"
+    },
+    {
+      "elapsed_s": 0.17627009097486734,
+      "audio_start_ms": 0,
+      "event_id": "event_816d73687aef40ddb869650444aa5358",
+      "physical_segment_id": "pseg_76d6371e3a0d40759be67dbd2b026e7b",
+      "type": "x_aha.vad.physical_speech_started",
+      "vad_turn_id": "vturn_bf34f73d2f8e4b81876cd1ae84f98b3b"
+    },
+    {
+      "elapsed_s": 0.1768182939849794,
+      "audio_start_ms": 0,
+      "event_id": "event_5920654c736846b39e92cb356fdff190",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "type": "input_audio_buffer.speech_started"
+    },
+    {
+      "elapsed_s": 0.3548639650689438,
+      "event_id": "event_b450f7d9040448cfbeef2334c4e2a540",
+      "processed_audio_ms": 2200,
+      "type": "x_aha.vad.progress"
+    },
+    {
+      "elapsed_s": 0.4845928910654038,
+      "audio_end_ms": 2250,
+      "audio_start_ms": 250,
+      "content_index": 0,
+      "event_id": "event_aa1522054bdf4e8bae493df16abea891",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "revision": 1,
+      "transcript": "在",
+      "type": "x_aha.input_audio_transcription.interim"
+    },
+    {
+      "elapsed_s": 0.4876132680801675,
+      "audio_end_ms": 2250,
+      "audio_start_ms": 250,
+      "content_index": 0,
+      "event_id": "event_282dd5b1549b4b8bbf8b688c02e5f191",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "revision": 2,
+      "transcript": "在同一个",
+      "type": "x_aha.input_audio_transcription.interim"
+    },
+    {
+      "elapsed_s": 0.4926453970838338,
+      "audio_end_ms": 2250,
+      "audio_start_ms": 250,
+      "content_index": 0,
+      "event_id": "event_aa2178240dc14a22901c619279c510ba",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "revision": 3,
+      "transcript": "在同一个话题",
+      "type": "x_aha.input_audio_transcription.interim"
+    },
+    {
+      "elapsed_s": 0.49663978908210993,
+      "audio_end_ms": 2250,
+      "audio_start_ms": 250,
+      "content_index": 0,
+      "event_id": "event_df7a74616a9b4b08bd116294e6c525bb",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "revision": 4,
+      "transcript": "在同一个话题上",
+      "type": "x_aha.input_audio_transcription.interim"
+    },
+    {
+      "elapsed_s": 0.5024800520623103,
+      "audio_end_ms": 2250,
+      "audio_start_ms": 250,
+      "content_index": 0,
+      "event_id": "event_4e762b6646c8402e9363d76c978ff448",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "revision": 5,
+      "transcript": "在同一个话题上纠缠",
+      "type": "x_aha.input_audio_transcription.interim"
+    },
+    {
+      "elapsed_s": 0.5057489010505378,
+      "audio_end_ms": 2250,
+      "audio_start_ms": 250,
+      "content_index": 0,
+      "event_id": "event_4653192543f34a0ea36d07090542feb5",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "revision": 6,
+      "transcript": "在同一个话题上纠缠不清",
+      "type": "x_aha.input_audio_transcription.interim"
+    },
+    {
+      "elapsed_s": 0.5102519870270044,
+      "audio_end_ms": 2250,
+      "audio_start_ms": 250,
+      "content_index": 0,
+      "event_id": "event_a5e803830f4c46d69c31edd1319025c9",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "revision": 7,
+      "transcript": "在同一个话题上纠缠不清的",
+      "type": "x_aha.input_audio_transcription.interim"
+    },
+    {
+      "elapsed_s": 0.5549529100535437,
+      "event_id": "event_c2bff611a82741e89194198a8887fc1e",
+      "processed_audio_ms": 4200,
+      "type": "x_aha.vad.progress"
+    },
+    {
+      "elapsed_s": 0.6243312939768657,
+      "audio_end_ms": 2690,
+      "audio_start_ms": 250,
+      "content_index": 0,
+      "event_id": "event_fa438aa0110f412aa6c2159a9bb3dc74",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "revision": 8,
+      "transcript": "在同一个话题上纠缠不清的然",
+      "type": "x_aha.input_audio_transcription.interim"
+    },
+    {
+      "elapsed_s": 0.6568680090131238,
+      "audio_end_ms": 5130,
+      "audio_start_ms": 0,
+      "event_id": "event_4bb21589cbc44533b742a90c306c7cf4",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "physical_segment_id": "pseg_76d6371e3a0d40759be67dbd2b026e7b",
+      "type": "x_aha.vad.physical_speech_stopped",
+      "vad_turn_id": "vturn_bf34f73d2f8e4b81876cd1ae84f98b3b"
+    },
+    {
+      "elapsed_s": 0.6580837559886277,
+      "audio_end_ms": 5130,
+      "audio_start_ms": 0,
+      "event_id": "event_29c16ada57bd41169e6c7cb0f7ea8fdb",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "physical_segment_ids": [
+        "pseg_76d6371e3a0d40759be67dbd2b026e7b"
+      ],
+      "type": "x_aha.vad.turn_completed",
+      "vad_turn_id": "vturn_bf34f73d2f8e4b81876cd1ae84f98b3b"
+    },
+    {
+      "elapsed_s": 0.6588363000191748,
+      "audio_end_ms": 5130,
+      "event_id": "event_0619ccb166e244c49cbebc7d37d311e2",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "type": "input_audio_buffer.speech_stopped"
+    },
+    {
+      "elapsed_s": 0.6595363840460777,
+      "event_id": "event_bb8589d5b66045c5b457b12d40220b7a",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "type": "input_audio_buffer.committed"
+    },
+    {
+      "elapsed_s": 0.6607906610006467,
+      "event_id": "event_62d129341e3641a5890b77ae96df7b3f",
+      "item": {
+        "content": [
+          {
+            "type": "input_audio"
+          }
+        ],
+        "id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+        "object": "realtime.item",
+        "role": "user",
+        "status": "completed",
+        "type": "message"
+      },
+      "previous_item_id": null,
+      "type": "conversation.item.added"
+    },
+    {
+      "elapsed_s": 0.6614854950457811,
+      "event_id": "event_ed3c5ddf408541e6a7b275f6b9b82891",
+      "item": {
+        "content": [
+          {
+            "type": "input_audio"
+          }
+        ],
+        "id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+        "object": "realtime.item",
+        "role": "user",
+        "status": "completed",
+        "type": "message"
+      },
+      "previous_item_id": null,
+      "type": "conversation.item.done"
+    },
+    {
+      "elapsed_s": 0.6620931180659682,
+      "batch_audio_end_ms": 5130,
+      "batch_audio_start_ms": 0,
+      "batch_id": "batch_2cddc99d2b094edb9c9960b5b31df51b",
+      "event_id": "event_d3efcdb365524de3b2b363d417075237",
+      "latency_ms": 0.15,
+      "segments": [
+        {
+          "audio_end_ms": 5130,
+          "audio_start_ms": 0,
+          "local_speaker_id": "batch_2cddc99d2b094edb9c9960b5b31df51b:0",
+          "segment_id": "dseg_a87568deec23470cac8dd0918d1faaaf",
+          "speaker": 0
+        }
+      ],
+      "sequence": 0,
+      "speech_duration_ms": 5130,
+      "type": "x_aha.diarization.local.delta"
+    },
+    {
+      "elapsed_s": 0.6626152209937572,
+      "batch_audio_end_ms": 5130,
+      "batch_audio_start_ms": 0,
+      "batch_id": "batch_2cddc99d2b094edb9c9960b5b31df51b",
+      "event_id": "event_9122607b340a4ee9a15fbb3dd38bf3cc",
+      "latency_ms": 0.213,
+      "segments": [
+        {
+          "audio_end_ms": 5130,
+          "audio_start_ms": 0,
+          "local_speaker_id": "batch_2cddc99d2b094edb9c9960b5b31df51b:0",
+          "segment_id": "dseg_a87568deec23470cac8dd0918d1faaaf",
+          "speaker": 0
+        }
+      ],
+      "speech_duration_ms": 5130,
+      "type": "x_aha.diarization.local.completed"
+    },
+    {
+      "elapsed_s": 0.6631239539710805,
+      "assignments": [
+        {
+          "local_speaker_id": "batch_2cddc99d2b094edb9c9960b5b31df51b:0",
+          "segment_id": "dseg_a87568deec23470cac8dd0918d1faaaf",
+          "speaker_id": 0
+        }
+      ],
+      "event_id": "event_925babe2486445adbeb666b5c902fbe2",
+      "full_snapshot": true,
+      "replaces_revision": null,
+      "revision": 1,
+      "type": "x_aha.diarization.cluster.completed"
+    },
+    {
+      "elapsed_s": 0.6635478769894689,
+      "event_id": "event_db03e8d8fda042e5ab8a2b03cee62996",
+      "final": true,
+      "processed_audio_ms": 5130,
+      "type": "x_aha.vad.progress"
+    },
+    {
+      "elapsed_s": 0.8243151489878073,
+      "audio_end_ms": 4990,
+      "audio_start_ms": 250,
+      "content_index": 0,
+      "event_id": "event_ddabee3de5174340b1818133be62e6b9",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "revision": 9,
+      "transcript": "在同一个话题上纠缠不清的然是不会",
+      "type": "x_aha.input_audio_transcription.interim"
+    },
+    {
+      "elapsed_s": 0.828013600083068,
+      "audio_end_ms": 4990,
+      "audio_start_ms": 250,
+      "content_index": 0,
+      "event_id": "event_ac63c98124024f18b76e42224d9e4d0e",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "revision": 10,
+      "transcript": "在同一个话题上纠缠不清的然是不会讨",
+      "type": "x_aha.input_audio_transcription.interim"
+    },
+    {
+      "elapsed_s": 0.829437708016485,
+      "audio_end_ms": 5130,
+      "audio_start_ms": 0,
+      "batch_id": "batch_2cddc99d2b094edb9c9960b5b31df51b",
+      "delta": "在",
+      "event_id": "event_af4a4497122b46e7a74f598077def682",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "item_source_id": "source_399e3fdd59034647afed341d6cf86865",
+      "language": "zh-CN",
+      "local_speaker_id": "batch_2cddc99d2b094edb9c9960b5b31df51b:0",
+      "segment_id": "dseg_a87568deec23470cac8dd0918d1faaaf",
+      "speaker": 0,
+      "type": "x_aha.input_audio_transcription.speaker.delta"
+    },
+    {
+      "elapsed_s": 0.8331903700018302,
+      "audio_end_ms": 4990,
+      "audio_start_ms": 250,
+      "content_index": 0,
+      "event_id": "event_12ac52406d6c4f1998ee51a8a187b0c1",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "revision": 11,
+      "transcript": "在同一个话题上纠缠不清的然是不会讨女孩子",
+      "type": "x_aha.input_audio_transcription.interim"
+    },
+    {
+      "elapsed_s": 0.8342970060184598,
+      "audio_end_ms": 5130,
+      "audio_start_ms": 0,
+      "batch_id": "batch_2cddc99d2b094edb9c9960b5b31df51b",
+      "delta": "同一个",
+      "event_id": "event_b6c54ecdbee3471f9c9b6ee930c75b0d",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "item_source_id": "source_399e3fdd59034647afed341d6cf86865",
+      "language": "zh-CN",
+      "local_speaker_id": "batch_2cddc99d2b094edb9c9960b5b31df51b:0",
+      "segment_id": "dseg_a87568deec23470cac8dd0918d1faaaf",
+      "speaker": 0,
+      "type": "x_aha.input_audio_transcription.speaker.delta"
+    },
+    {
+      "elapsed_s": 0.8383420690661296,
+      "audio_end_ms": 4990,
+      "audio_start_ms": 250,
+      "content_index": 0,
+      "event_id": "event_6ebd5d543f354cc48d82055f7dd3e2a7",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "revision": 12,
+      "transcript": "在同一个话题上纠缠不清的然是不会讨女孩子喜欢",
+      "type": "x_aha.input_audio_transcription.interim"
+    },
+    {
+      "elapsed_s": 0.8394469750346616,
+      "audio_end_ms": 5130,
+      "audio_start_ms": 0,
+      "batch_id": "batch_2cddc99d2b094edb9c9960b5b31df51b",
+      "delta": "话题",
+      "event_id": "event_282c12714e6f466fadbe950967d80434",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "item_source_id": "source_399e3fdd59034647afed341d6cf86865",
+      "language": "zh-CN",
+      "local_speaker_id": "batch_2cddc99d2b094edb9c9960b5b31df51b:0",
+      "segment_id": "dseg_a87568deec23470cac8dd0918d1faaaf",
+      "speaker": 0,
+      "type": "x_aha.input_audio_transcription.speaker.delta"
+    },
+    {
+      "elapsed_s": 0.8435756580438465,
+      "audio_end_ms": 4990,
+      "audio_start_ms": 250,
+      "content_index": 0,
+      "event_id": "event_55f6d08bd6d44e32b554476ca7663a4e",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "revision": 13,
+      "transcript": "在同一个话题上纠缠不清的然是不会讨女孩子喜欢的",
+      "type": "x_aha.input_audio_transcription.interim"
+    },
+    {
+      "elapsed_s": 0.844672835082747,
+      "audio_end_ms": 5130,
+      "audio_start_ms": 0,
+      "batch_id": "batch_2cddc99d2b094edb9c9960b5b31df51b",
+      "delta": "上",
+      "event_id": "event_5c48cbf95ff143129164dbf8ba8c37e9",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "item_source_id": "source_399e3fdd59034647afed341d6cf86865",
+      "language": "zh-CN",
+      "local_speaker_id": "batch_2cddc99d2b094edb9c9960b5b31df51b:0",
+      "segment_id": "dseg_a87568deec23470cac8dd0918d1faaaf",
+      "speaker": 0,
+      "type": "x_aha.input_audio_transcription.speaker.delta"
+    },
+    {
+      "elapsed_s": 0.8490462399786338,
+      "audio_end_ms": 5130,
+      "audio_start_ms": 0,
+      "batch_id": "batch_2cddc99d2b094edb9c9960b5b31df51b",
+      "delta": "纠缠",
+      "event_id": "event_d4ae788d69af4c4a9c04755d698d2e9d",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "item_source_id": "source_399e3fdd59034647afed341d6cf86865",
+      "language": "zh-CN",
+      "local_speaker_id": "batch_2cddc99d2b094edb9c9960b5b31df51b:0",
+      "segment_id": "dseg_a87568deec23470cac8dd0918d1faaaf",
+      "speaker": 0,
+      "type": "x_aha.input_audio_transcription.speaker.delta"
+    },
+    {
+      "elapsed_s": 0.8546931219752878,
+      "audio_end_ms": 5130,
+      "audio_start_ms": 0,
+      "batch_id": "batch_2cddc99d2b094edb9c9960b5b31df51b",
+      "delta": "不清",
+      "event_id": "event_56d383d6516f4e67be509aa073a54947",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "item_source_id": "source_399e3fdd59034647afed341d6cf86865",
+      "language": "zh-CN",
+      "local_speaker_id": "batch_2cddc99d2b094edb9c9960b5b31df51b:0",
+      "segment_id": "dseg_a87568deec23470cac8dd0918d1faaaf",
+      "speaker": 0,
+      "type": "x_aha.input_audio_transcription.speaker.delta"
+    },
+    {
+      "elapsed_s": 0.8593141380697489,
+      "audio_end_ms": 5130,
+      "audio_start_ms": 0,
+      "batch_id": "batch_2cddc99d2b094edb9c9960b5b31df51b",
+      "delta": "的人",
+      "event_id": "event_16f8a203920d4ef781530656e5810b97",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "item_source_id": "source_399e3fdd59034647afed341d6cf86865",
+      "language": "zh-CN",
+      "local_speaker_id": "batch_2cddc99d2b094edb9c9960b5b31df51b:0",
+      "segment_id": "dseg_a87568deec23470cac8dd0918d1faaaf",
+      "speaker": 0,
+      "type": "x_aha.input_audio_transcription.speaker.delta"
+    },
+    {
+      "elapsed_s": 0.8638065929990262,
+      "audio_end_ms": 5130,
+      "audio_start_ms": 0,
+      "batch_id": "batch_2cddc99d2b094edb9c9960b5b31df51b",
+      "delta": "，",
+      "event_id": "event_7612f5b1c399487eb546e73214f6ef60",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "item_source_id": "source_399e3fdd59034647afed341d6cf86865",
+      "language": "zh-CN",
+      "local_speaker_id": "batch_2cddc99d2b094edb9c9960b5b31df51b:0",
+      "segment_id": "dseg_a87568deec23470cac8dd0918d1faaaf",
+      "speaker": 0,
+      "type": "x_aha.input_audio_transcription.speaker.delta"
+    },
+    {
+      "elapsed_s": 0.8684017090126872,
+      "audio_end_ms": 5130,
+      "audio_start_ms": 0,
+      "batch_id": "batch_2cddc99d2b094edb9c9960b5b31df51b",
+      "delta": "是不会",
+      "event_id": "event_cb1a59bc6c76425bb267784e15187b68",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "item_source_id": "source_399e3fdd59034647afed341d6cf86865",
+      "language": "zh-CN",
+      "local_speaker_id": "batch_2cddc99d2b094edb9c9960b5b31df51b:0",
+      "segment_id": "dseg_a87568deec23470cac8dd0918d1faaaf",
+      "speaker": 0,
+      "type": "x_aha.input_audio_transcription.speaker.delta"
+    },
+    {
+      "elapsed_s": 0.8729927550302818,
+      "audio_end_ms": 5130,
+      "audio_start_ms": 0,
+      "batch_id": "batch_2cddc99d2b094edb9c9960b5b31df51b",
+      "delta": "讨",
+      "event_id": "event_60675575d67d41de861339252a263542",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "item_source_id": "source_399e3fdd59034647afed341d6cf86865",
+      "language": "zh-CN",
+      "local_speaker_id": "batch_2cddc99d2b094edb9c9960b5b31df51b:0",
+      "segment_id": "dseg_a87568deec23470cac8dd0918d1faaaf",
+      "speaker": 0,
+      "type": "x_aha.input_audio_transcription.speaker.delta"
+    },
+    {
+      "elapsed_s": 0.8778519330080599,
+      "audio_end_ms": 5130,
+      "audio_start_ms": 0,
+      "batch_id": "batch_2cddc99d2b094edb9c9960b5b31df51b",
+      "delta": "女孩子",
+      "event_id": "event_87eb7c67f10e499fa85a1a97460ed406",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "item_source_id": "source_399e3fdd59034647afed341d6cf86865",
+      "language": "zh-CN",
+      "local_speaker_id": "batch_2cddc99d2b094edb9c9960b5b31df51b:0",
+      "segment_id": "dseg_a87568deec23470cac8dd0918d1faaaf",
+      "speaker": 0,
+      "type": "x_aha.input_audio_transcription.speaker.delta"
+    },
+    {
+      "elapsed_s": 0.8822296280413866,
+      "audio_end_ms": 5130,
+      "audio_start_ms": 0,
+      "batch_id": "batch_2cddc99d2b094edb9c9960b5b31df51b",
+      "delta": "喜欢",
+      "event_id": "event_c43731378d7441d184ef59601b75607c",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "item_source_id": "source_399e3fdd59034647afed341d6cf86865",
+      "language": "zh-CN",
+      "local_speaker_id": "batch_2cddc99d2b094edb9c9960b5b31df51b:0",
+      "segment_id": "dseg_a87568deec23470cac8dd0918d1faaaf",
+      "speaker": 0,
+      "type": "x_aha.input_audio_transcription.speaker.delta"
+    },
+    {
+      "elapsed_s": 0.8868367340182886,
+      "audio_end_ms": 5130,
+      "audio_start_ms": 0,
+      "batch_id": "batch_2cddc99d2b094edb9c9960b5b31df51b",
+      "delta": "的",
+      "event_id": "event_4e95dd3d21e64322b92a53803a2a5bc9",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "item_source_id": "source_399e3fdd59034647afed341d6cf86865",
+      "language": "zh-CN",
+      "local_speaker_id": "batch_2cddc99d2b094edb9c9960b5b31df51b:0",
+      "segment_id": "dseg_a87568deec23470cac8dd0918d1faaaf",
+      "speaker": 0,
+      "type": "x_aha.input_audio_transcription.speaker.delta"
+    },
+    {
+      "elapsed_s": 0.8914450600277632,
+      "audio_end_ms": 5130,
+      "audio_start_ms": 0,
+      "batch_id": "batch_2cddc99d2b094edb9c9960b5b31df51b",
+      "delta": "。",
+      "event_id": "event_7bc2ac36caf6497da91964d8e397bebb",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "item_source_id": "source_399e3fdd59034647afed341d6cf86865",
+      "language": "zh-CN",
+      "local_speaker_id": "batch_2cddc99d2b094edb9c9960b5b31df51b:0",
+      "segment_id": "dseg_a87568deec23470cac8dd0918d1faaaf",
+      "speaker": 0,
+      "type": "x_aha.input_audio_transcription.speaker.delta"
+    },
+    {
+      "elapsed_s": 0.8963486680295318,
+      "audio_end_ms": 5130,
+      "audio_start_ms": 0,
+      "batch_id": "batch_2cddc99d2b094edb9c9960b5b31df51b",
+      "event_id": "event_c33307af19dc4f6c8ddb47d33afc7ce2",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "item_source_id": "source_399e3fdd59034647afed341d6cf86865",
+      "language": "zh-CN",
+      "local_speaker_id": "batch_2cddc99d2b094edb9c9960b5b31df51b:0",
+      "segment_id": "dseg_a87568deec23470cac8dd0918d1faaaf",
+      "speaker": 0,
+      "transcript": "在同一个话题上纠缠不清的人，是不会讨女孩子喜欢的。",
+      "type": "x_aha.input_audio_transcription.speaker.completed"
+    },
+    {
+      "elapsed_s": 0.9027587940217927,
+      "event_id": "event_58ba2b5e247345beb6d45070b32e7616",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "reason": "primary_transcript_started",
+      "type": "x_aha.input_audio_transcription.interim_cleared"
+    },
+    {
+      "elapsed_s": 0.9032813070807606,
+      "content_index": 0,
+      "delta": "在同一个话题上纠缠不清的人，是不会讨女孩子喜欢的。",
+      "event_id": "event_dd5188425e414fdbb543cd38819ec270",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "type": "conversation.item.input_audio_transcription.delta"
+    },
+    {
+      "elapsed_s": 0.9038654710166156,
+      "content_index": 0,
+      "event_id": "event_4e784f92881d43fda26331d7e5d7a7ce",
+      "item_id": "item_b01e0a53b53d4e77872f6c6cfd5bc643",
+      "transcript": "在同一个话题上纠缠不清的人，是不会讨女孩子喜欢的。",
+      "type": "conversation.item.input_audio_transcription.completed",
+      "usage": {
+        "seconds": 5.1299375,
+        "type": "duration"
+      }
+    },
+    {
+      "elapsed_s": 0.9050540170865133,
+      "assignments": [
+        {
+          "local_speaker_id": "batch_2cddc99d2b094edb9c9960b5b31df51b:0",
+          "segment_id": "dseg_a87568deec23470cac8dd0918d1faaaf",
+          "speaker_id": 0
+        }
+      ],
+      "event_id": "event_a47dd2dc0d2d484cb7e4534b41414de1",
+      "final": true,
+      "full_snapshot": true,
+      "processed_audio_ms": 5130,
+      "replaces_revision": 1,
+      "revision": 2,
+      "type": "x_aha.diarization.cluster.completed"
+    }
+  ],
+  "error": null,
+  "first_interim_s": 0.356659974087961,
+  "first_primary_s": 0.7759325540391728,
+  "first_text_s": 0.356659974087961,
+  "first_packet_s": 0.017859861021861434,
+  "transcript": "在同一个话题上纠缠不清的人，是不会讨女孩子喜欢的。",
+  "upload_s": 0.51332796306815,
+  "event_counts": {
+    "session.created": 1,
+    "session.updated": 1,
+    "x_aha.vad.progress": 4,
+    "x_aha.vad.physical_speech_started": 1,
+    "input_audio_buffer.speech_started": 1,
+    "x_aha.input_audio_transcription.interim": 13,
+    "x_aha.vad.physical_speech_stopped": 1,
+    "x_aha.vad.turn_completed": 1,
+    "input_audio_buffer.speech_stopped": 1,
+    "input_audio_buffer.committed": 1,
+    "conversation.item.added": 1,
+    "conversation.item.done": 1,
+    "x_aha.diarization.local.delta": 1,
+    "x_aha.diarization.local.completed": 1,
+    "x_aha.diarization.cluster.completed": 2,
+    "x_aha.input_audio_transcription.speaker.delta": 14,
+    "x_aha.input_audio_transcription.speaker.completed": 1,
+    "x_aha.input_audio_transcription.interim_cleared": 1,
+    "conversation.item.input_audio_transcription.delta": 1,
+    "conversation.item.input_audio_transcription.completed": 1
+  },
+  "latency_s": 0.7775229630060494,
+  "connection_elapsed_s": 0.9054564899997786
+}
