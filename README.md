@@ -245,17 +245,42 @@ poetry run audio-harness serve
 
 `serve` 同时强制启动 aha-grpc TLS，默认监听 `0.0.0.0:50051`，与 HTTP 共用证书和私钥，不提供启停开关。WS 与 gRPC 使用同一套 Realtime 业务逻辑，gRPC 音频为原始 bytes，默认启用 AHA v1。接入说明见 [aha-grpc 协议](docs/realtime-api/aha-grpc.md) 和 [Python 示例](examples/aha_grpc_python_demo/README.md)。
 
-常用环境变量：
+完整启动环境变量模板见 [`.env.example`](.env.example)。`serve` 不会自动读取当前目录的 `.env`，需要由启动环境注入；现有 VS Code 调试配置已通过 `envFile` 加载。使用 Bash 启动时可以：
+
+```bash
+if [ ! -e .env ]; then
+  cp .env.example .env
+fi
+# 按部署环境编辑 .env 后，导入其中的变量。
+set -a
+source .env
+set +a
+poetry run audio-harness serve
+```
+
+显式命令行参数优先于对应环境变量，未设置时使用代码默认值；修改启动变量后需要重启服务。例如 `AHA_GRPC_PORT=50061 poetry run audio-harness serve` 使用 50061，追加 `--grpc-port 50071` 则使用 50071。
+
+服务支持的固定启动环境变量：
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `DATABASE_URL` | `sqlite+aiosqlite:///./data-bin/sqlite/audio-harness.db` | SQLite 数据库 |
 | `AHA_GRPC_HOST` / `AHA_GRPC_PORT` | `0.0.0.0` / `50051` | aha-grpc TLS 地址与端口 |
 | `HTTP_HOST` / `HTTP_PORT` | `0.0.0.0` / `8000` | HTTP、WSS 与 WebRTC 信令地址 |
+| `HTTP_TLS_CERT_FILE` / `HTTP_TLS_KEY_FILE` | `model-bin/realtime-tls/cert.pem` / `model-bin/realtime-tls/key.pem` | HTTP 与 aha-grpc 共用的 TLS 证书和私钥 |
+| `MAX_MESSAGE_BYTES` | `4194304` | WebSocket、WebRTC、aha-grpc 与下游 gRPC 单消息字节上限 |
+| `WEBRTC_ICE_SERVERS_JSON` | `[]` | STUN/TURN 配置，完整 JSON 数组 |
+| `WEBRTC_NEGOTIATION_TIMEOUT_SECONDS` | `10` | SDP/ICE 协商超时，单位为秒 |
+| `WEBRTC_DISCONNECTED_GRACE_SECONDS` | `10` | disconnected 状态保留时间，单位为秒 |
+| `LOG_LEVEL` | `INFO` | 服务日志级别 |
 | `VOICE_STORAGE_DIR` | `./data-bin/voices` | 参考音频目录 |
 | `RECEIVED_AUDIO_CACHE_DIR` | `./data-bin/cache` | 接收音频缓存根目录 |
 | `QDRANT_GRPC_TARGET` | 未配置 | Qdrant 正式数据面，例如 `192.168.0.222:16334` |
 | `QDRANT_HTTP_URL` | 未配置 | Qdrant Dashboard 与健康检查，例如 `http://192.168.0.222:16333` |
+
+Qdrant 两项必须同时设置或同时不设置；模板中的地址是部署示例，不是代码默认值。HTTP 和 aha-grpc 端口设为 `0` 时自动分配空闲端口。
+
+资源凭据另外按配置中的变量名读取：Responses 引擎使用 `credential_env`，DSH 后端及 MCP 服务使用 `headers_env`。模板给出了注释示例，但这些名称只有在对应资源中引用后才生效。`OPENAI_API_KEY` 是可选抓包脚本的配置，不会自动成为服务中的 Responses 引擎配置。工作流参数、运行容量和音频缓存启停由管理 API / 控制台持久化管理，不属于固定启动环境变量。
 
 ## DSH Agent Backend
 

@@ -2,16 +2,16 @@ import type { AudioHarnessApi, EngineApi, EngineAsset, EngineKind, EngineProtoco
 
 export const kindMeta: Record<EngineKind, { label: string; api: EngineApi; protocol: EngineProtocol }> = {
   denoise: { label: "在线降噪", api: "ux_denoise", protocol: "grpc" },
-  vad: { label: "VAD", api: "ux_vad", protocol: "grpc" },
-  asr: { label: "ASR", api: "ux_speech", protocol: "grpc" },
+  vad: { label: "语音活动检测", api: "ux_vad", protocol: "grpc" },
+  asr: { label: "语音识别", api: "ux_speech", protocol: "grpc" },
   diarization: { label: "说话人分离", api: "ux_speaker_diarization", protocol: "grpc" },
-  embedding: { label: "音频向量", api: "engine_feature", protocol: "grpc" },
-  llm: { label: "Responses", api: "responses", protocol: "https" },
-  tts: { label: "TTS", api: "qwen_tts_duplex", protocol: "grpc" },
+  embedding: { label: "声纹嵌入", api: "engine_feature", protocol: "grpc" },
+  llm: { label: "语言模型", api: "responses", protocol: "https" },
+  tts: { label: "语音合成", api: "qwen_tts_duplex", protocol: "grpc" },
 };
 export const kinds = Object.keys(kindMeta) as EngineKind[];
 export const statusLabels: Record<EngineAsset["status"], string> = {
-  healthy: "健康", unhealthy: "不可用", unknown: "未探测", checking: "探测中", stale: "结果过期", disabled: "已停用",
+  healthy: "上次可用", unhealthy: "检查未通过", unknown: "未探测", checking: "探测中", stale: "结果过期", disabled: "已停用",
   observed_running: "观察到运行", confirmed_running: "已确认运行", unavailable: "不可用", inactive: "未运行",
 };
 export const healthLabels = { all: "全部", healthy: "健康", unhealthy: "异常", unknown: "未探测", disabled: "已停用" } as const;
@@ -24,6 +24,8 @@ export function healthGroup(item: EngineAsset): Exclude<HealthFilter, "all"> {
 }
 export function statusLabel(item: EngineAsset) { return !item.enabled ? "已停用" : statusLabels[item.status]; }
 export function dateLabel(value: string | null | undefined) { return value ? new Date(value).toLocaleString("zh-CN") : "—"; }
+
+export function checkDateLabel(value: string | null | undefined) { return value ? new Date(value).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : "尚未检查"; }
 
 export async function readCatalog(api: AudioHarnessApi, signal: AbortSignal): Promise<EngineAsset[]> {
   const items = new Map<string, EngineAsset>();

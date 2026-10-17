@@ -181,7 +181,7 @@ export function AgentBackendPage({ api, refreshVersion }: Props) {
   };
 
   return <main className="workspace-page agent-backend-page">
-    <header className="page-heading"><div><p className="eyebrow">AGENT BACKENDS</p><h1>智能体后端</h1><p>把 DSH 作为与 Engine 平级的一等资源管理；凭据只通过运行环境注入，不保存真实密钥。</p></div><button className="primary-button" onClick={openCreate}>注册 DSH</button></header>
+    <header className="page-heading"><div><h1>智能体后端</h1><p>把 DSH 作为与 Engine 平级的一等资源管理；凭据只通过运行环境注入，不保存真实密钥。</p></div><button className="primary-button" onClick={openCreate}>注册 DSH</button></header>
     {error && <div className="alert alert-error" role="alert">{error}<button className="text-button" onClick={() => setError(null)}>关闭</button></div>}
     <section className="engine-health-summary" aria-label="智能体后端概览"><div><span>全部</span><strong>{items.length}</strong></div><div><span>健康</span><strong>{counts.healthy}</strong></div><div><span>异常</span><strong>{counts.unhealthy}</strong></div><div><span>停用</span><strong>{counts.disabled}</strong></div></section>
     <section className="panel engine-accordion-list" aria-label="智能体后端列表">

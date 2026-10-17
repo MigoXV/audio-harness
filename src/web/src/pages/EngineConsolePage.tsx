@@ -4,7 +4,7 @@ import type { AudioHarnessApi, EngineAsset, EngineKind, EngineWritePayload } fro
 import { errorMessage } from "../api/client";
 import { EngineEditor } from "../features/engines/EngineEditor";
 import { EngineDetails, EngineLifecycleDialog } from "../features/engines/EngineDetails";
-import { dateLabel, healthGroup, healthLabels, kindMeta, kinds, readCatalog, statusLabel } from "../features/engines/model";
+import { checkDateLabel, healthGroup, healthLabels, kindMeta, kinds, readCatalog, statusLabel } from "../features/engines/model";
 import type { HealthFilter } from "../features/engines/model";
 import "../features/engines/console.css";
 
@@ -26,8 +26,9 @@ export function EngineConsolePage({ api, refreshVersion }: Props) {
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<EngineKind | "all">("all");
   const [health, setHealth] = useState<HealthFilter>("all");
-  const [sort, setSort] = useState("created");
+  const [sort, setSort] = useState("attention");
   const [page, setPage] = useState(1);
+  const [selectedTab, setSelectedTab] = useState<"diagnosis" | "references">("diagnosis");
   const [selected, setSelected] = useState<EngineAsset | null>(null);
   const [editing, setEditing] = useState<EngineAsset | "new" | null>(null);
   const [lifecycle, setLifecycle] = useState<{ engine: EngineAsset; action: "disable" | "delete" } | null>(null);
@@ -38,6 +39,7 @@ export function EngineConsolePage({ api, refreshVersion }: Props) {
   const [messages, setMessages] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const origin = useRef<HTMLElement | null>(null);
+  const editorOrigin = useRef<HTMLElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const upsert = useCallback((item: EngineAsset) => {
     client.setQueryData<EngineAsset[]>(catalogKey, previous => {
@@ -89,18 +91,21 @@ export function EngineConsolePage({ api, refreshVersion }: Props) {
     if (editing === "new") void client.invalidateQueries({ queryKey: catalogKey, exact: true });
     return item;
   });
-  const restoreFocus = () => {
-    const target = origin.current;
+  const restoreFocus = (target = origin.current) => {
     requestAnimationFrame(() => {
       // A quick follow-up action may already have moved focus or opened another drawer.
       const active = document.activeElement;
       if (active && active !== document.body && active !== document.documentElement && active !== target) return;
       if (target?.isConnected && !(target as HTMLButtonElement).disabled) target.focus();
-      else headingRef.current?.focus();
+      else if (target?.getAttribute("aria-label")) {
+        const label = target.getAttribute("aria-label");
+        const replacement = Array.from(document.querySelectorAll<HTMLButtonElement>(".ec-console button[aria-label]")).find(button => button.getAttribute("aria-label") === label);
+        (replacement ?? headingRef.current)?.focus();
+      } else headingRef.current?.focus();
     });
   };
   const remember = () => { origin.current = document.activeElement as HTMLElement; };
-  const openEdit = (item: EngineAsset) => { if (!selected) remember(); setSelected(null); setEditing(item); };
+  const openEdit = (item: EngineAsset) => { editorOrigin.current = document.activeElement as HTMLElement; setEditing(item); };
   const changeLifecycle = async (item: EngineAsset, action: "enable" | "disable" | "delete") => {
     if (action !== "enable") { setLifecycle({ engine: item, action }); return; }
     try { await run(item.id, async () => { persist(await api.updateEngine(item.id, { enabled: true })); setMessages(current => ({ ...current, [item.id]: "引擎已启用，等待实际健康探测。" })); }); }
@@ -121,6 +126,7 @@ export function EngineConsolePage({ api, refreshVersion }: Props) {
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     const values = items.filter(item => (kind === "all" || item.kind === kind) && (health === "all" || healthGroup(item) === health) && `${item.name} ${item.slug} ${item.target}`.toLocaleLowerCase().includes(needle));
+    if (sort === "attention") values.sort((a, b) => Number(healthGroup(b) === "unhealthy") - Number(healthGroup(a) === "unhealthy") || Number(a.enabled === false) - Number(b.enabled === false));
     if (sort === "name") values.sort((a, b) => a.name.localeCompare(b.name, "zh-CN") || a.id.localeCompare(b.id));
     if (sort === "updated") values.sort((a, b) => b.updated_at.localeCompare(a.updated_at) || a.id.localeCompare(b.id));
     return values;
@@ -132,7 +138,7 @@ export function EngineConsolePage({ api, refreshVersion }: Props) {
   const countsReady = Boolean(catalog.data) && !catalog.isError && !catalog.isPlaceholderData;
   const selectedItem = selected ? items.find(item => item.id === selected.id) ?? selected : null;
   return <main className="workspace-page ec-console">
-    <header className="page-heading"><div><h1 ref={headingRef} tabIndex={-1}>推理引擎</h1><p>注册、配置连接，查看健康诊断与处理链引用。</p></div><div className="ec-page-actions"><button className="secondary-button" disabled={catalog.isFetching || batch || pending.size > 0} onClick={() => void catalog.refetch()}>{catalog.isFetching && catalog.data ? "刷新中…" : "刷新列表"}</button><button className="secondary-button" disabled={catalog.isFetching || batch || pending.size > 0 || !items.some(item => item.enabled)} onClick={() => void probeAll()}>{batch ? "全部复检中…" : "复检全部已启用引擎"}</button><button className="primary-button" disabled={batch || catalog.isFetching} onClick={() => { remember(); setEditing("new"); }}>注册引擎</button></div></header>
+    {!selectedItem && <><header className="page-heading"><div><h1 ref={headingRef} tabIndex={-1}>推理引擎</h1><p>接入服务实例，验证可用性并查看资源与引用。</p></div><div className="ec-page-actions"><button className="secondary-button" disabled={catalog.isFetching || batch || pending.size > 0} onClick={() => void catalog.refetch()}>{catalog.isFetching && catalog.data ? "刷新中…" : "刷新列表"}</button><button className="secondary-button" disabled={catalog.isFetching || batch || pending.size > 0 || !items.some(item => item.enabled)} onClick={() => void probeAll()}>{batch ? "全部复检中…" : "复检全部已启用引擎"}</button><button className="primary-button" disabled={batch || catalog.isFetching} onClick={() => { remember(); editorOrigin.current = origin.current; setEditing("new"); }}>注册引擎</button></div></header>
     {catalog.isError && <div className="alert alert-error" role="alert">{errorMessage(catalog.error, "引擎列表读取失败。")}{catalog.data && <p>当前显示上次读取的目录，统计暂不可用。</p>}<button className="secondary-button" disabled={catalog.isFetching || batch || pending.size > 0} onClick={() => void catalog.refetch()}>重新加载</button></div>}
     {notice && <p className="ec-operation-message" role="status">{notice}</p>}{batch && <p role="status">正在复检全部已启用引擎，完成后更新诊断结果…</p>}
     <section className="ec-health" aria-label="引擎健康筛选">{(Object.keys(healthLabels) as HealthFilter[]).map(value => {
@@ -140,15 +146,16 @@ export function EngineConsolePage({ api, refreshVersion }: Props) {
       const needsAttention = value === "unhealthy" && count !== null && count > 0;
       return <button key={value} className={needsAttention ? "ec-health-attention" : undefined} aria-pressed={health === value} onClick={() => { setHealth(value); setPage(1); }}>{needsAttention && <span className="ec-health-icon" aria-hidden="true">⚠</span>}<span>{healthLabels[value]}</span><strong>{count ?? "—"}</strong></button>;
     })}</section>
-    <section className="ec-filters" aria-label="引擎筛选"><label><span className="ec-visually-hidden">搜索引擎</span><input value={query} onChange={event => { setQuery(event.target.value); setPage(1); }} placeholder="搜索名称、Slug 或地址" /></label><label><span className="ec-visually-hidden">能力类型</span><select value={kind} onChange={event => { setKind(event.target.value as EngineKind | "all"); setPage(1); }}><option value="all">全部能力</option>{kinds.map(value => <option key={value} value={value}>{kindMeta[value].label}</option>)}</select></label><label><span className="ec-visually-hidden">排序</span><select value={sort} onChange={event => { setSort(event.target.value); setPage(1); }}><option value="created">创建顺序</option><option value="name">名称</option><option value="updated">最近更新</option></select></label>{(query || kind !== "all" || health !== "all") && <button className="text-button ec-clear-filters" onClick={clear}>清空筛选</button>}{catalog.data && <p className="ec-result-count">{countsReady ? `${filtered.length} 个引擎${pages > 1 ? ` · 第 ${currentPage} / ${pages} 页` : ""}` : "上次读取的引擎目录"}{catalog.isFetching && " · 正在刷新"}</p>}</section>
+    <section className="ec-filters" aria-label="引擎筛选"><label><span className="ec-visually-hidden">搜索引擎</span><input value={query} onChange={event => { setQuery(event.target.value); setPage(1); }} placeholder="搜索名称、Slug 或地址" /></label><label><span className="ec-visually-hidden">能力类型</span><select value={kind} onChange={event => { setKind(event.target.value as EngineKind | "all"); setPage(1); }}><option value="all">全部能力</option>{kinds.map(value => <option key={value} value={value}>{kindMeta[value].label}</option>)}</select></label><label><span className="ec-visually-hidden">排序</span><select value={sort} onChange={event => { setSort(event.target.value); setPage(1); }}><option value="attention">异常优先</option><option value="created">创建顺序</option><option value="name">名称</option><option value="updated">最近更新</option></select></label>{(query || kind !== "all" || health !== "all") && <button className="text-button ec-clear-filters" onClick={clear}>清空筛选</button>}{catalog.data && <p className="ec-result-count">{countsReady ? `${filtered.length} 个引擎${pages > 1 ? ` · 第 ${currentPage} / ${pages} 页` : ""}` : "上次读取的引擎目录"}{catalog.isFetching && " · 正在刷新"}</p>}</section>
     {catalog.isPending ? <div className="empty-state" role="status">正在加载引擎…</div> : !catalog.data ? <div className="empty-state">引擎列表暂时无法读取，请重新加载。</div> : items.length === 0 ? <div className="empty-state"><strong>尚未注册引擎</strong><p>先注册连接地址，再复检实际连通性。</p></div> : filtered.length === 0 ? <div className="empty-state"><strong>没有符合条件的引擎</strong><button className="secondary-button" onClick={clear}>清空筛选</button></div> : <>
-      <table className="ec-table" aria-label="引擎列表"><thead><tr><th scope="col">名称 / Slug</th><th scope="col">能力</th><th scope="col" className="ec-address">地址</th><th scope="col">健康状态</th><th scope="col" className="ec-observed">最近探测</th><th scope="col">操作</th></tr></thead><tbody>{visible.map(item => <Fragment key={item.id}><tr>
-        <td><button className="ec-name" aria-label={item.name} aria-haspopup="dialog" onClick={() => { remember(); setSelected(item); }}><strong>{item.name}</strong><small>{item.slug}</small></button></td><td className="ec-kind">{kindMeta[item.kind].label}</td><td className="ec-address"><code title={item.target}>{item.target}</code></td><td className="ec-status"><span className={`status-chip engine-${!item.enabled ? "disabled" : item.status}`}>{statusLabel(item)}</span></td><td className="ec-observed">{dateLabel(item.status_observed_at)}</td><td className="ec-row-actions"><button className="text-button" aria-label={`编辑 ${item.name}`} disabled={batch || pending.has(item.id)} onClick={() => openEdit(item)}>编辑</button><button className="text-button" aria-label={`复检 ${item.name}`} disabled={batch || pending.has(item.id) || !item.enabled} title={!item.enabled ? "引擎已停用，无法复检" : undefined} onClick={() => void probe(item)}>{pending.has(item.id) ? "处理中…" : "复检"}</button></td>
-      </tr>{messages[item.id] && <tr className="ec-message-row"><td className="ec-row-message" colSpan={6}><p role="status">{messages[item.id]}</p></td></tr>}</Fragment>)}</tbody></table>
+      <div className="ec-table-scroll"><table className="ec-table" aria-label="引擎列表"><thead><tr><th scope="col">服务实例</th><th scope="col">处理能力</th><th scope="col" className="ec-address">连接 / 接口</th><th scope="col">最近检查结果</th><th scope="col">引用</th><th scope="col">操作</th></tr></thead><tbody>{visible.map(item => <Fragment key={item.id}><tr>
+        <td><button className="ec-name" aria-label={item.name} onClick={() => { remember(); setSelectedTab("diagnosis"); setSelected(item); }}><span className={`ec-kind-icon ec-icon-${item.kind}`} aria-hidden="true" /><span><strong>{item.name}</strong><small>{item.slug}</small></span></button></td><td className="ec-kind">{kindMeta[item.kind].label}</td><td className="ec-address"><code title={item.target}>{item.target}</code><small>{item.protocol === "grpc" ? "gRPC" : item.protocol.toUpperCase()} · {item.api}</small></td><td className="ec-status"><span className={`status-chip engine-${!item.enabled ? "disabled" : item.status}`}>{statusLabel(item)}</span><small>{item.enabled ? `${checkDateLabel(item.status_observed_at)}${item.status_observed_at ? " · 历史结果" : ""}` : "未参与检查"}</small></td><td><button className="text-button" aria-label={`查看 ${item.name} 引用`} onClick={() => { remember(); setSelectedTab("references"); setSelected(item); }}>查看</button></td><td className="ec-row-actions"><button className="text-button" aria-label={`编辑 ${item.name}`} disabled={batch || pending.has(item.id)} onClick={() => openEdit(item)}>编辑</button><button className="text-button" aria-label={`复检 ${item.name}`} disabled={batch || pending.has(item.id) || !item.enabled} title={!item.enabled ? "引擎已停用，无法复检" : undefined} onClick={() => void probe(item)}>{pending.has(item.id) ? "处理中…" : "复检"}</button></td>
+      </tr>{messages[item.id] && <tr className="ec-message-row"><td className="ec-row-message" colSpan={6}><p role="status">{messages[item.id]}</p></td></tr>}</Fragment>)}</tbody></table></div><footer className="ec-table-footer"><span>{filtered.length} 个服务实例</span><span>检查范围：已启用引擎</span></footer>
       {pages > 1 && <nav className="ec-pagination" aria-label="引擎分页"><button className="secondary-button" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>上一页</button><span>第 {currentPage} / {pages} 页</span><button className="secondary-button" disabled={currentPage === pages} onClick={() => setPage(currentPage + 1)}>下一页</button></nav>}
     </>}
-    {selectedItem && <EngineDetails key={selectedItem.id} api={api} initial={selectedItem} busy={batch || pending.has(selectedItem.id)} message={messages[selectedItem.id]} onUpdated={upsert} onEdit={openEdit} onProbe={item => void probe(item)} onLifecycle={(item, action) => void changeLifecycle(item, action)} onClose={() => setSelected(null)} restoreFocus={restoreFocus} />}
-    {editing && <EngineEditor key={editing === "new" ? "new" : editing.id} engine={editing === "new" ? null : editing} initialKind={kind === "all" ? "asr" : kind} blocked={batch} onSave={save} onSaved={(item, withProbe) => { setEditing(null); setNotice(`已保存 ${item.name}。`); if (withProbe) { setSelected(item); void probe(item); } }} onClose={() => setEditing(null)} restoreFocus={restoreFocus} />}
+    </>}
+    {selectedItem && <EngineDetails key={`detail:${selectedItem.id}`} api={api} initial={selectedItem} initialTab={selectedTab} busy={batch || pending.has(selectedItem.id)} message={messages[selectedItem.id]} onUpdated={upsert} onEdit={openEdit} onProbe={item => void probe(item)} onLifecycle={(item, action) => void changeLifecycle(item, action)} onClose={() => { setSelected(null); restoreFocus(); }} />}
+    {editing && <EngineEditor key={`editor:${editing === "new" ? "new" : editing.id}`} engine={editing === "new" ? null : editing} initialKind={kind === "all" ? "asr" : kind} blocked={batch} onSave={save} onSaved={(item, withProbe) => { setEditing(null); setNotice(`已保存 ${item.name}。`); if (withProbe) { setSelected(item); void probe(item); } }} onClose={() => setEditing(null)} restoreFocus={() => restoreFocus(editorOrigin.current)} />}
     {lifecycle && <EngineLifecycleDialog key={`${lifecycle.engine.id}-${lifecycle.action}`} api={api} engine={lifecycle.engine} action={lifecycle.action} busy={pending.has(lifecycle.engine.id)} onConfirm={confirmLifecycle} onClose={() => setLifecycle(null)} />}
   </main>;
 }

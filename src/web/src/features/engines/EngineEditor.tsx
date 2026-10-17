@@ -75,23 +75,23 @@ export function EngineEditor({ engine, initialKind, blocked, onSave, onSaved, on
   return <>
     <UnsavedChangesGuard when={dirty} saving={saving || blocked} onSave={() => save()} onDiscard={onClose} />
     <Dialog.Root open onOpenChange={open => { if (!open) close(); }}>
-      <Dialog.Portal><Dialog.Overlay className="drawer-backdrop" /><Dialog.Content ref={contentRef} className="ec-drawer" onCloseAutoFocus={event => { event.preventDefault(); restoreFocus(); }} aria-describedby={`${prefix}-description`}>
+      <Dialog.Portal><Dialog.Overlay className="drawer-backdrop" /><Dialog.Content ref={contentRef} className={`ec-drawer ${engine ? "ec-editor-edit" : "ec-editor-register"}`} onCloseAutoFocus={event => { event.preventDefault(); restoreFocus(); }} aria-describedby={`${prefix}-description`}>
         <header><div><Dialog.Title>{engine ? `编辑 ${engine.name}` : "注册引擎"}</Dialog.Title><Dialog.Description id={`${prefix}-description`}>保存连接配置；健康状态由实际复检结果更新。</Dialog.Description></div><button className="icon-button" aria-label="关闭编辑引擎" disabled={saving} onClick={close}>×</button></header>
         <form className="ec-editor-form" onSubmit={event => { event.preventDefault(); void save(); }} noValidate>
           <div className="ec-drawer-body">
             {failure && <div className="alert alert-error" role="alert">{failure}</div>}
             <fieldset disabled={saving || blocked} className="ec-fieldset">
               <legend>基本信息</legend><div className="ec-form-grid">
-                <label htmlFor={`${prefix}-kind`}>能力类型<select id={`${prefix}-kind`} disabled={Boolean(engine)} value={form.kind} onChange={event => changeKind(event.target.value as EngineKind)}>{kinds.map(kind => <option key={kind} value={kind}>{kindMeta[kind].label}</option>)}</select></label>
+
                 <label htmlFor={`${prefix}-name`}>名称<input {...attrs("name")} maxLength={200} value={form.name} onChange={event => {
                   const name = event.target.value; set("name", name);
                   if (!engine && !slugEdited) set("slug", normalizeSlug(name));
                 }} />{fieldError("name")}</label>
                 <label className="ec-full" htmlFor={`${prefix}-slug`}>Slug<input {...attrs("slug")} maxLength={100} value={form.slug} onChange={event => { setSlugEdited(true); set("slug", event.target.value); }} />{fieldError("slug")}<small>小写字母、数字和连字符；中文名称请手动填写 Slug。</small></label>
-                <label className="ec-full" htmlFor={`${prefix}-description-field`}>描述<textarea id={`${prefix}-description-field`} rows={2} value={form.description ?? ""} onChange={event => set("description", event.target.value || null)} /></label>
+
               </div>
             </fieldset>
-            <fieldset disabled={saving || blocked} className="ec-fieldset"><legend>连接与凭据</legend><div className="ec-form-grid">
+            <fieldset disabled={saving || blocked} className="ec-fieldset ec-connection-fields"><legend>连接配置</legend><div className="ec-form-grid"><label htmlFor={`${prefix}-kind`}>能力类型<select id={`${prefix}-kind`} disabled={Boolean(engine)} value={form.kind} onChange={event => changeKind(event.target.value as EngineKind)}>{kinds.map(kind => <option key={kind} value={kind}>{kindMeta[kind].label}</option>)}</select></label>
               {form.kind === "diarization" ? <label className="ec-full" htmlFor={`${prefix}-implementation`}>实现<select id={`${prefix}-implementation`} value={form.api === "dummy_diarize" ? "dummy" : form.api === "ux_speaker_diarization_duplex" ? "duplex" : "grpc"} onChange={event => {
                 const dummy = event.target.value === "dummy";
                 setForm(current => ({ ...current, api: dummy ? "dummy_diarize" : event.target.value === "duplex" ? "ux_speaker_diarization_duplex" : "ux_speaker_diarization", protocol: dummy ? "dummy" : "grpc", target: dummy ? "dummy://diarize" : "" }));
@@ -101,14 +101,14 @@ export function EngineEditor({ engine, initialKind, blocked, onSave, onSaved, on
               }}><option value="grpc">外部 gRPC 引擎</option><option value="dummy">内置单说话人聚类</option></select><small>内置实现仅用于说话人聚类，所有片段归为说话人 0。</small></label> : <p className="ec-full muted">接口：<code>{form.protocol.toUpperCase()} · {form.api}</code></p>}
               <label className="ec-full" htmlFor={`${prefix}-target`}>{form.protocol === "dummy" ? "内置地址" : form.kind === "llm" ? "API Base URL" : "gRPC 地址"}<input {...attrs("target")} maxLength={500} readOnly={form.protocol === "dummy"} value={form.target} onChange={event => set("target", event.target.value)} placeholder={form.kind === "llm" ? "https://api.example.com/v1" : "127.0.0.1:50051"} />{fieldError("target")}</label>
               {form.kind === "llm" && <>
-                <label className="ec-full" htmlFor={`${prefix}-api_key`}>模型 API Key<input {...attrs("api_key")} value={form.api_key ?? ""} autoComplete="off" maxLength={8192} onChange={event => set("api_key", event.target.value || null)} />{fieldError("api_key")}<small>沿用当前服务的明文存储方式。</small></label>
+                <label className="ec-full" htmlFor={`${prefix}-api_key`}>模型 API Key<input {...attrs("api_key")} type="password" value={form.api_key ?? ""} autoComplete="off" maxLength={8192} onChange={event => set("api_key", event.target.value || null)} />{fieldError("api_key")}<small>沿用当前服务的明文存储方式。</small></label>
                 <label className="ec-full" htmlFor={`${prefix}-credential_env`}>服务进程环境变量名<input {...attrs("credential_env")} value={form.credential_env ?? ""} maxLength={200} onChange={event => set("credential_env", event.target.value || null)} />{fieldError("credential_env")}<small>与 API Key 至少填写一项；同时存在时直接 Key 优先。服务进程需要已设置该环境变量。</small></label>
               </>}
-              {!engine && <label className="switch-control ec-full"><input type="checkbox" checked={form.enabled} onChange={event => set("enabled", event.target.checked)} /><span>启用并参与后台健康探测</span></label>}
+              {!engine && <label className="switch-control ec-full"><input type="checkbox" checked={form.enabled} onChange={event => set("enabled", event.target.checked)} /><span>{form.enabled ? "启用服务并参与后台健康检查" : "暂不启用；保存后不参与健康检查"}</span></label>}
               {engine && <p className="ec-full muted">{engine.enabled ? "已启用" : "已停用"}；启用或停用请在详情中操作。</p>}
             </div></fieldset>
             <details className="ec-advanced" open={advanced} onToggle={event => setAdvanced(event.currentTarget.open)}><summary>高级参数</summary>
-              <fieldset disabled={saving || blocked} className="ec-fieldset"><div className="ec-form-grid">
+              <fieldset disabled={saving || blocked} className="ec-fieldset"><div className="ec-form-grid"><label className="ec-full" htmlFor={`${prefix}-description-field`}>描述<textarea id={`${prefix}-description-field`} rows={2} value={form.description ?? ""} onChange={event => set("description", event.target.value || null)} /></label>
                 <label htmlFor={`${prefix}-connect_timeout_seconds`}>连接超时（秒）<input {...attrs("connect_timeout_seconds")} type="number" min={0} step="any" value={form.connect_timeout_seconds} onChange={event => set("connect_timeout_seconds", event.target.value)} />{fieldError("connect_timeout_seconds")}</label>
                 <label htmlFor={`${prefix}-request_timeout_seconds`}>请求超时（秒）<input {...attrs("request_timeout_seconds")} type="number" min={0} step="any" value={form.request_timeout_seconds} onChange={event => set("request_timeout_seconds", event.target.value)} />{fieldError("request_timeout_seconds")}<small>留空使用服务默认值。</small></label>
               </div>

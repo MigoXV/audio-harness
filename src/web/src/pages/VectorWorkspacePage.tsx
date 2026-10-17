@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } 
 
 import type { AudioHarnessApi, EngineAsset, VadAudioPreview, VectorInfrastructure, VectorPoint, VectorSpace, VectorSpeakerMatch } from "../api/types";
 import { errorMessage } from "../api/client";
+import "../components/vectorWorkspace.css";
 
 type Tab = "register" | "search" | "query" | "records";
 type EmbeddingConfig = { engine_id: string; algorithm: string; normalize: boolean };
@@ -170,14 +171,14 @@ function AudioInput({ file, onChange, onRecordingDeviceName, vadControls }: {
     if (!recording && event.dataTransfer.files[0]) chooseFile(event.dataTransfer.files[0]);
   };
   return <section className="vector-audio-input" aria-label="输入音频">
-    <nav className="vector-audio-source-tabs" aria-label="音频来源">
+    <nav className="vector-audio-source-tabs" aria-label="音频来源"><span>音频来源</span>
       <button type="button" className={source === "upload" ? "active" : ""} disabled={recording && source !== "upload"} onClick={() => setSource("upload")}>上传音频</button>
       <button type="button" className={source === "record" ? "active" : ""} disabled={recording && source !== "record"} onClick={() => setSource("record")}>现场录音</button>
     </nav>
     <div className="vector-audio-source-frame">
       {source === "upload" ? <label className={`vector-audio-dropzone ${dragging ? "dragging" : ""}`} onDragEnter={(event) => { event.preventDefault(); if (!recording) setDragging(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={drop}>
         <input type="file" accept="audio/*" disabled={recording} onChange={(event) => { const next = event.target.files?.[0]; if (next) chooseFile(next); event.currentTarget.value = ""; }} />
-        <div className="vector-audio-source-copy"><span className="vector-audio-icon" aria-hidden="true">＋</span><span><strong>{file ? "更换音频" : "拖放音频到这里"}</strong><small>{file ? "点击选择其他文件" : "或点击选择音频文件"}</small></span></div>
+        <div className="vector-audio-source-copy"><span><strong>{file ? "更换音频" : "拖放音频到这里"}</strong><small>{file ? "点击选择其他文件" : "或点击选择音频文件"}</small></span></div>
         <span className="secondary-button">选择文件</span>
       </label> : <div className="vector-audio-recorder">
         <div className="vector-audio-source-copy"><span className="vector-audio-icon" aria-hidden="true">●</span><span><strong>使用浏览器麦克风录音</strong><small>录音结束后可试听，并可继续切换到上传音频。</small></span></div>
@@ -374,18 +375,17 @@ export function VectorWorkspacePage({ api, refreshVersion }: { api: AudioHarness
   return <main className="workspace-page vector-workspace">
     <section className="page-heading">
       <div>
-        <p className="eyebrow">VECTOR RETRIEVAL</p>
         <h1>向量检索</h1>
         <p>以音频生成向量，在 Qdrant Named Vector 空间中登记、检索与维护数据。</p>
         {infrastructure && <small className={infrastructure.ready ? "status-ok" : "status-warning"}>Qdrant {infrastructure.ready ? "已就绪" : infrastructure.configured ? "不可用" : "未配置"} · gRPC {infrastructure.grpc_target ?? "—"}{infrastructure.http_url && <> · <a href={`${infrastructure.http_url.replace(/\/$/, "")}/dashboard`} target="_blank" rel="noreferrer">Dashboard</a></>}</small>}
       </div>
-      <button className="primary-button" onClick={() => setCreating(true)}>创建 Collection</button>
     </section>
     {error && <div className="alert alert-error">{error}</div>}
     {message && <div className="alert alert-success">{message}</div>}
     <section className="vector-layout">
       <aside className="panel vector-space-list">
         <h2>Qdrant Collections</h2>
+        <button className="secondary-button vector-create-trigger" onClick={() => setCreating(true)}>创建 Collection</button>
         {spaces.map((space) => <button className={space.collection_name === selected?.collection_name ? "active" : ""} key={space.collection_name} onClick={() => {
           previewRevisionRef.current += 1;
           setSelectedCollection(space.collection_name);
@@ -399,25 +399,25 @@ export function VectorWorkspacePage({ api, refreshVersion }: { api: AudioHarness
       <section className="panel vector-main">
         {selected ? <>
           <header className="vector-space-header">
-            <div><p className="eyebrow">{selected.template === "voiceprint" ? "语音特征向量提取" : "QDRANT"}</p><h2>{selected.collection_name}</h2><small>{selected.vectors.map((item) => `${item.name} ${item.size}D`).join(" · ") || "当前 Collection 不是 Named Vector 结构"}</small></div>
+            <div><h2>{selected.collection_name}</h2><small>{selected.vectors.map((item) => `${item.name} ${item.size}D`).join(" · ") || "当前 Collection 不是 Named Vector 结构"}</small></div>
             <div className="panel-actions"><button className="text-button danger" onClick={() => void removeSpace()}>删除 Collection</button></div>
           </header>
           <nav className="filter-tabs">{([['register','登记'],['search','人物搜索'],['query','条件查询'],['records','记录']] as [Tab,string][]).map(([key,label]) => <button className={tab === key ? "active" : ""} disabled={key === "search" && selected.template !== "voiceprint"} onClick={() => { setTab(key); setRows([]); }} key={key}>{label}</button>)}</nav>
           {(tab === "register" || tab === "search") && <div className="vector-form">
             <AudioInput file={file} onChange={selectAudio} onRecordingDeviceName={(name) => setChannelId((current) => current.trim() || name)} vadControls={vadControls} />
-            {tab === "register" ? <div className="vector-enrollment-list">
-              <span>本次登记的向量与临时推理配置</span>
+            {tab === "register" ? <div className="vector-enrollment-list"><table className="vector-config-table" aria-label="本次登记的向量与推理配置"><thead><tr><th scope="col">启用</th><th scope="col">向量名称与维度</th><th scope="col">推理服务</th><th scope="col">模型</th><th scope="col">归一化</th></tr></thead><tbody>
               {selected.vectors.map((vector) => {
                 const config = embeddingConfigs[vector.name] ?? { engine_id: engineId, algorithm: vector.name, normalize: true };
                 const checked = selectedVectors.includes(vector.name);
-                return <div className="vector-enrollment-row" key={vector.name}>
-                  <label><input type="checkbox" checked={checked} onChange={(event) => setSelectedVectors(event.target.checked ? [...selectedVectors, vector.name] : selectedVectors.filter((name) => name !== vector.name))} /><strong>{vector.name}</strong><small>{vector.size}D</small></label>
-                  <select disabled={!checked} value={config.engine_id} onChange={(event) => setEmbeddingConfigs({ ...embeddingConfigs, [vector.name]: { ...config, engine_id: event.target.value } })}>{engines.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select>
-                  <input disabled={!checked} value={config.algorithm} onChange={(event) => setEmbeddingConfigs({ ...embeddingConfigs, [vector.name]: { ...config, algorithm: event.target.value } })} />
-                  <label><input disabled={!checked} type="checkbox" checked={config.normalize} onChange={(event) => setEmbeddingConfigs({ ...embeddingConfigs, [vector.name]: { ...config, normalize: event.target.checked } })} />归一化</label>
-                </div>;
+                return <tr key={vector.name}>
+                  <td><input aria-label={`启用向量 ${vector.name}`} type="checkbox" checked={checked} onChange={(event) => setSelectedVectors(event.target.checked ? [...selectedVectors, vector.name] : selectedVectors.filter((name) => name !== vector.name))} /></td>
+                  <th scope="row"><strong>{vector.name}</strong><small>{vector.size}D</small></th>
+                  <td><label className="vector-select-cell"><span className="visually-hidden">{vector.name} 推理服务</span><select disabled={!checked} value={config.engine_id} onChange={(event) => setEmbeddingConfigs({ ...embeddingConfigs, [vector.name]: { ...config, engine_id: event.target.value } })}>{engines.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label></td>
+                  <td><input aria-label={`${vector.name} 模型`} disabled={!checked} value={config.algorithm} onChange={(event) => setEmbeddingConfigs({ ...embeddingConfigs, [vector.name]: { ...config, algorithm: event.target.value } })} /></td>
+                  <td><input aria-label={`${vector.name} 归一化`} disabled={!checked} type="checkbox" checked={config.normalize} onChange={(event) => setEmbeddingConfigs({ ...embeddingConfigs, [vector.name]: { ...config, normalize: event.target.checked } })} /></td>
+                </tr>;
               })}
-            </div> : <>
+            </tbody></table></div> : <>
               <div className="form-grid two-columns">
                 <label><span>Named Vector</span><select value={vectorName} onChange={(event) => setVectorName(event.target.value)}>{selected.vectors.map((item) => <option key={item.name}>{item.name}</option>)}</select></label>
                 <label><span>音频向量引擎</span><select value={engineId} onChange={(event) => setEngineId(event.target.value)}>{engines.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
@@ -425,10 +425,10 @@ export function VectorWorkspacePage({ api, refreshVersion }: { api: AudioHarness
               </div>
             </>}
             {tab === "register" ? <>
-              {selected.template === "voiceprint" && <div className="form-grid two-columns feature-metadata"><label><span>Speaker ID</span><input maxLength={128} value={speakerId} onChange={(event) => setSpeakerId(event.target.value)} placeholder="speaker-001" /></label><label><span>Channel ID</span><input maxLength={128} value={channelId} onChange={(event) => setChannelId(event.target.value)} placeholder="现场录音时自动填充麦克风名称" /></label><label><span>采集时间</span><input type="datetime-local" value={capturedAt} onChange={(event) => setCapturedAt(event.target.value)} /></label><label><span>Quality Score</span><input type="number" min="0" max="1" step="0.01" value={qualityScore} onChange={(event) => setQualityScore(event.target.value)} /></label></div>}
-              <label><span>{selected.template === "voiceprint" ? "扩展 payload JSON" : "Point payload JSON"}</span><textarea className="json-editor" value={payload} onChange={(event) => setPayload(event.target.value)} /></label>
+              {selected.template === "voiceprint" && <fieldset className="form-grid two-columns feature-metadata"><legend>登记信息</legend><label><span>说话人 ID</span><input aria-label="Speaker ID" maxLength={128} value={speakerId} onChange={(event) => setSpeakerId(event.target.value)} placeholder="speaker-001" /></label><label><span>通道 ID</span><input aria-label="Channel ID" maxLength={128} value={channelId} onChange={(event) => setChannelId(event.target.value)} /><small>现场录音时自动填充麦克风名称</small></label><label><span>采集时间</span><input type="datetime-local" value={capturedAt} onChange={(event) => setCapturedAt(event.target.value)} /></label><label><span>质量分数</span><input aria-label="Quality Score" type="number" min="0" max="1" step="0.01" value={qualityScore} onChange={(event) => setQualityScore(event.target.value)} /></label></fieldset>}
+              <label><span>{selected.template === "voiceprint" ? "扩展数据 · JSON" : "Point payload JSON"}</span><textarea className="json-editor" value={payload} onChange={(event) => setPayload(event.target.value)} /></label>
             </> : <label><span>Qdrant Filter JSON</span><textarea className="json-editor" value={filter} onChange={(event) => setFilter(event.target.value)} /></label>}
-            <button className="primary-button" disabled={tab === "register" ? registerDisabled : searchDisabled} onClick={() => void (tab === "register" ? register() : search())}>{tab === "register" ? "生成并登记" : "执行人物搜索"}</button>
+            <div className="vector-form-actions"><button className="primary-button" disabled={tab === "register" ? registerDisabled : searchDisabled} onClick={() => void (tab === "register" ? register() : search())}>{tab === "register" ? "生成并登记" : "执行人物搜索"}</button></div>
           </div>}
           {(tab === "query" || tab === "records") && <div className="vector-form"><label><span>Qdrant Filter JSON</span><textarea className="json-editor" value={filter} onChange={(event) => setFilter(event.target.value)} /></label><button className="primary-button" onClick={() => void scroll()}>查询记录</button></div>}
           {rows.length > 0 && <div className="vector-results">{rows.map((row, index) => "speaker_id" in row ? <article className="vector-speaker-result" key={`${row.speaker_id}-${index}`}><div><strong>{row.speaker_id}</strong><b>分数 {row.score.toFixed(4)}</b></div></article> : <article key={row.point_id}><div><strong>{row.point_id}</strong></div><pre>{JSON.stringify(row.payload, null, 2)}</pre><div className="panel-actions"><button className="text-button" onClick={() => void updatePayload(row)}>编辑 payload</button><button className="text-button danger" onClick={() => { if (window.confirm(`删除 Point ${row.point_id}？`)) void api.deleteVectorPoint(selected.collection_name, row.point_id).then(scroll); }}>删除</button></div></article>)}</div>}

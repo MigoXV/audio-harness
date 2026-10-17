@@ -36,7 +36,7 @@ export function VoiceAgentCreatePage({ api }: Props) {
   };
 
   return <main className="workspace-page voice-agent-create-page">
-    <header className="page-heading"><div><p className="eyebrow">NEW VOICE AGENT</p><h1>新建语音智能体</h1><p>先创建一个空白草稿，再在固定拓扑画布中逐节点完成配置。</p></div><button className="text-button" onClick={() => navigate("/voice-agents")}>返回列表</button></header>
+    <header className="page-heading"><div><h1>新建语音智能体</h1><p>先创建一个空白草稿，再在固定拓扑画布中逐节点完成配置。</p></div><button className="text-button" onClick={() => navigate("/voice-agents")}>返回列表</button></header>
     {error && <div className="alert alert-error"><span>{error}</span><button className="text-button" onClick={() => setError(null)}>关闭</button></div>}
     <section className="panel voice-agent-create-card">
       <div className="panel-heading"><div><h2>基本信息</h2><p>草稿不会自动发布，也不会创建 Realtime 路由。</p></div></div>

@@ -42,7 +42,7 @@ function setup(api: AudioHarnessApi) {
 async function edit(name = asset.name) { fireEvent.click(await screen.findByRole("button", { name: `编辑 ${name}` })); return screen.getByRole("dialog", { name: `编辑 ${name}` }); }
 async function details(name = asset.name) {
   fireEvent.click(await screen.findByRole("button", { name }));
-  const dialog = screen.getByRole("dialog", { name: "引擎详情" });
+  const dialog = screen.getByRole("region", { name: "引擎详情" });
   await waitFor(() => expect(within(dialog).getByRole("button", { name: "编辑配置" })).toBeEnabled());
   return dialog;
 }
@@ -130,7 +130,7 @@ describe("engine management and diagnostics", () => {
     const { api, typed } = fixture(); api.probeEngine.mockRejectedValue(new Error("连接超时")); setup(typed);
     const dialog = await edit(); fill(dialog, /^名称/, "已保存名称");
     fireEvent.click(within(dialog).getByRole("button", { name: "保存并复检" }));
-    const detail = await screen.findByRole("dialog", { name: "引擎详情" });
+    const detail = await screen.findByRole("region", { name: "引擎详情" });
     await waitFor(() => expect(within(detail).getByText("连接超时")).toBeVisible());
     expect(api.updateEngine).toHaveBeenCalledWith(asset.id, { name: "已保存名称" });
     expect(api.probeEngine).toHaveBeenCalledOnce();
@@ -222,29 +222,29 @@ describe("engine management and diagnostics", () => {
   it("lazily reads and searches Responses models", async () => {
     const llm = { ...asset, kind: "llm" as const, api: "responses" as const, protocol: "https" as const, target: "https://example.com/v1", credential_env: "KEY" };
     const { api, typed } = fixture([llm]); setup(typed); const dialog = await details(); expect(api.listEngineModels).not.toHaveBeenCalled();
-    fireEvent.mouseDown(within(dialog).getByRole("tab", { name: "模型目录" }), { button: 0, ctrlKey: false }); expect(await within(dialog).findByText("model-a")).toBeVisible();
+    fireEvent.mouseDown(within(dialog).getByRole("tab", { name: "模型资源" }), { button: 0, ctrlKey: false }); expect(await within(dialog).findByText("model-a")).toBeVisible();
     fireEvent.change(within(dialog).getByLabelText("搜索模型"), { target: { value: "model-b" } });
     expect(within(dialog).queryByText("model-a")).not.toBeInTheDocument(); expect(within(dialog).getByText("model-b")).toBeVisible();
   });
   it("shows TTS voice capabilities and instance availability", async () => {
     const { api, typed } = fixture([{ ...asset, kind: "tts", api: "qwen_tts_duplex" }]); setup(typed); const dialog = await details(); expect(api.listEnginePresetVoices).not.toHaveBeenCalled();
-    fireEvent.mouseDown(within(dialog).getByRole("tab", { name: "音色目录" }), { button: 0, ctrlKey: false }); expect(await within(dialog).findByText("Cherry")).toBeVisible();
-    expect(within(dialog).getByText("zh · 支持合成 · 不支持双工")).toBeVisible(); expect(within(dialog).getByText("本实例可用")).toBeVisible();
+    fireEvent.mouseDown(within(dialog).getByRole("tab", { name: "音色资源" }), { button: 0, ctrlKey: false }); expect(await within(dialog).findByText("Cherry")).toBeVisible();
+    expect(within(dialog).getByText("zh")).toBeVisible(); expect(within(dialog).getByText("支持合成 · 不支持双工")).toBeVisible(); expect(within(dialog).getByText("本实例可用")).toBeVisible();
   });
   it("does not read discovery catalogs for disabled engines", async () => {
     const { api, typed } = fixture([{ ...asset, kind: "llm", api: "responses", enabled: false }]); setup(typed); const dialog = await details();
-    fireEvent.mouseDown(within(dialog).getByRole("tab", { name: "模型目录" }), { button: 0, ctrlKey: false }); expect(within(dialog).getByText("引擎已停用，启用后可读取模型目录。")).toBeVisible();
+    fireEvent.mouseDown(within(dialog).getByRole("tab", { name: "模型资源" }), { button: 0, ctrlKey: false }); expect(within(dialog).getByText("引擎已停用，启用后可读取模型目录。")).toBeVisible();
     expect(api.listEngineModels).not.toHaveBeenCalled();
   });
   it("restores the row trigger after closing details", async () => {
     const { typed } = fixture(); setup(typed); const trigger = await screen.findByRole("button", { name: asset.name }); trigger.focus();
-    const dialog = await details(); fireEvent.keyDown(dialog, { key: "Escape" });
-    await waitFor(() => expect(trigger).toHaveFocus());
+    const dialog = await details(); fireEvent.click(within(dialog).getByRole("button", { name: "‹ 推理引擎" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: asset.name })).toHaveFocus());
   });
   it("preserves focus moved to the next action before close restoration runs", async () => {
     const { typed } = fixture(); setup(typed);
     const dialog = await details();
-    fireEvent.keyDown(dialog, { key: "Escape" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "‹ 推理引擎" }));
     const next = screen.getByRole("button", { name: `编辑 ${asset.name}` }); next.focus();
     await new Promise(resolve => requestAnimationFrame(resolve));
     expect(next).toHaveFocus();
@@ -302,9 +302,28 @@ describe("engine management and diagnostics", () => {
   it("retries a model directory failure without pretending it is empty", async () => {
     const { api, typed } = fixture([{ ...asset, kind: "llm", api: "responses", protocol: "https", target: "https://example.com/v1", api_key: "key" }]);
     api.listEngineModels.mockRejectedValueOnce(new Error("模型目录超时")); setup(typed); const dialog = await details();
-    fireEvent.mouseDown(within(dialog).getByRole("tab", { name: "模型目录" }), { button: 0, ctrlKey: false });
+    fireEvent.mouseDown(within(dialog).getByRole("tab", { name: "模型资源" }), { button: 0, ctrlKey: false });
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("模型目录超时");
     expect(within(dialog).queryByText("引擎未报告可用模型。")).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "刷新模型目录" })); expect(await within(dialog).findByText("model-a")).toBeVisible();
   });
+  it("returns from an edited detail without duplicating the service page or losing its view", async () => {
+    const { typed } = fixture(); setup(typed); const detail = await details();
+    fireEvent.mouseDown(within(detail).getByRole("tab", { name: "引用关系" }), { button: 0, ctrlKey: false });
+    fireEvent.click(within(detail).getByRole("button", { name: "编辑配置" }));
+    const editor = screen.getByRole("dialog", { name: `编辑 ${asset.name}` });
+    fireEvent.click(within(editor).getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getAllByRole("region", { name: "引擎详情" })).toHaveLength(1);
+    expect(screen.getByRole("tab", { name: "引用关系" })).toHaveAttribute("data-state", "active");
+    fireEvent.click(screen.getByRole("button", { name: "‹ 推理引擎" }));
+    expect(await screen.findByRole("button", { name: asset.name })).toBeVisible();
+  });
+  it("opens the reference view directly from its list action", async () => {
+    const { typed } = fixture(); setup(typed);
+    fireEvent.click(await screen.findByRole("button", { name: `查看 ${asset.name} 引用` }));
+    expect(screen.getByRole("tab", { name: "引用关系" })).toHaveAttribute("data-state", "active");
+    expect(screen.queryByRole("dialog", { name: "引擎详情" })).not.toBeInTheDocument();
+  });
+
 });

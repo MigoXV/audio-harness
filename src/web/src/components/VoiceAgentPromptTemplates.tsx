@@ -24,13 +24,12 @@ export function VoiceAgentPromptTemplates({ currentInstructions, onApply }: Prop
     onApply(template.instructions);
   };
   return <label className="full-span">
-    <span>系统提示词模板</span>
+    <span>提示词模板</span>
     <div className="tag-editor">
       <select value={selected} onChange={(event) => setSelected(event.target.value as typeof selected)}>
         {TEMPLATES.map((template) => <option value={template.id} key={template.id}>{template.name}</option>)}
       </select>
       <button type="button" className="secondary-button" onClick={apply}>应用模板</button>
     </div>
-    <small>声纹身份规则在「语音工作流」节点内单独配置；这里仅定义通用回复策略。</small>
   </label>;
 }

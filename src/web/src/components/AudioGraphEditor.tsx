@@ -1,22 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
+import * as Dialog from "@radix-ui/react-dialog";
 import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import {
   addEdge,
   applyEdgeChanges,
   applyNodeChanges,
-  Background,
   BaseEdge,
   ConnectionLineType,
-  ControlButton,
-  Controls,
   Handle,
-  MarkerType,
-  MiniMap,
   Panel,
   Position,
   ReactFlow,
   ReactFlowProvider,
   useNodesInitialized,
+  useNodeConnections,
   useReactFlow,
   useUpdateNodeInternals,
   type Connection,
@@ -41,12 +39,17 @@ import type {
   VectorSpace,
 } from "../api/types";
 import { layoutAudioGraph, needsAutoLayout, orderOutputPorts, orthogonalPath, routeAudioGraph } from "./audioGraphLayout";
-import { audioPortMeta as portMeta } from "./audioPortMeta";
+import { workflowPortPresentation as portMeta, WORKFLOW_PORT_FAMILIES, type WorkflowPortFamily } from "./workflowPortPresentation";
+import { WorkflowPortMarker } from "./WorkflowPortMarker";
+import { WorkflowUiIcon } from "./WorkflowUiIcon";
+import { WorkflowInspector } from "./WorkflowInspector";
 import { collectGraphPortOffsets, type PortOffsets, type RoutePoint } from "./graphLayout";
 import { applyAudioGraphTemplate, type AudioGraphTemplateId } from "./audioGraphTemplates";
 import { EngineQuickView } from "./EngineQuickView";
 import { WorkbenchSidebar } from "./WorkbenchSidebar";
-import { vars } from "../styles/theme.css";
+import { WorkflowNodeIcon } from "./WorkflowNodeIcon";
+import { workflowNodePresentation, workflowNodeSummary } from "./workflowNodePresentation";
+import "./workflowGraph.css";
 import { isCompactWorkbench, useInspectorFocus } from "./useInspectorFocus";
 
 interface Props {
@@ -60,6 +63,12 @@ interface Props {
   sidebarOpen: boolean;
   sidebarContent?: ReactNode;
   sidebarFooter?: ReactNode;
+  toolbarContent?: ReactNode;
+  testHref: string;
+  onValidate: () => Promise<void>;
+  validating: boolean;
+  validationBlockedReason?: string;
+  validationNotice?: string | null;
   onSidebarOpenChange: (open: boolean) => void;
   onChange: (document: AudioWorkflowDocument) => void;
 }
@@ -67,6 +76,8 @@ interface Props {
 interface GraphNodeData extends Record<string, unknown> {
   label: string;
   subtitle: string;
+  kind: string;
+  summary: Array<[string, string]>;
   inputs: Array<{ name: string; kind: string; accepted_kinds?: string[]; label?: string }>;
   outputs: Array<{ name: string; kind: string; label?: string }>;
   role: "input" | "processor" | "output";
@@ -78,11 +89,11 @@ interface GraphEdgeData extends Record<string, unknown> { route?: RoutePoint[] }
 type GraphEdge = Edge<GraphEdgeData>;
 
 const OUTPUTS = [
-  { name: "primary_transcript", kind: "transcription" },
-  { name: "interim_transcript", kind: "transcription" },
-  { name: "speech_started", kind: "speech_started", label: "开始事件" },
+  { name: "primary_transcript", kind: "transcription", label: "最终转写" },
+  { name: "interim_transcript", kind: "transcription", label: "中间转写" },
+  { name: "speech_started", kind: "speech_started", label: "语音开始" },
   { name: "speech_stopped", kind: "speech_stopped", label: "最终停顿" },
-  { name: "turn_progress", kind: "transcription", label: "轮次未结束" },
+  { name: "turn_progress", kind: "transcription", label: "轮次进度" },
   { name: "vector_search", kind: "vector_search_result" },
   { name: "speaker_filter", kind: "speaker_filter_result" },
   { name: "diarization_local", kind: "diarization_local_result" },
@@ -90,13 +101,7 @@ const OUTPUTS = [
   { name: "diarization_cluster", kind: "diarization_cluster_result" },
 ];
 
-const ROLE_COLORS = {
-  input: vars.color.roleInput,
-  processor: vars.color.roleProcessor,
-  output: vars.color.roleOutput,
-} as const;
-
-const GRAPH_NODE_WIDTH = 244;
+const GRAPH_NODE_WIDTH = 232;
 const BOUNDARY_GAP = 120;
 const ENGINE_DIAGNOSTIC_CODES = new Set([
   "missing_engine",
@@ -183,39 +188,36 @@ function hasConfiguredEngine(
 
 function PortRow({ port, direction }: { port: { name: string; kind: string; label?: string }; direction: "input" | "output" }) {
   const meta = portMeta(port.kind);
-  return <li className={`audio-port-row port-${direction}`}>
-    <Handle
-      id={port.name}
-      type={direction === "input" ? "target" : "source"}
+  const connected = useNodeConnections({ handleType: direction === "input" ? "target" : "source", handleId: port.name }).length > 0;
+  return <div className={`workflow-port-cell port-${direction}`} title={`${port.name}: ${port.kind}`}>
+    <Handle id={port.name} type={direction === "input" ? "target" : "source"}
       position={direction === "input" ? Position.Left : Position.Right}
-      className={`port-shape-${meta.shape}`}
-      style={{ top: "50%", background: meta.color }}
-      title={`${port.name}: ${port.kind}`}
-    />
-    <span className="audio-port-name">{port.name}</span>
-    <code>{port.label ?? meta.label}</code>
-  </li>;
+      className={`workflow-port-handle family-${meta.family}${connected ? " connected" : ""}`}
+      style={{ top: "50%", background: "transparent", border: 0 }}
+      title={`${port.name}: ${port.kind}${connected ? " · 已连接" : " · 未连接"}`}><WorkflowPortMarker family={meta.family} /></Handle>
+    <span>{port.label ?? meta.label}</span>
+  </div>;
 }
 
 function AudioGraphNode({ data, selected }: NodeProps<GraphNode>) {
-  const stateLabel = data.state === "invalid" ? "配置错误" : data.state === "unconfigured" ? "待配置" : null;
-  return (
-    <article
-      aria-label={`节点 ${data.label}`}
-      className={`audio-graph-node role-${data.role} state-${data.state} ${selected ? "selected" : ""}`}
-      data-node-role={data.role}
-      data-node-state={data.state}
-    >
-      <header className="audio-node-header">
-        <div><span className="audio-node-kind">{data.subtitle}</span>{stateLabel && <span className="audio-node-state">{stateLabel}</span>}</div>
-        <strong>{data.label}</strong>
-      </header>
-      <div className="audio-node-port-groups">
-        {data.inputs.length > 0 && <section className="audio-port-group input-ports"><span>输入</span><ul>{data.inputs.map((port) => <PortRow key={port.name} port={port} direction="input" />)}</ul></section>}
-        {data.outputs.length > 0 && <section className="audio-port-group output-ports"><span>输出</span><ul>{data.outputs.map((port) => <PortRow key={port.name} port={port} direction="output" />)}</ul></section>}
-      </div>
-    </article>
-  );
+  const presentation = workflowNodePresentation(data.kind, data.subtitle);
+  const stateLabel = data.state === "invalid" ? "配置错误" : data.state === "unconfigured" ? "待绑定" : null;
+  return <article aria-label={`节点 ${data.label}`} title={data.label}
+    className={`workflow-graph-node state-${data.state} ${selected ? "selected" : ""}`}
+    data-node-role={data.role} data-node-state={data.state}>
+    <header className="workflow-node-header">
+      <WorkflowNodeIcon icon={presentation.icon} />
+      <strong className="workflow-node-title">{presentation.title}</strong>
+      {stateLabel && <span className="workflow-node-status">{stateLabel}</span>}
+    </header>
+    <p className="workflow-node-summary" title={data.summary.map(([label, value]) => `${label}：${value}`).join(" · ")}>{data.summary.map(([, value]) => value).join(" · ")}</p>
+    <div className="workflow-node-ports">
+      {Array.from({ length: Math.max(data.inputs.length, data.outputs.length) }, (_, i) => <div className="workflow-port-pair" key={i}>
+        {data.inputs[i] ? <PortRow port={data.inputs[i]} direction="input" /> : <div />}
+        {data.outputs[i] ? <PortRow port={data.outputs[i]} direction="output" /> : <div />}
+      </div>)}
+    </div>
+  </article>;
 }
 
 const flowNodeTypes = { audio: AudioGraphNode };
@@ -235,7 +237,7 @@ function RoutedAudioEdge({ data, markerEnd, sourceX, sourceY, style, targetX, ta
       { x: middleX, y: targetY },
       { x: targetX, y: targetY },
     ];
-  const path = orthogonalPath(route);
+  const path = orthogonalPath(route, 32);
   return <>
     <BaseEdge path={path} className="audio-edge-casing" />
     <BaseEdge path={path} markerEnd={markerEnd} style={style} />
@@ -254,7 +256,7 @@ function RoundedConnectionLine({ fromX, fromY, toX, toY, connectionLineStyle }: 
     { x: middleX, y: fromY },
     { x: middleX, y: toY },
     { x: toX, y: toY },
-  ]);
+  ], 32);
   return <path d={path} fill="none" style={connectionLineStyle} />;
 }
 
@@ -380,6 +382,7 @@ function AudioGraphEditorInner({
   sidebarOpen,
   sidebarContent,
   sidebarFooter,
+  toolbarContent, testHref, onValidate, validating, validationBlockedReason, validationNotice,
   onSidebarOpenChange,
   onChange,
 }: Props) {
@@ -418,6 +421,7 @@ function AudioGraphEditorInner({
         data: {
           label: "PCM 输入",
           subtitle: "WORKFLOW INPUT",
+          kind: "input", summary: [["格式", "PCM"]],
           inputs: [],
           outputs: [{ name: "audio", kind: "pcm_chunk" }],
           role: "input",
@@ -437,12 +441,13 @@ function AudioGraphEditorInner({
           data: {
             label: node.id,
             subtitle: spec?.display_name ?? node.kind,
+            kind: node.kind, summary: workflowNodeSummary(node, engines),
             inputs: (spec?.inputs ?? []).map((port) => ({
               ...port,
               label: node.kind === "physical_vad" && port.name === "audio"
                 ? "主音频"
                 : node.kind === "physical_vad" && port.name === "detection_audio"
-                  ? "仅 VAD 检测"
+                  ? "检测音频"
                   : undefined,
             })),
             outputs: (spec?.outputs ?? []).map((port) => ({
@@ -452,7 +457,7 @@ function AudioGraphEditorInner({
                 : node.kind === "semantic_vad" && port.name === "speech_stopped"
                   ? "最终停顿"
                   : node.kind === "semantic_vad" && port.name === "turn_progress"
-                    ? "轮次未结束"
+                    ? "轮次进度"
                     : undefined,
             })),
             role: "processor",
@@ -472,6 +477,7 @@ function AudioGraphEditorInner({
         data: {
           label: "命名出口",
           subtitle: "WORKFLOW OUTPUTS",
+          kind: "output", summary: [["已连接", `${document.outputs.length} 个出口`]],
           inputs: outputPorts,
           outputs: [],
           role: "output",
@@ -488,7 +494,7 @@ function AudioGraphEditorInner({
     };
     const edgeStyle = (kind: string) => {
       const color = portMeta(kind).color;
-      return { type: "routed", className: `audio-edge edge-${kind}`, style: { stroke: color, strokeWidth: 2.25, strokeDasharray: portMeta(kind).line === "dashed" ? "6 4" : undefined }, markerEnd: { type: MarkerType.ArrowClosed, color } };
+      return { type: "routed", className: `audio-edge edge-${kind}`, style: { stroke: color, strokeWidth: portMeta(kind).width } };
     };
     const outputEdges = document.outputs.map((output, index) => ({
       id: `output:${output.name}`,
@@ -520,9 +526,26 @@ function AudioGraphEditorInner({
   const [connectingKind, setConnectingKind] = useState<string | null>(null);
   const [pendingTemplate, setPendingTemplate] = useState<AudioGraphTemplateId | null>(null);
   const [templatesOpen, setTemplatesOpen] = useState(false);
-  const [nodeCatalogOpen, setNodeCatalogOpen] = useState(false);
+  const [outputDialogOpen, setOutputDialogOpen] = useState(false);
+  const [outputName, setOutputName] = useState("");
+  const [outputSource, setOutputSource] = useState("");
+  const addOutputButton = useRef<HTMLButtonElement>(null);
+  const [nodeSearch, setNodeSearch] = useState("");
+  const nodeSearchInput = useRef<HTMLInputElement>(null);
+  const [zoom, setZoom] = useState(1);
+  useEffect(() => {
+    const searchShortcut = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey || (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)))) return;
+      event.preventDefault();
+      onSidebarOpenChange(true);
+      window.requestAnimationFrame(() => nodeSearchInput.current?.focus());
+    };
+    window.addEventListener("keydown", searchShortcut);
+    return () => window.removeEventListener("keydown", searchShortcut);
+  }, [onSidebarOpenChange]);
   const nodesInitialized = useNodesInitialized();
-  const { fitView, getInternalNode } = useReactFlow<GraphNode, GraphEdge>();
+  const { fitView, getInternalNode, zoomIn, zoomOut } = useReactFlow<GraphNode, GraphEdge>();
   const updateNodeInternals = useUpdateNodeInternals();
   const checkedInitialLayout = useRef(false);
   const routingVersion = useRef(0);
@@ -582,7 +605,7 @@ function AudioGraphEditorInner({
         initialEdges,
         true,
         shouldFitView
-          ? () => void fitView({ padding: 0.18, duration: 260, minZoom: 0.55, maxZoom: 1 })
+          ? () => void fitView({ padding: 0.18, duration: 260, minZoom: 0.15, maxZoom: 1 })
           : undefined,
       );
     }, 0);
@@ -594,6 +617,14 @@ function AudioGraphEditorInner({
 
   const selected = document.nodes.find((node) => node.id === selectedId) ?? null;
   const selectedSpec = selected ? specs.get(selected.kind) : undefined;
+  const selectedGraphNode = flowNodes.find((node) => node.id === selectedId) ?? initialNodes.find((node) => node.id === selectedId);
+  const inspectorOpen = selectedGraphNode != null;
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      void fitView({ padding: .12, minZoom: .15, maxZoom: 1 });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [fitView, inspectorOpen, sidebarOpen]);
   const selectedEngineConfigured = selected
     ? hasConfiguredEngine(selected, selectedSpec, engines)
     : false;
@@ -679,7 +710,7 @@ function AudioGraphEditorInner({
       rerouteAfterRender(layoutedNodes, unroutedEdges, true);
       setConnectionError(null);
       onChange({ ...document, layout });
-      window.requestAnimationFrame(() => void fitView({ padding: 0.18, duration: 260, minZoom: 0.55, maxZoom: 1 }));
+      window.requestAnimationFrame(() => void fitView({ padding: 0.18, duration: 260, minZoom: 0.15, maxZoom: 1 }));
     } catch (reason) {
       setConnectionError(reason instanceof Error ? `自动排列失败：${reason.message}` : "自动排列失败，请稍后重试。");
     }
@@ -689,13 +720,18 @@ function AudioGraphEditorInner({
     if (!nodesInitialized || checkedInitialLayout.current) return;
     const expectedIds = new Set(["$input", "$outputs", ...document.nodes.map((node) => node.id)]);
     if (flowNodes.length !== expectedIds.size || flowNodes.some((node) => !expectedIds.has(node.id))) return;
-    checkedInitialLayout.current = true;
     const positionedNodeIds = new Set(Object.keys(document.layout ?? {}));
     if (needsAutoLayout(flowNodes, document.nodes.map((node) => node.id), positionedNodeIds)) {
-      const frame = window.requestAnimationFrame(() => void arrangeGraph());
+      const portCount = flowNodes.reduce((count, node) => count + node.data.inputs.length + node.data.outputs.length, 0);
+      if (readPortOffsets(flowNodes).size < portCount) return;
+      const frame = window.requestAnimationFrame(() => {
+        checkedInitialLayout.current = true;
+        void arrangeGraph();
+      });
       return () => window.cancelAnimationFrame(frame);
     }
-  }, [arrangeGraph, document.layout, document.nodes, flowNodes, nodesInitialized]);
+    checkedInitialLayout.current = true;
+  }, [arrangeGraph, document.layout, document.nodes, flowNodes, nodesInitialized, readPortOffsets]);
 
   const portKind = (nodeId: string, handle: string | null, direction: "in" | "out") => {
     if (!handle) return undefined;
@@ -762,6 +798,11 @@ function AudioGraphEditorInner({
     });
   };
 
+  const unboundOutputs = OUTPUTS.filter((port) => !document.outputs.some((output) => output.name === port.name));
+  const outputSources = document.nodes.flatMap((node) => (specs.get(node.kind)?.outputs ?? [])
+    .filter((port) => port.kind === OUTPUTS.find((output) => output.name === outputName)?.kind)
+    .map((port) => ({ nodeId: node.id, port: port.name, label: `${workflowNodePresentation(node.kind, node.kind).title} · ${node.id} / ${port.name}` })));
+
   const removeEdges = (removed: Edge[]) => {
     const edgeIds = new Set(removed.filter((edge) => edge.id.startsWith("edge:")).map((edge) => edge.id.slice(5)));
     const outputNames = new Set(removed.filter((edge) => edge.id.startsWith("output:")).map((edge) => edge.id.slice(7)));
@@ -808,9 +849,18 @@ function AudioGraphEditorInner({
     setSelectedId(null);
   };
 
+  const chooseTemplate = (template: AudioGraphTemplateId) => {
+    setTemplatesOpen(false);
+    setPendingTemplate(template);
+  };
+
   const confirmTemplate = () => {
     if (!pendingTemplate) return;
     const next = applyAudioGraphTemplate(document, pendingTemplate, vectorSpaces, engines);
+    // 模板的旧预置坐标未包含新版摘要和校验提示的高度。
+    // 用户已确认替换整图，因此用实际测量结果重新排列新模板。
+    next.layout = {};
+    checkedInitialLayout.current = false;
     setSelectedId(null);
     setConnectionError(null);
     setPendingTemplate(null);
@@ -824,18 +874,18 @@ function AudioGraphEditorInner({
     setFlowEdges((current) => applyEdgeChanges(changes, current));
 
   const focusedEdges = useMemo(() => {
-    const hasFocus = Boolean(selectedId || selectedEdgeId);
+    const hasFocus = Boolean(selectedEdgeId);
     return flowEdges.map((edge) => {
       const related = selectedEdgeId === edge.id || (selectedId != null && (edge.source === selectedId || edge.target === selectedId));
       return { ...edge, className: `${edge.className ?? ""} ${hasFocus ? related ? "edge-focused" : "edge-dimmed" : ""}`.trim() };
     });
   }, [flowEdges, selectedEdgeId, selectedId]);
 
-  const legendKinds = ["pcm_chunk", "vad_audio_chunk", "audio_segment", "speech_audio_chunk", "diarization_segment", "embedding", "vector_search_result", "speaker_filter_result", "diarization_local_result", "diarization_cluster_result", "speaker_transcription", "transcription", "speech_started", "speech_stopped"];
   return (
-    <div className={`audio-builder ${sidebarOpen ? "palette-open" : "palette-closed"} ${selected ? "inspector-open" : ""}`}>
+    <div className={`audio-builder workflow-builder ${sidebarOpen ? "palette-open" : "palette-closed"} ${inspectorOpen ? "inspector-open" : ""}`}>
       <WorkbenchSidebar
         open={sidebarOpen}
+        layout="library"
         expandedTitle="工作流工具"
         collapsedTitle="工作流"
         ariaLabel="工作流侧栏"
@@ -843,37 +893,66 @@ function AudioGraphEditorInner({
         footer={sidebarFooter}
         onOpenChange={(open) => { if (open && isCompactWorkbench()) { setSelectedId(null); focusSidebar(); } onSidebarOpenChange(open); }}
       >
-        <details className="audio-template-catalog" open={templatesOpen} onToggle={(event) => setTemplatesOpen(event.currentTarget.open)}>
-          <summary><h2>快速模板</h2><span>自动连线</span><i aria-hidden="true">⌄</i></summary>
+        <section className="workflow-node-library" aria-label="节点库">
+          <header><h2>节点库</h2><span>{nodeTypes.length + 2}</span>
+            <Dialog.Root open={templatesOpen} onOpenChange={setTemplatesOpen}>
+              <Dialog.Trigger className="workflow-template-trigger" aria-label="快速模板">模板</Dialog.Trigger>
+              <Dialog.Portal><Dialog.Overlay className="drawer-backdrop" />
+                <Dialog.Content className="confirm-dialog workflow-template-dialog">
+                  <header><Dialog.Title>快速模板</Dialog.Title><Dialog.Close className="icon-button" aria-label="关闭快速模板">×</Dialog.Close></header>
+                  <Dialog.Description>选择处理链，确认后替换当前草稿；同类型节点的引擎与配置会保留。</Dialog.Description>
           <div className="audio-catalog-content">
             <p>生成完整处理链与命名出口，只需选择执行引擎。</p>
-            <button onClick={() => setPendingTemplate("physical_asr")}><strong>物理 VAD + ASR</strong><small>PCM → 物理 VAD → ASR</small></button>
-            <button onClick={() => setPendingTemplate("physical_semantic_asr")}><strong>物理 + 语义 VAD + ASR</strong><small>PCM → 物理 VAD → 语义 VAD → ASR</small></button>
-            <button onClick={() => setPendingTemplate("dual_physical_asr")}><strong>物理双路 VAD + ASR</strong><small>正式转写 + AHA 中间结果预览</small></button>
-            <button onClick={() => setPendingTemplate("dual_physical_semantic_asr")}><strong>双路物理 + 语义 VAD + ASR</strong><small>正式分支语义判停 + AHA 中间结果预览</small></button>
-            <button onClick={() => setPendingTemplate("voice_agent")}><strong>语音智能体</strong><small>仅允许声纹白名单中的说话人进入转写和智能体</small></button>
-            <button onClick={() => setPendingTemplate("meeting_streaming")}><strong>流式会议</strong><small>持续识别说话人，保留语义轮次与分角色转写</small></button>
-            <button onClick={() => setPendingTemplate("meeting_complete")}><strong>会议系统完全体</strong><small>双路语义判停、正式与预览转写、语音特征向量提取与搜索</small></button>
+            <button onClick={() => chooseTemplate("physical_asr")}><strong>物理 VAD + ASR</strong><small>PCM → 物理 VAD → ASR</small></button>
+            <button onClick={() => chooseTemplate("physical_semantic_asr")}><strong>物理 + 语义 VAD + ASR</strong><small>PCM → 物理 VAD → 语义 VAD → ASR</small></button>
+            <button onClick={() => chooseTemplate("dual_physical_asr")}><strong>物理双路 VAD + ASR</strong><small>正式转写 + AHA 中间结果预览</small></button>
+            <button onClick={() => chooseTemplate("dual_physical_semantic_asr")}><strong>双路物理 + 语义 VAD + ASR</strong><small>正式分支语义判停 + AHA 中间结果预览</small></button>
+            <button onClick={() => chooseTemplate("voice_agent")}><strong>语音智能体</strong><small>仅允许声纹白名单中的说话人进入转写和智能体</small></button>
+            <button onClick={() => chooseTemplate("meeting_streaming")}><strong>流式会议</strong><small>持续识别说话人，保留语义轮次与分角色转写</small></button>
+            <button onClick={() => chooseTemplate("meeting_complete")}><strong>会议系统完全体</strong><small>双路语义判停、正式与预览转写、语音特征向量提取与搜索</small></button>
           </div>
-        </details>
-        <details className="audio-node-catalog" open={nodeCatalogOpen} onToggle={(event) => setNodeCatalogOpen(event.currentTarget.open)}>
-          <summary><h2>节点目录</h2><span>{nodeTypes.length} 种</span><i aria-hidden="true">⌄</i></summary>
-          <div className="audio-catalog-content">
-            <p>添加类型化语音节点；选中节点后在右侧配置。</p>
-            {nodeTypes.map((type) => (
-              <button key={type.kind} onClick={() => addNode(type.kind)}>
-                <strong>{type.display_name}</strong>
-                <small>{type.inputs.map((port) => portMeta(port.kind).label).join(" + ") || "无输入"} → {type.outputs.map((port) => portMeta(port.kind).label).join(" + ") || "无输出"}</small>
-              </button>
-            ))}
+
+                </Dialog.Content>
+              </Dialog.Portal>
+            </Dialog.Root>
+          </header>
+          <label className="workflow-library-search"><span className="sr-only">搜索节点</span><WorkflowUiIcon name="search" /><input aria-label="搜索节点" ref={nodeSearchInput} value={nodeSearch} onChange={(event) => setNodeSearch(event.target.value)} placeholder="搜索节点" /><kbd>/</kbd></label>
+          <div className="workflow-library-scroll">
+          {["输入与前处理", "转写与轮次", "说话人与声纹", "其他节点", "输出"].map((group) => {
+            const types = nodeTypes.filter((type) => {
+              const meta = workflowNodePresentation(type.kind, type.display_name);
+              return meta.group === group && [meta.title, type.display_name, type.kind].some((text) => text.toLowerCase().includes(nodeSearch.toLowerCase().trim()));
+            });
+            const boundary = group === "输入与前处理" ? "input" : group === "输出" ? "output" : null;
+            const boundaryMeta = boundary ? workflowNodePresentation(boundary, "") : null;
+            const showBoundary = boundaryMeta && boundaryMeta.title.includes(nodeSearch.trim());
+            return types.length || showBoundary ? <section key={group}><h3>{group}</h3>
+              {showBoundary && <button onClick={() => void fitView({ nodes: [{ id: boundary === "input" ? "$input" : "$outputs" }], padding: .5, maxZoom: 1 })}><WorkflowNodeIcon icon={boundaryMeta.icon} small /><span>{boundaryMeta.title}</span></button>}
+              {types.map((type) => { const meta = workflowNodePresentation(type.kind, type.display_name); return <button key={type.kind} onClick={() => addNode(type.kind)} title={type.display_name}><WorkflowNodeIcon icon={meta.icon} small /><span>{meta.title}</span></button>; })}
+            </section> : null;
+          })}
+          {nodeSearch.trim() && !nodeTypes.some((type) => [type.kind, type.display_name, workflowNodePresentation(type.kind, type.display_name).title].some((text) => text.toLowerCase().includes(nodeSearch.trim().toLowerCase()))) && !["PCM 输入", "命名出口"].some(t => t.includes(nodeSearch.trim())) && <p role="status">没有匹配的节点</p>}
           </div>
-        </details>
+        </section>
       </WorkbenchSidebar>
 
-      <section className="audio-canvas panel" aria-label="语音工作流画布">
+      <section className="workflow-stage">
+        <header className="workflow-toolbar">
+          {sidebarOpen && <button className="icon-button" aria-label="收起工作流侧栏" onClick={() => onSidebarOpenChange(false)}>‹</button>}
+          {toolbarContent}
+          <div className="workflow-toolbar-actions">
+            <button className="text-button" onClick={() => { onSidebarOpenChange(true); window.requestAnimationFrame(() => nodeSearchInput.current?.focus()); }}><WorkflowUiIcon name="plus" />添加节点</button>
+            <button className="text-button" onClick={() => void fitView({ padding: .12, minZoom: .15, maxZoom: 1 })}><WorkflowUiIcon name="sliders" />完整画布</button>
+            <button className="text-button" disabled={validating || Boolean(validationBlockedReason)} title={validationBlockedReason} onClick={() => void onValidate()}><WorkflowUiIcon name="check" />{validating ? "校验中…" : "校验"}</button>
+            <Link className="primary-button" to={testHref}>测试</Link>
+          </div>
+        </header>
+        <section className="audio-canvas panel workflow-canvas" aria-label="语音工作流画布">
+        {validationNotice && <div className="workflow-validation-notice" role="status">{validationNotice}</div>}
         {connectionError && <div className="graph-toast">{connectionError}</div>}
         <ReactFlow
           nodes={flowNodes}
+          onMove={(_event, viewport) => setZoom(viewport.zoom)}
           edges={focusedEdges}
           nodeTypes={flowNodeTypes}
           edgeTypes={flowEdgeTypes}
@@ -885,10 +964,10 @@ function AudioGraphEditorInner({
           onConnectEnd={() => setConnectingKind(null)}
           connectionLineType={ConnectionLineType.SmoothStep}
           connectionLineComponent={RoundedConnectionLine}
-          connectionLineStyle={{ stroke: portMeta(connectingKind ?? "").color, strokeWidth: 2.25 }}
+          connectionLineStyle={{ stroke: portMeta(connectingKind ?? "").color, strokeWidth: 1.5 }}
           isValidConnection={validConnection}
           onPaneClick={() => { setSelectedId(null); setSelectedEdgeId(null); }}
-          onNodeClick={(_event, node) => { setSelectedEdgeId(null); setSelectedId(node.id.startsWith("$") ? null : node.id); if (!node.id.startsWith("$") && isCompactWorkbench()) onSidebarOpenChange(false); }}
+          onNodeClick={(_event, node) => { setSelectedEdgeId(null); setSelectedId(node.id); if (isCompactWorkbench()) onSidebarOpenChange(false); }}
           onEdgeClick={(_event, edge) => { setSelectedId(null); setSelectedEdgeId(edge.id); }}
           onNodeDragStop={(_event, node) => {
             if (node.id.startsWith("$")) return;
@@ -897,30 +976,43 @@ function AudioGraphEditorInner({
             onChange({ ...document, layout: { ...document.layout, [node.id]: node.position } });
           }}
           fitView
-          fitViewOptions={{ padding: 0.18, minZoom: 0.55, maxZoom: 1 }}
-          minZoom={0.35}
+          fitViewOptions={{ padding: 0.18, minZoom: 0.15, maxZoom: 1 }}
+          minZoom={0.15}
           maxZoom={1.6}
           deleteKeyCode={["Backspace", "Delete"]}
         >
-          <Background gap={24} size={1} color={vars.color.line} />
-          <Panel position="top-center" className="audio-graph-legend">
-            <div className="role-legend"><span><i style={{ background: ROLE_COLORS.input }} />输入</span><span><i style={{ background: ROLE_COLORS.processor }} />处理</span><span><i style={{ background: ROLE_COLORS.output }} />输出</span></div>
-            <div className="type-legend">{legendKinds.map((kind) => <span key={kind}><i className={`port-shape-${portMeta(kind).shape}`} style={{ background: portMeta(kind).color }} />{portMeta(kind).label}</span>)}</div>
+          <Panel position="top-left" className="workflow-type-legend" aria-label="连线类型图例">{(Object.keys(WORKFLOW_PORT_FAMILIES) as WorkflowPortFamily[]).map((family) => <span key={family} style={{ color: WORKFLOW_PORT_FAMILIES[family].color }}><i /><WorkflowPortMarker family={family} /><span>{WORKFLOW_PORT_FAMILIES[family].label}</span></span>)}</Panel>
+          <Panel position="bottom-left" className="workflow-view-controls">
+            <button aria-label="缩小画布" onClick={() => void zoomOut()}>−</button><span>{Math.round(zoom * 100)}%</span>
+            <button aria-label="放大画布" onClick={() => void zoomIn()}>＋</button>
+            <button aria-label="适配画布" onClick={() => void fitView({ padding: .12, minZoom: .15, maxZoom: 1 })}>⛶</button>
+            <button aria-label="自动排列" title="自动排列" onClick={() => void arrangeGraph()}>↔</button>
           </Panel>
-          <MiniMap pannable zoomable nodeColor={(node) => ROLE_COLORS[node.data.role as keyof typeof ROLE_COLORS] ?? vars.color.textMuted} maskColor={vars.color.overlay} />
-          <Controls fitViewOptions={{ padding: 0.18, minZoom: 0.55, maxZoom: 1 }}>
-            <ControlButton aria-label="自动排列" title="自动排列" onClick={() => void arrangeGraph()}>↔</ControlButton>
-          </Controls>
         </ReactFlow>
+        </section>
       </section>
 
-      {selected && selectedSpec && <aside className="audio-inspector panel" aria-label="节点配置面板" onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setSelectedId(null); } }}>
-        <header><div><span>节点配置</span><h2>{selected.id}</h2></div><button className="icon-button" aria-label="关闭节点配置" onClick={() => setSelectedId(null)}>×</button></header>
-        <div className="audio-inspector-body">
-          <div className={`inspector-state ${selectedEngineConfigured ? "configured" : "unconfigured"}`}><strong>{selectedSpec.display_name}</strong><span>{selectedSpec.required_api == null ? "基础设施节点" : selectedEngineConfigured ? "已绑定执行引擎" : selected.engine_id ? "所选引擎不可用" : "待绑定执行引擎"}</span></div>
-          <label><span>节点 ID</span><input value={selected.id} disabled /></label>
+      {selectedGraphNode && <WorkflowInspector
+        key={selectedGraphNode.id}
+        title={workflowNodePresentation(selectedGraphNode.data.kind, selectedGraphNode.data.subtitle).title}
+        icon={workflowNodePresentation(selectedGraphNode.data.kind, selectedGraphNode.data.subtitle).icon}
+        nodeId={selectedGraphNode.id}
+        onClose={() => setSelectedId(null)}
+        inputs={selectedGraphNode.data.inputs.map((port) => ({ ...port, connections: flowEdges.filter((edge) => edge.target === selectedGraphNode.id && edge.targetHandle === port.name).map((edge) => {
+          const peer = flowNodes.find((node) => node.id === edge.source);
+          return peer ? workflowNodePresentation(peer.data.kind, peer.data.subtitle).title + (peer.id.startsWith("$") ? "" : ` · ${peer.id}`) : edge.source;
+        }) }))}
+        outputs={selectedGraphNode.data.outputs.map((port) => ({ ...port, connections: flowEdges.filter((edge) => edge.source === selectedGraphNode.id && edge.sourceHandle === port.name).map((edge) => {
+          const peer = flowNodes.find((node) => node.id === edge.target);
+          return peer ? workflowNodePresentation(peer.data.kind, peer.data.subtitle).title + (peer.id.startsWith("$") ? "" : ` · ${peer.id}`) : edge.target;
+        }) }))}
+        basic={selected && selectedSpec ? <>
+          {selectedSpec.required_api != null && !selectedEngineConfigured && <p className="workflow-binding-notice">{selected.engine_id ? "所选引擎不可用" : "待绑定执行引擎"}</p>}
           {selectedSpec.required_api != null && <label><span>执行引擎</span><select value={selected.engine_id ?? ""} onChange={(event) => updateNode({ ...selected, engine_id: event.target.value || null } as AudioNode)}><option value="">未绑定</option>{selected.engine_id && !selectedEngineConfigured && <option value={selected.engine_id} disabled>{engines.find((engine) => engine.id === selected.engine_id)?.name ?? selected.engine_id} · 当前不可用</option>}{engines.filter((engine) => engine.enabled && (engine.api === selectedSpec.required_api || (selectedSpec.required_api === "ux_speaker_diarization" && engine.api === "dummy_diarize") || (selected.kind === "speaker_clustering" && engine.api === "dummy_clustering")) && (!selectedSpec.required_capability || (Array.isArray(engine.details?.capabilities) && engine.details.capabilities.includes(selectedSpec.required_capability)))).map((engine) => <option key={engine.id} value={engine.id}>{engine.name} · {engine.status}</option>)}</select><small>需要 {selectedSpec.required_api}{selectedSpec.required_capability ? ` / ${selectedSpec.required_capability}` : ""} 能力</small></label>}
-          {selectedSpec.required_api != null && <EngineQuickView api={api} engineId={selected.engine_id} onUpdated={onEngineUpdated} />}
+          {selectedSpec.required_api == null && <p className="workflow-binding-notice">此节点使用内置处理，无需绑定执行引擎。</p>}
+        </> : undefined}
+        advanced={selected && selectedSpec ? <>
+          <label><span>节点 ID</span><input value={selected.id} disabled /></label>
           {Object.entries(selected.config ?? {}).filter(([key]) => !["postprocessing", "parameters", "clustering_algorithm", "remove_punctuation", "normalize", "include_embedding", "filter", "collection_name", "vector_name", "progress_interval_seconds", "speech_chunk_seconds", "speech_chunk_holdback_seconds", "allowed_speaker_ids", "min_score", "denoised_weight", "attack_seconds", "decay_seconds", "soft_knee_db", "initial_level_db", "output_gain_db"].includes(key)).map(([key, value]) => <label key={key}><span>{key}</span><input type={typeof value === "number" || value === null ? "number" : "text"} step="0.1" value={value == null ? "" : String(value)} onChange={(event) => updateNode({ ...selected, config: { ...(selected.config ?? {}), [key]: typeof value === "number" || value === null ? (event.target.value ? Number(event.target.value) : null) : event.target.value } } as AudioNode)} /></label>)}
           {selected.kind === "audio_embedding" && <label className="switch-control"><input type="checkbox" checked={selected.config?.normalize ?? true} onChange={(event) => updateNode({ ...selected, config: { algorithm: selected.config?.algorithm ?? "eres2netv2", expected_dimension: selected.config?.expected_dimension ?? 192, normalize: event.target.checked } })} /><span>L2 归一化</span></label>}
           {selected.kind === "vector_search" && <><label><span>Voiceprint Collection</span><select value={selected.config.collection_name} onChange={(event) => { const space = vectorSpaces.find((item) => item.collection_name === event.target.value); if (space) updateNode({ ...selected, config: { ...selected.config, collection_name: space.collection_name, vector_name: space.vectors[0]?.name ?? "" } }); }}><option value="">请选择 voiceprint Collection</option>{vectorSpaces.filter((space) => space.template === "voiceprint").map((space) => <option value={space.collection_name} key={space.collection_name}>{space.collection_name}</option>)}</select></label><label><span>Named Vector</span><select value={selected.config.vector_name} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, vector_name: event.target.value } })}>{vectorSpaces.find((item) => item.collection_name === selected.config.collection_name)?.vectors.map((vector) => <option key={vector.name}>{vector.name}</option>)}</select></label><label><span>Filter JSON</span><textarea value={JSON.stringify(selected.config.filter ?? {}, null, 2)} onChange={(event) => { try { updateNode({ ...selected, config: { ...selected.config, filter: JSON.parse(event.target.value) } }); } catch { /* 保存前由校验提示 */ } }} /></label><label className="switch-control"><input type="checkbox" checked={selected.config.include_embedding} onChange={(event) => updateNode({ ...selected, config: { ...selected.config, include_embedding: event.target.checked } })} /><span>在 AHA 事件中返回查询向量</span></label></>}
@@ -975,10 +1067,30 @@ function AudioGraphEditorInner({
           {selected.kind === "semantic_vad" && <label><span>失败策略</span><select value={selected.failure_policy} onChange={(event) => updateNode({ ...selected, failure_policy: event.target.value as "fail_open" | "fail_pipeline" })}><option value="fail_open">fail_open</option><option value="fail_pipeline">fail_pipeline</option></select></label>}
           {selected.kind === "streaming_denoise" && <label><span>失败策略</span><select value={selected.failure_policy} onChange={(event) => updateNode({ ...selected, failure_policy: event.target.value as "fail_open" | "fail_pipeline" })}><option value="fail_open">fail_open（旁路原音）</option><option value="fail_pipeline">fail_pipeline（终止会话）</option></select></label>}
           {selected.kind === "speaker_clustering" && <label><span>失败策略</span><select value={selected.failure_policy} onChange={(event) => updateNode({ ...selected, failure_policy: event.target.value as "fail_open" | "fail_pipeline" })}><option value="fail_open">fail_open</option><option value="fail_pipeline">fail_pipeline</option></select></label>}
-          {diagnostics.filter((item) => item.node_id === selected.id).map((item, index) => <div className="inline-error" key={`${item.message}-${index}`}>{item.message}</div>)}
+          {selectedSpec.required_api != null && <EngineQuickView api={api} engineId={selected.engine_id} onUpdated={onEngineUpdated} />}
           <button className="danger-text inspector-delete" onClick={deleteSelected}>删除节点</button>
-        </div>
-      </aside>}
+        </> : undefined}
+        diagnostics={diagnostics.filter((item) => item.node_id === selectedGraphNode.id).map((item, index) => <div className="inline-error" key={`${item.message}-${index}`}>{item.message}</div>)}
+        portsActions={selectedGraphNode.id === "$outputs" ? <button ref={addOutputButton} className="text-button workflow-add-output" disabled={!unboundOutputs.length} title={unboundOutputs.length ? undefined : "所有命名出口均已连接"} onClick={() => { setOutputName(""); setOutputSource(""); setOutputDialogOpen(true); }}><WorkflowUiIcon name="plus" />添加出口</button> : undefined}
+      />}
+      <Dialog.Root open={outputDialogOpen} onOpenChange={setOutputDialogOpen}>
+        <Dialog.Portal><Dialog.Overlay className="drawer-backdrop" /><Dialog.Content className="confirm-dialog" onEscapeKeyDown={(event) => event.stopPropagation()} onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          if (addOutputButton.current && !addOutputButton.current.disabled) addOutputButton.current.focus();
+          else window.document.querySelector<HTMLElement>(".workflow-inspector > header .icon-button")?.focus();
+        }}>
+          <Dialog.Title>添加命名出口</Dialog.Title>
+          <Dialog.Description>选择未连接的出口及类型兼容的来源端口，连接后保存草稿。</Dialog.Description>
+          <label><span>命名出口</span><select value={outputName} onChange={(event) => { setOutputName(event.target.value); setOutputSource(""); }}><option value="">请选择出口</option>{unboundOutputs.map((port) => <option key={port.name} value={port.name}>{port.label ?? portMeta(port.kind).label} · {port.name}</option>)}</select></label>
+          <label><span>来源端口</span><select value={outputSource} disabled={!outputName || !outputSources.length} onChange={(event) => setOutputSource(event.target.value)}><option value="">{outputName && !outputSources.length ? "没有类型兼容的来源端口" : "请选择来源端口"}</option>{outputSources.map((source) => <option key={JSON.stringify(source)} value={JSON.stringify(source)}>{source.label}</option>)}</select></label>
+          <div className="panel-actions"><Dialog.Close className="secondary-button">取消</Dialog.Close><button className="primary-button" disabled={!outputName || !outputSources.some((source) => JSON.stringify(source) === outputSource)} onClick={() => {
+            const source = outputSources.find((item) => JSON.stringify(item) === outputSource);
+            if (!source) return;
+            connect({ source: source.nodeId, sourceHandle: source.port, target: "$outputs", targetHandle: outputName });
+            setOutputDialogOpen(false);
+          }}>连接出口</button></div>
+        </Dialog.Content></Dialog.Portal>
+      </Dialog.Root>
       <AlertDialog.Root open={pendingTemplate !== null} onOpenChange={(open) => { if (!open) setPendingTemplate(null); }}>
         <AlertDialog.Portal>
           <AlertDialog.Overlay className="drawer-backdrop" />
