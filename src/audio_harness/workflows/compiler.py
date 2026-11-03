@@ -78,10 +78,14 @@ class AudioNodeSpec:
     version: int = 1
 
 
-def _api_satisfies(required: EngineApi, actual: EngineApi) -> bool:
+def _api_satisfies(required: EngineApi, actual: EngineApi, *, node_kind: str) -> bool:
     return actual is required or (
         required is EngineApi.UX_SPEAKER_DIARIZATION
         and actual is EngineApi.DUMMY_DIARIZE
+    ) or (
+        node_kind == "speaker_clustering"
+        and required is EngineApi.ENGINE_FEATURE
+        and actual is EngineApi.DUMMY_CLUSTERING
     )
 
 
@@ -428,7 +432,7 @@ def compile_audio_graph(
                     node_id=node.id,
                 )
             )
-        if not _api_satisfies(spec.required_api, asset.api):
+        if not _api_satisfies(spec.required_api, asset.api, node_kind=node.kind):
             diagnostics.append(
                 AudioGraphDiagnostic(
                     "engine_api_mismatch",
@@ -819,7 +823,7 @@ def restore_audio_graph(
             api_key=(str(raw["api_key"]) if raw.get("api_key") is not None else None),
             details=dict(raw.get("details") or {}),
         )
-        if not _api_satisfies(spec.required_api, snapshot.api):
+        if not _api_satisfies(spec.required_api, snapshot.api, node_kind=node.kind):
             raise ValueError(f"节点引擎快照 API 不匹配: {node.id}")
         if spec.required_capability is not None:
             capabilities = snapshot.details.get("capabilities", ())

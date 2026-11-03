@@ -1,0 +1,257 @@
+{
+  "id": "24f554fe-7f24-4918-940f-be66dfe622de",
+  "slug": "ai-meeting",
+  "name": "ai-meeting",
+  "description": "本机 VAD + 融合 ASR；说话人分离占位，聚类待实现。",
+  "document": {
+    "schema_version": 1,
+    "nodes": [
+      {
+        "id": "physical-vad",
+        "kind": "physical_vad",
+        "engine_id": "b90e91f1-50a2-4f26-994c-22469aec4e32",
+        "config": {
+          "min_segment_seconds": 0.5,
+          "max_segment_seconds": 30.0,
+          "audio_buffer_seconds": 120.0,
+          "speech_pre_roll_seconds": 0.3,
+          "speech_chunk_seconds": 1.0,
+          "speech_chunk_holdback_seconds": 1.0,
+          "progress_interval_seconds": 0.2,
+          "postprocessing": {
+            "processor": "firered.stream_vad",
+            "version": 1,
+            "parameters": {
+              "smooth_window_size": 5,
+              "speech_threshold": 0.5,
+              "pad_start_frame": 5,
+              "min_speech_frame": 8,
+              "max_speech_frame": 3000,
+              "min_silence_frame": 300
+            }
+          }
+        }
+      },
+      {
+        "id": "interim-physical-vad",
+        "kind": "physical_vad",
+        "engine_id": "b90e91f1-50a2-4f26-994c-22469aec4e32",
+        "config": {
+          "min_segment_seconds": 0.2,
+          "max_segment_seconds": 2.0,
+          "audio_buffer_seconds": 10.0,
+          "speech_pre_roll_seconds": 0.0,
+          "speech_chunk_seconds": 1.0,
+          "speech_chunk_holdback_seconds": 1.0,
+          "progress_interval_seconds": 0.2,
+          "postprocessing": {
+            "processor": "firered.stream_vad",
+            "version": 1,
+            "parameters": {
+              "smooth_window_size": 3,
+              "speech_threshold": 0.35,
+              "pad_start_frame": 3,
+              "min_speech_frame": 5,
+              "max_speech_frame": 200,
+              "min_silence_frame": 10
+            }
+          }
+        }
+      },
+      {
+        "id": "interim-asr",
+        "kind": "asr",
+        "engine_id": "680e5ef1-ce09-4f1a-bfc8-f2b52ffc1f75",
+        "config": {
+          "remove_punctuation": true
+        }
+      },
+      {
+        "id": "speaker-diarization",
+        "kind": "speaker_diarization",
+        "engine_id": "82cb9397-8126-40ab-a120-9468da82ca59",
+        "config": {
+          "min_batch_seconds": 0.0,
+          "max_batch_seconds": 30.0,
+          "min_asr_segment_seconds": 0.5,
+          "postprocessing": {
+            "processor": "audio_harness.diarization.vad_coverage",
+            "version": 1
+          }
+        }
+      },
+      {
+        "id": "speaker-asr",
+        "kind": "asr",
+        "engine_id": "680e5ef1-ce09-4f1a-bfc8-f2b52ffc1f75",
+        "config": {
+          "remove_punctuation": false
+        }
+      },
+      {
+        "id": "automatic-gain-control-8e0918a6",
+        "kind": "automatic_gain_control",
+        "engine_id": null,
+        "config": {
+          "attack_seconds": 0.0,
+          "decay_seconds": 2.5,
+          "soft_knee_db": 6.0,
+          "initial_level_db": -12.0,
+          "output_gain_db": 4.5
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "speaker-diarization-to-speaker-asr",
+        "source": {
+          "kind": "node",
+          "node_id": "speaker-diarization",
+          "port": "segments"
+        },
+        "target": {
+          "node_id": "speaker-asr",
+          "port": "segments"
+        }
+      },
+      {
+        "id": "interim-physical-vad-to-asr",
+        "source": {
+          "kind": "node",
+          "node_id": "interim-physical-vad",
+          "port": "segments"
+        },
+        "target": {
+          "node_id": "interim-asr",
+          "port": "segments"
+        }
+      },
+      {
+        "id": "automatic-gain-control-8e0918a6-audio-physical-vad-audio",
+        "source": {
+          "kind": "node",
+          "node_id": "automatic-gain-control-8e0918a6",
+          "port": "audio"
+        },
+        "target": {
+          "node_id": "physical-vad",
+          "port": "audio"
+        }
+      },
+      {
+        "id": "automatic-gain-control-8e0918a6-audio-interim-physical-vad-audio",
+        "source": {
+          "kind": "node",
+          "node_id": "automatic-gain-control-8e0918a6",
+          "port": "audio"
+        },
+        "target": {
+          "node_id": "interim-physical-vad",
+          "port": "audio"
+        }
+      },
+      {
+        "id": "-input-audio-automatic-gain-control-8e0918a6-audio",
+        "source": {
+          "kind": "input",
+          "name": "audio"
+        },
+        "target": {
+          "node_id": "automatic-gain-control-8e0918a6",
+          "port": "audio"
+        }
+      },
+      {
+        "id": "physical-vad-segments-speaker-diarization-segments",
+        "source": {
+          "kind": "node",
+          "node_id": "physical-vad",
+          "port": "segments"
+        },
+        "target": {
+          "node_id": "speaker-diarization",
+          "port": "segments"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "name": "interim_transcript",
+        "source": {
+          "kind": "node",
+          "node_id": "interim-asr",
+          "port": "transcripts"
+        }
+      },
+      {
+        "name": "speech_started",
+        "source": {
+          "kind": "node",
+          "node_id": "physical-vad",
+          "port": "speech_started"
+        }
+      },
+      {
+        "name": "diarization_local",
+        "source": {
+          "kind": "node",
+          "node_id": "speaker-diarization",
+          "port": "local_results"
+        }
+      },
+      {
+        "name": "speaker_transcript",
+        "source": {
+          "kind": "node",
+          "node_id": "speaker-asr",
+          "port": "speaker_transcripts"
+        }
+      },
+      {
+        "name": "speech_stopped",
+        "source": {
+          "kind": "node",
+          "node_id": "physical-vad",
+          "port": "speech_stopped"
+        }
+      },
+      {
+        "name": "primary_transcript",
+        "source": {
+          "kind": "node",
+          "node_id": "speaker-asr",
+          "port": "transcripts"
+        }
+      }
+    ],
+    "layout": {
+      "physical-vad": {
+        "x": 944.0,
+        "y": 536.5000693581321
+      },
+      "interim-physical-vad": {
+        "x": 944.0,
+        "y": 48.0
+      },
+      "interim-asr": {
+        "x": 1392.0,
+        "y": 142.0000360662287
+      },
+      "speaker-diarization": {
+        "x": 1392.0,
+        "y": 476.0000360662287
+      },
+      "speaker-asr": {
+        "x": 1840.0,
+        "y": 536.0000915527344
+      },
+      "automatic-gain-control-8e0918a6": {
+        "x": 496.0,
+        "y": 476.5001803311435
+      }
+    }
+  },
+  "revision": 3,
+  "active_revision": 3,
+  "updated_at": "2026-10-15T08:15:17.172625"
+}

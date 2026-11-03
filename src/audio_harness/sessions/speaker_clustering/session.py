@@ -250,7 +250,7 @@ class SpeakerClusteringSession:
         self._vectors.extend(new_vectors)
         started = time.monotonic()
         try:
-            if len(self._vectors) < 2:
+            if len(self._vectors) < self._inferencer.minimum_clustering_vectors:
                 labels = tuple(-1 for _ in self._vectors)
             elif self._engine_session is None:
                 self._engine_session = self._inferencer.streaming_clustering()

@@ -1,0 +1,13 @@
+{
+  "valid": true,
+  "diagnostics": [],
+  "topological_order": [
+    "automatic-gain-control-8e0918a6",
+    "interim-physical-vad",
+    "interim-asr",
+    "physical-vad",
+    "speaker-diarization",
+    "speaker-asr",
+    "speaker-clustering"
+  ]
+}

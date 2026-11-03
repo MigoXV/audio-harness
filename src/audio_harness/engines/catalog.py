@@ -126,7 +126,7 @@ class EngineCatalog:
             EngineKind.VAD: EngineApi.UX_VAD,
             EngineKind.LLM: EngineApi.RESPONSES,
             EngineKind.TTS: EngineApi.QWEN_TTS_DUPLEX,
-            EngineKind.EMBEDDING: EngineApi.ENGINE_FEATURE,
+            EngineKind.EMBEDDING: (EngineApi.ENGINE_FEATURE, EngineApi.DUMMY_CLUSTERING),
             EngineKind.DIARIZATION: (
                 EngineApi.UX_SPEAKER_DIARIZATION,
                 EngineApi.UX_SPEAKER_DIARIZATION_DUPLEX,
@@ -143,6 +143,7 @@ class EngineCatalog:
         expected_protocol = {
             EngineApi.RESPONSES: EngineProtocol.HTTPS,
             EngineApi.DUMMY_DIARIZE: EngineProtocol.DUMMY,
+            EngineApi.DUMMY_CLUSTERING: EngineProtocol.DUMMY,
         }.get(asset.api, EngineProtocol.GRPC)
         if asset.protocol is not expected_protocol:
             raise CatalogConflictError(
@@ -158,14 +159,19 @@ class EngineCatalog:
                 raise CatalogConflictError(
                     "Responses target 必须是 HTTP(S) API base URL"
                 )
-        elif asset.api is EngineApi.DUMMY_DIARIZE:
-            if asset.target != "dummy://diarize":
+        elif asset.api in {EngineApi.DUMMY_DIARIZE, EngineApi.DUMMY_CLUSTERING}:
+            target = (
+                "dummy://diarize"
+                if asset.api is EngineApi.DUMMY_DIARIZE
+                else "dummy://clustering"
+            )
+            if asset.target != target:
                 raise CatalogConflictError(
-                    "dummy_diarize target 必须是 dummy://diarize"
+                    f"{asset.api.value} target 必须是 {target}"
                 )
             if asset.credential_env is not None or asset.api_key is not None:
                 raise CatalogConflictError(
-                    "dummy_diarize 资产不能配置模型 API Key"
+                    f"{asset.api.value} 资产不能配置模型 API Key"
                 )
         elif asset.credential_env is not None or asset.api_key is not None:
             raise CatalogConflictError(

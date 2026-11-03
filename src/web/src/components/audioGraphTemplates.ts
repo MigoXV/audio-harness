@@ -228,7 +228,7 @@ function speakerClustering(
   if (existing) return { ...existing, id: "speaker-clustering" };
   const engine = engines.find((item) =>
     item.enabled
-    && item.api === "engine_feature",
+    && (item.api === "engine_feature" || item.api === "dummy_clustering"),
   );
   return {
     id: "speaker-clustering",

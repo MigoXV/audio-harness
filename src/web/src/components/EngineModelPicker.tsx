@@ -10,10 +10,11 @@ interface Props {
   api: AudioHarnessApi;
   engine: EngineAsset | undefined;
   value: string;
+  label?: string;
   onChange: (value: string) => void;
 }
 
-export function EngineModelPicker({ api, engine, value, onChange }: Props) {
+export function EngineModelPicker({ api, engine, value, label = "Responses 模型", onChange }: Props) {
   const inputId = useId();
   const listId = `${inputId}-options`;
   const rootRef = useRef<HTMLDivElement>(null);
@@ -81,7 +82,7 @@ export function EngineModelPicker({ api, engine, value, onChange }: Props) {
       if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpenForEngineId(null);
     }}
   >
-    <label htmlFor={inputId}>Responses 模型</label>
+    <label htmlFor={inputId}>{label}</label>
     <div className="engine-model-picker-controls">
       <div className="engine-model-input-shell">
         <input

@@ -1,11 +1,12 @@
 import { globalStyle } from "@vanilla-extract/css";
 import { vars } from "./theme.css";
+import "./objectScrolling.css";
 
 globalStyle(":root", { fontFamily: vars.font.body, color: vars.color.text, background: vars.color.canvas, fontSynthesis: "none", textRendering: "optimizeLegibility" });
 globalStyle("*", { boxSizing: "border-box" });
 globalStyle("html, body, #root", { minHeight: "100%" });
-globalStyle("body", { margin: 0, minWidth: 320, minHeight: "100vh", background: vars.color.canvas, fontSize: 14, lineHeight: 1.5 });
-globalStyle("button, input, select, textarea", { font: "inherit" });
+globalStyle("body", { margin: 0, minWidth: 320, minHeight: "100vh", background: vars.color.canvas, color: vars.color.text, fontSize: 14, lineHeight: 1.5 });
+globalStyle("button, input, select, textarea", { font: "inherit", color: "inherit" });
 globalStyle("input::placeholder, textarea::placeholder", { color: vars.color.textMuted, opacity: 1 });
 globalStyle("button, select", { cursor: "pointer" });
 globalStyle("button:disabled, select:disabled, input:disabled", { cursor: "not-allowed", opacity: .55 });
@@ -13,8 +14,8 @@ globalStyle("button:focus-visible, a:focus-visible, input:focus-visible, select:
 globalStyle("a", { color: "inherit" });
 globalStyle("code", { fontFamily: vars.font.mono, fontSize: 12, overflowWrap: "anywhere" });
 globalStyle("h1, h2, h3, h4, p", { marginTop: 0 });
-globalStyle("h1", { marginBottom: vars.space.x2, fontSize: 28, lineHeight: 1.25, letterSpacing: "-.025em", fontWeight: 660 });
-globalStyle("h2", { marginBottom: vars.space.x1, fontSize: 18, lineHeight: 1.35 });
+globalStyle("h1", { marginBottom: vars.space.x2, fontSize: 28, lineHeight: 1.25, letterSpacing: "-.025em", fontWeight: vars.weight.heading });
+globalStyle("h2", { marginBottom: vars.space.x1, fontSize: 18, lineHeight: 1.35, fontWeight: vars.weight.heading });
 globalStyle("h3", { marginBottom: vars.space.x1, fontSize: 15 });
 globalStyle("p", { color: vars.color.textMuted });
 
@@ -33,7 +34,7 @@ globalStyle(".status-link", { color: vars.color.textMuted, fontSize: 12, textDec
 globalStyle(".status-link:hover", { color: vars.color.text, textDecoration: "underline", textUnderlineOffset: 3 });
 globalStyle(".app-content", { minHeight: "calc(100vh - 64px)" });
 globalStyle(".workspace-page", { width: "min(1120px, calc(100% - 48px))", margin: "0 auto", padding: "48px 0 96px" });
-globalStyle(".page-heading, .workflow-heading", { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: vars.space.x8, paddingBottom: 26, borderBottom: `1px solid ${vars.color.line}` });
+globalStyle(".page-heading, .workflow-heading", { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: vars.space.x8, paddingBottom: 26, borderBottom: 0 });
 globalStyle(".page-heading p:last-child, .workflow-heading p", { maxWidth: 650, marginBottom: 0, fontSize: 13, lineHeight: 1.6 });
 globalStyle(".eyebrow", { marginBottom: vars.space.x1, color: vars.color.textFaint, fontSize: 12, fontWeight: 700, letterSpacing: ".09em" });
 
@@ -42,7 +43,7 @@ globalStyle(".panel-heading", { display: "flex", alignItems: "flex-start", justi
 globalStyle(".panel-heading p", { marginBottom: 0, fontSize: 13 });
 globalStyle(".panel-actions", { display: "flex", alignItems: "center", gap: vars.space.x3, padding: "16px 0", borderTop: `1px solid ${vars.color.line}` });
 globalStyle(".primary-button, .secondary-button, .text-button, .icon-button", { border: 0, cursor: "pointer", fontWeight: 620 });
-globalStyle(".primary-button, .secondary-button", { minHeight: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "8px 16px", border: "1px solid transparent", borderRadius: vars.radius.md, fontSize: 12, lineHeight: 1 });
+globalStyle(".primary-button, .secondary-button", { minHeight: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "8px 16px", border: "1px solid transparent", borderRadius: vars.radius.sm, fontSize: 12, lineHeight: 1 });
 globalStyle(".primary-button", { borderColor: vars.color.primaryBg, background: vars.color.primaryBg, color: vars.color.primaryText });
 globalStyle(".primary-button:hover:not(:disabled)", { background: vars.color.primaryBg });
 globalStyle(".secondary-button", { borderColor: vars.color.lineStrong, background: "transparent", color: vars.color.text });
@@ -60,7 +61,7 @@ globalStyle("label", { display: "grid", alignContent: "start", gap: 6, color: va
 globalStyle("label > span", { fontSize: 13 });
 globalStyle("label small", { color: vars.color.textMuted, fontSize: 12, fontWeight: 400 });
 globalStyle("input, select, textarea", { width: "100%", border: `1px solid ${vars.color.lineStrong}`, borderRadius: vars.radius.sm, color: vars.color.text, background: vars.color.surface });
-globalStyle("input, select", { minHeight: 40, padding: "0 10px" });
+globalStyle("input, select", { minHeight: 40, padding: "0 16px" });
 globalStyle("textarea", { padding: 10, resize: "vertical" });
 globalStyle(".form-grid", { display: "grid", gap: vars.space.x4, padding: "18px 0" });
 globalStyle(".two-columns", { gridTemplateColumns: "repeat(2, minmax(0, 1fr))" });
@@ -75,21 +76,22 @@ globalStyle(".alert p", { marginTop: 3, color: "inherit", fontSize: 13 });
 globalStyle(".alert-success", { borderLeftColor: vars.color.success, background: vars.color.successSoft, color: vars.color.text });
 globalStyle(".alert-warning", { borderLeftColor: vars.color.warning, background: vars.color.warningSoft, color: vars.color.text });
 globalStyle(".inline-error", { marginTop: vars.space.x3, padding: "9px 0", borderTop: `1px solid ${vars.color.danger}`, color: vars.color.text, fontSize: 13 });
-globalStyle(".success-block", { margin: "18px 0", padding: "13px 0", borderTop: `1px solid ${vars.color.success}`, color: vars.color.text, fontWeight: 700 });
+globalStyle(".success-block", { margin: "18px 0", padding: "13px 0", borderTop: 0, color: vars.color.text, fontWeight: vars.weight.item });
 globalStyle(".empty-state", { display: "grid", placeItems: "center", gap: vars.space.x1, minHeight: 180, padding: 28, color: vars.color.textMuted, textAlign: "center" });
 
 globalStyle(".workflow-table", { overflowX: "auto", borderTop: `1px solid ${vars.color.lineStrong}` });
 globalStyle(".workflow-row", { width: "100%", minHeight: 68, display: "grid", gridTemplateColumns: "1.35fr .9fr .5fr .7fr 1fr 28px", alignItems: "center", gap: vars.space.x4, padding: "12px 0", border: 0, borderBottom: `1px solid ${vars.color.line}`, background: "transparent", color: vars.color.text, textAlign: "left" });
 globalStyle("button.workflow-row:hover", { background: vars.color.hover });
-globalStyle(".table-header", { minHeight: 38, color: vars.color.textMuted, fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em" });
+globalStyle(".table-header", { minHeight: 38, color: vars.color.textMuted, fontSize: 12, fontWeight: 400, textTransform: "uppercase", letterSpacing: ".04em" });
 globalStyle(".workflow-row strong, .workflow-row small, .engine-table strong, .engine-table small", { display: "block" });
+globalStyle(".workflow-row strong, .engine-table strong", { fontWeight: vars.weight.item });
 globalStyle(".workflow-row small, .engine-table small", { marginTop: 3, color: vars.color.textMuted, fontSize: 12 });
 globalStyle(".row-arrow", { color: vars.color.accent, fontSize: 18, textAlign: "right" });
-globalStyle(".status-chip", { display: "inline-flex", alignItems: "center", minHeight: 24, padding: "0 8px", borderRadius: vars.radius.pill, color: vars.color.textMuted, background: vars.color.surfaceMuted, fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" });
-globalStyle(".status-published_healthy, .engine-healthy", { color: vars.color.text, background: vars.color.successSoft });
-globalStyle(".status-published_degraded, .engine-unhealthy", { color: vars.color.text, background: vars.color.dangerSoft });
-globalStyle(".status-incomplete, .status-unpublished_changes", { color: vars.color.text, background: vars.color.warningSoft });
-globalStyle(".status-unpublished", { color: vars.color.textMuted, background: vars.color.surfaceMuted });
+globalStyle(".status-chip", { display: "inline-flex", alignItems: "center", minHeight: 24, padding: "0 8px", borderRadius: vars.radius.pill, color: vars.color.textMuted, background: vars.color.quietSurface, fontSize: 12, fontWeight: vars.weight.item, whiteSpace: "nowrap" });
+globalStyle(".status-published_healthy, .engine-healthy", { color: vars.color.text, background: vars.color.quietSurface });
+globalStyle(".status-published_degraded, .engine-unhealthy", { color: vars.color.text, background: vars.color.quietSurface });
+globalStyle(".status-incomplete, .status-unpublished_changes", { color: vars.color.text, background: vars.color.quietSurface });
+globalStyle(".status-unpublished", { color: vars.color.textMuted, background: vars.color.quietSurface });
 globalStyle(".exposure-badges", { display: "flex", alignItems: "center", flexWrap: "wrap", gap: vars.space.x1 });
 globalStyle(".exposure-badges small, .exposure-badges code", { margin: 0, padding: "3px 6px", borderRadius: vars.radius.pill, background: vars.color.surfaceMuted, fontSize: 12 });
 
@@ -459,10 +461,10 @@ globalStyle(".audio-canvas .react-flow__pane", { cursor: "grab" });
 globalStyle(".audio-canvas .react-flow__node", { borderRadius: vars.radius.md });
 // React Flow 的端口位于卡片边缘之外；这里不能裁切溢出内容，
 // 否则端口会不可见，也无法作为拖拽连线的起止点。
-globalStyle(".audio-graph-node", { width: 244, overflow: "visible", border: `1px solid ${vars.color.lineStrong}`, borderRadius: vars.radius.md, background: vars.color.surface, boxShadow: "none" });
-globalStyle(".audio-graph-node.role-input", { borderColor: vars.color.lineStrong });
-globalStyle(".audio-graph-node.role-processor", { borderColor: vars.color.lineStrong });
-globalStyle(".audio-graph-node.role-output", { borderColor: vars.color.lineStrong });
+globalStyle(".audio-graph-node", { width: 244, overflow: "visible", border: `1px solid ${vars.color.line}`, borderRadius: vars.radius.md, background: vars.color.surface, boxShadow: "none" });
+globalStyle(".audio-graph-node.role-input", { borderColor: vars.color.line });
+globalStyle(".audio-graph-node.role-processor", { borderColor: vars.color.line });
+globalStyle(".audio-graph-node.role-output", { borderColor: vars.color.line });
 globalStyle(".audio-graph-node.state-unconfigured", { borderColor: vars.color.warning });
 globalStyle(".audio-graph-node.state-invalid", { borderColor: vars.color.danger });
 globalStyle(".audio-graph-node.state-optional", { borderColor: vars.color.lineStrong, borderStyle: "dashed" });
@@ -475,32 +477,28 @@ globalStyle(".agent-node-fields", { display: "grid", gap: vars.space.x4 });
 globalStyle(".agent-node-fields .prompt-template-picker", { margin: 0 });
 globalStyle(".audio-inspector .agent-backend-binding", { display: "block", gridColumn: "auto" });
 globalStyle(".audio-inspector .agent-backend-binding .two-columns", { gridTemplateColumns: "1fr" });
-globalStyle(".audio-node-header", { padding: "11px 13px 10px", borderTop: `2px solid ${vars.color.lineStrong}`, borderBottom: `1px solid ${vars.color.line}` });
-globalStyle(".role-input .audio-node-header", { borderTopColor: vars.color.roleInput, background: vars.color.surfaceMuted });
-globalStyle(".role-processor .audio-node-header", { borderTopColor: vars.color.roleProcessor, background: vars.color.surfaceMuted });
-globalStyle(".role-output .audio-node-header", { borderTopColor: vars.color.roleOutput, background: vars.color.surfaceMuted });
-globalStyle(".state-unconfigured .audio-node-header", { borderTopColor: vars.color.warning, background: vars.color.warningSoft });
-globalStyle(".state-invalid .audio-node-header", { borderTopColor: vars.color.danger, background: vars.color.dangerSoft });
-globalStyle(".audio-node-header > div", { display: "flex", alignItems: "center", justifyContent: "space-between", gap: vars.space.x2, marginBottom: 3 });
-globalStyle(".audio-node-header strong", { display: "block", overflow: "hidden", fontFamily: vars.font.mono, fontSize: 13, textOverflow: "ellipsis", whiteSpace: "nowrap" });
-globalStyle(".audio-node-kind", { color: vars.color.textMuted, fontSize: 12, fontWeight: 800, letterSpacing: ".07em" });
-globalStyle(".audio-node-state", { padding: "2px 5px", borderRadius: vars.radius.pill, color: vars.color.text, background: vars.color.surface, fontSize: 12, fontWeight: 800 });
+globalStyle(".audio-node-header", { display: "grid", gap: 4, padding: "12px 16px", border: "none" });
+globalStyle(".audio-node-header > div", { display: "flex", alignItems: "center", justifyContent: "space-between", gap: vars.space.x2, minHeight: 20 });
+globalStyle(".audio-node-id", { display: "block", color: vars.color.textMuted, fontFamily: vars.font.mono, fontSize: 12, lineHeight: "18px", fontWeight: 400, overflowWrap: "anywhere" });
+globalStyle(".audio-node-kind", { color: vars.color.text, fontFamily: vars.font.body, fontSize: 14, lineHeight: "20px", fontWeight: 500, letterSpacing: "normal" });
+globalStyle(".audio-node-state", { color: vars.color.textMuted, fontSize: 12, fontWeight: 400, whiteSpace: "nowrap" });
 globalStyle(".state-invalid .audio-node-state", { color: vars.color.text });
-globalStyle(".audio-node-port-groups", { display: "grid", gap: 8, padding: "10px 12px 12px" });
-globalStyle(".audio-port-group > span", { display: "block", marginBottom: 4, color: vars.color.textFaint, fontSize: 12, fontWeight: 800, letterSpacing: ".08em" });
+globalStyle(".audio-node-port-groups", { display: "grid", gap: 12, padding: "12px 16px" });
+globalStyle(".audio-port-group > span", { display: "block", marginBottom: 4, color: vars.color.textMuted, fontSize: 12, lineHeight: "20px", fontWeight: 400, letterSpacing: "normal" });
 globalStyle(".output-ports > span", { textAlign: "right" });
-globalStyle(".audio-port-group ul", { display: "grid", gap: 4, margin: 0, padding: 0, listStyle: "none" });
-globalStyle(".audio-port-row", { position: "relative", minHeight: 27, display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "center", gap: vars.space.x2, padding: "4px 7px", borderRadius: vars.radius.sm, background: vars.color.surfaceMuted });
+globalStyle(".audio-port-group ul", { display: "grid", gap: 0, margin: 0, padding: 0, listStyle: "none" });
+globalStyle(".audio-port-row", { position: "relative", minHeight: 28, display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "center", gap: vars.space.x2, padding: 0, background: "transparent" });
+globalStyle(".voice-agent-node .port-output code", { gridColumn: "1 / -1", textAlign: "right" });
 globalStyle(".port-output", { gridTemplateColumns: "auto minmax(0, 1fr)", textAlign: "right" });
 globalStyle(".port-output code", { gridColumn: 1, gridRow: 1 });
 globalStyle(".port-output .audio-port-name", { gridColumn: 2, gridRow: 1 });
 globalStyle(".audio-port-name", { overflow: "hidden", fontFamily: vars.font.mono, fontSize: 12, textOverflow: "ellipsis", whiteSpace: "nowrap" });
-globalStyle(".audio-port-row code", { padding: "1px 4px", border: "1px solid currentColor", borderRadius: vars.radius.pill, fontSize: 8, fontWeight: 800, whiteSpace: "nowrap" });
-globalStyle(".audio-canvas .react-flow__handle", { width: 12, height: 12, border: `2px solid ${vars.color.surface}`, boxShadow: `0 0 0 1px ${vars.color.lineStrong}` });
+globalStyle(".audio-port-row code", { padding: 0, border: "none", color: vars.color.textMuted, fontFamily: vars.font.body, fontSize: 12, lineHeight: "20px", fontWeight: 400, whiteSpace: "nowrap" });
+globalStyle(".audio-canvas .react-flow__handle", { width: 8, height: 8, minWidth: 8, minHeight: 8, border: `1.5px solid ${vars.color.accent}`, boxShadow: "none" });
 globalStyle(".audio-port-row .react-flow__handle-left", { left: -18 });
 globalStyle(".audio-port-row .react-flow__handle-right", { right: -18 });
 globalStyle(".audio-canvas .react-flow__edge-path", { transition: `stroke-width ${vars.motion.fast} ease`, filter: "none" });
-globalStyle(".audio-canvas .audio-edge-casing", { stroke: vars.color.canvas, strokeWidth: 7, fill: "none", filter: "none" });
+globalStyle(".audio-canvas .audio-edge-casing", { stroke: vars.color.canvas, strokeWidth: 5, fill: "none", filter: "none" });
 globalStyle(".audio-canvas .react-flow__edge", { transition: `opacity ${vars.motion.fast} ease` });
 globalStyle(".audio-canvas .react-flow__edge.edge-dimmed", { opacity: 0.14 });
 globalStyle(".audio-canvas .react-flow__edge.edge-focused", { opacity: 1 });
@@ -674,7 +672,7 @@ globalStyle(".navigation-popover", { position: "absolute", zIndex: 30, top: "cal
 globalStyle(".navigation-popover a", { minHeight: 40, padding: "8px 12px", border: 0, borderRadius: vars.radius.sm, color: vars.color.text, fontSize: 14, fontWeight: 400 });
 globalStyle(".navigation-popover a:hover", { background: vars.color.hover });
 globalStyle(".navigation-popover a.active", { background: vars.color.selected });
-globalStyle(".theme-toggle, .mobile-navigation-trigger", { minHeight: 32, padding: "4px 12px", border: `1px solid ${vars.color.line}`, borderRadius: vars.radius.sm, background: vars.color.surfaceMuted, color: vars.color.text, fontSize: 12, whiteSpace: "nowrap" });
+globalStyle(".theme-toggle, .mobile-navigation-trigger", { minHeight: 32, padding: "4px 12px", border: `1px solid ${vars.color.line}`, borderRadius: vars.radius.sm, background: vars.color.quietSurface, color: vars.color.text, fontSize: 12, whiteSpace: "nowrap" });
 globalStyle(".theme-toggle:hover, .mobile-navigation-trigger:hover", { background: vars.color.hover });
 globalStyle(".mobile-navigation-trigger", { display: "none" });
 globalStyle(".mobile-navigation-dialog", { position: "fixed", zIndex: 51, top: 0, right: 0, bottom: 0, width: "min(360px, 100%)", overflowY: "auto", background: vars.color.surface, borderLeft: `1px solid ${vars.color.line}`, padding: vars.space.x6 });
@@ -716,10 +714,6 @@ globalStyle(".workbench-sidebar > header", { height: 48, paddingInline: vars.spa
 globalStyle(".workbench-sidebar > header .icon-button", { width: 32, height: 32 });
 globalStyle(".builder-detail-navigation a", { minHeight: 32 });
 globalStyle(".audio-catalog-content button", { padding: "12px 8px" });
-globalStyle(".audio-node-header", { padding: "12px 16px", borderTopWidth: 2 });
-globalStyle(".audio-port-row code", { color: vars.color.text, fontSize: 12 });
-globalStyle(".audio-node-kind, .audio-node-state", { fontSize: 12 });
-globalStyle(".audio-node-header strong", { fontWeight: 500 });
 globalStyle(".audio-canvas .react-flow__controls", { border: `1px solid ${vars.color.lineStrong}`, borderRadius: vars.radius.sm, overflow: "hidden", boxShadow: "none" });
 globalStyle(".audio-canvas .react-flow__controls-button", { width: 32, height: 32, background: vars.color.surface, color: vars.color.text, fill: "currentColor", borderBottom: `1px solid ${vars.color.line}` });
 globalStyle(".audio-canvas .react-flow__controls-button:hover", { background: vars.color.hover });
@@ -763,3 +757,22 @@ globalStyle(".runtime-capacity-table th, .runtime-capacity-table td", { padding:
 globalStyle(".runtime-capacity-table thead th", { fontSize: 12, color: vars.color.textMuted });
 globalStyle(".runtime-capacity-table tbody th", { fontWeight: 500 });
 globalStyle(".feature-metadata", { gridTemplateColumns: "minmax(160px, 240px) minmax(160px, 240px) minmax(160px, 240px) 112px", "@media": { "screen and (max-width: 1100px)": { gridTemplateColumns: "1fr 1fr" }, "screen and (max-width: 700px)": { gridTemplateColumns: "1fr" } } });
+
+// 六个桌面模块的正式稿共用轻量正文和章节层级。
+globalStyle(".workspace-page h1", { fontWeight: 500, lineHeight: "1.5", letterSpacing: "normal" });
+globalStyle(".workspace-page .panel-heading h2", { fontWeight: 500 });
+globalStyle(".workspace-page .page-heading > div > p", { marginBottom: 0 });
+globalStyle(".workspace-page .primary-button, .workspace-page .secondary-button", { fontWeight: 400 });
+globalStyle(".voice-agent-create-page .voice-agent-create-card", { marginTop: 0 });
+globalStyle(".voice-agent-create-page .panel-heading", { borderBottom: 0, paddingTop: 24 });
+globalStyle(".voice-agent-create-page .form-grid", { padding: "32px 0" });
+globalStyle(".voice-agent-create-page label, .voice-agent-create-page input", { fontWeight: 400 });
+globalStyle(".voice-agent-create-page .panel-actions", { borderTop: 0, paddingTop: 0 });
+globalStyle(".agent-backend-page .engine-health-summary", { gridTemplateColumns: "repeat(4, minmax(0, 1fr))", marginTop: 48, gap: 0 });
+globalStyle(".agent-backend-page .engine-health-summary strong", { fontSize: 18, fontWeight: 500 });
+globalStyle(".runtime-page .runtime-section", { borderTop: 0, marginTop: 24 });
+globalStyle(".runtime-page .runtime-section .panel-heading", { borderBottom: 0, padding: "0 0 24px" });
+globalStyle(".runtime-page .runtime-section + .runtime-section", { paddingTop: 24, borderTop: `1px solid ${vars.color.line}` });
+globalStyle(".runtime-page .runtime-capacity-table thead th", { paddingTop: 0 });
+
+globalStyle("input[type=checkbox], input[type=radio]", { accentColor: vars.color.accent });
