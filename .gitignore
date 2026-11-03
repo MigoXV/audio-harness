@@ -1,4 +1,5 @@
-nohup.out
+nohup.out/
+.samaya/
 lightning_logs/
 data-bin/
 model-bin/
