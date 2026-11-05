@@ -213,6 +213,44 @@ def session_values(
     return model, language.strip()
 
 
+class SessionConfigurationError(ValueError):
+    def __init__(self, param: str, message: str) -> None:
+        super().__init__(f"{param}: {message}")
+        self.param = param
+
+
+def validate_transcription_input(audio_input: dict[str, Any]) -> None:
+    prefix = "session.audio.input"
+    for key in audio_input:
+        if key not in {"format", "transcription", "turn_detection", "noise_reduction"}:
+            raise SessionConfigurationError(f"{prefix}.{key}", "未知参数")
+    if audio_input.get("noise_reduction") is not None:
+        raise SessionConfigurationError(f"{prefix}.noise_reduction", "当前工作流不支持按会话配置降噪，请移除此参数")
+    vad = audio_input.get("turn_detection")
+    if vad is None:
+        return
+    path = f"{prefix}.turn_detection"
+    if not isinstance(vad, dict) or vad.get("type") not in {"server_vad", "semantic_vad"}:
+        raise SessionConfigurationError(path, "只支持 server_vad、semantic_vad 或 null")
+    allowed = {"type", "create_response", "interrupt_response"}
+    allowed |= ({"threshold", "prefix_padding_ms", "silence_duration_ms", "idle_timeout_ms"}
+                if vad["type"] == "server_vad" else {"eagerness"})
+    for key, value in vad.items():
+        param = f"{path}.{key}"
+        if key not in allowed:
+            raise SessionConfigurationError(param, "未知参数")
+        if key == "threshold" and (type(value) not in {int, float} or not 0 <= value <= 1):
+            raise SessionConfigurationError(param, "必须是 0 到 1 的数值")
+        if key in {"prefix_padding_ms", "silence_duration_ms"} and (type(value) is not int or value < 0):
+            raise SessionConfigurationError(param, "必须是非负整数")
+        if key == "idle_timeout_ms":
+            raise SessionConfigurationError(param, "当前工作流不支持空闲超时")
+        if key in {"create_response", "interrupt_response"} and type(value) is not bool:
+            raise SessionConfigurationError(param, "必须是布尔值")
+        if key == "eagerness" and value not in {"auto", "low", "medium", "high"}:
+            raise SessionConfigurationError(param, "必须是 auto、low、medium 或 high")
+
+
 def _transcription_audio_settings(
     session: AhaRealtimeTranscriptionSessionCreateRequest,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
@@ -222,6 +260,7 @@ def _transcription_audio_settings(
         exclude_unset=True,
     )
     audio_input = (payload.get("audio") or {}).get("input") or {}
+    validate_transcription_input(audio_input)
     audio_format = audio_input.get("format") or {
         "type": "audio/pcm",
         "rate": INPUT_SAMPLE_RATE,
@@ -354,6 +393,9 @@ class RealtimeTranscriptionSession:
             "type": "audio/pcm",
             "rate": INPUT_SAMPLE_RATE,
         }
+        self._commit_count = 0
+        self._workflow_received_samples = 0
+        self._workflow_committed_samples = 0
         self._turn_detection: dict[str, Any] | None = {"type": "server_vad"}
         if initial_session is not None and isinstance(target, ActiveAudioWorkflow):
             self.model, self.language = session_values(
@@ -763,11 +805,31 @@ class RealtimeTranscriptionSession:
                     param="type",
                 )
                 return
-            if self._manual_commit_enabled:
-                await self._commit_manual_audio()
-            else:
-                await self._finish_workflow(send_results=True)
-            self._audio_started = False
+            try:
+                if self._manual_commit_enabled:
+                    await self._commit_manual_audio()
+                else:
+                    previous_commits = self._commit_count
+                    already_committed = (self._workflow_received_samples > 0 and
+                                         self._workflow_received_samples <= self._workflow_committed_samples)
+                    await self._finish_workflow(send_results=True)
+                    if self._commit_count == previous_commits and self._workflow_failure is None:
+                        await self.send_error(
+                            message="VAD 未产生可提交的语音；音频可能为静音或已自动提交",
+                            code=("input_audio_buffer_commit_empty" if already_committed
+                                  else "input_audio_buffer_commit_no_speech"),
+                            client_event_id=event.event_id,
+                            param="type",
+                        )
+            except Exception as exc:
+                await self._fail_pending_transcriptions(exc)
+                await self.send_error(
+                    message=str(exc) or "工作流收尾超时",
+                    code="workflow_failed", client_event_id=event.event_id,
+                    param="type",
+                )
+            finally:
+                self._audio_started = False
             return
         await self.send_error(
             message=f"第一版不支持客户端事件: {event.type}",
@@ -792,6 +854,7 @@ class RealtimeTranscriptionSession:
         if self._workflow_task is None:
             await self._start_workflow()
         assert self._transcription is not None
+        self._workflow_received_samples += len(audio) // 2
         await self._transcription.append(audio)
 
     async def finish_audio(self) -> None:
@@ -863,6 +926,7 @@ class RealtimeTranscriptionSession:
             end_sample=len(audio) // 2,
         )
         await self._emit_committed_item(committed_item)
+        self._manual_speech_detected = False
         await self._start_workflow()
         assert self._transcription is not None
         chunk_bytes = self._workflow_config.min_chunk_bytes
@@ -874,7 +938,10 @@ class RealtimeTranscriptionSession:
         self._active_item_id = None
         self._deferred_speech_starts.clear()
 
-        if self._pending_items and self._pending_items[0] is committed_item:
+        if (self._workflow_failure is None and self._pending_items
+                and self._pending_items[0] is committed_item):
+            if self._manual_speech_detected:
+                raise RuntimeError("检测到语音但工作流未返回最终转写结果")
             await self._emit_completed_transcription(committed_item, "")
             self._pending_items.popleft()
 
@@ -908,13 +975,38 @@ class RealtimeTranscriptionSession:
             )
             return
         try:
-            requested = AhaRealtimeTranscriptionSessionCreateRequest.model_validate(
-                event.session.model_dump(
-                    mode="python",
-                    exclude_none=False,
-                    exclude_unset=True,
-                )
+            patch = event.session.model_dump(
+                mode="python", exclude_none=False, exclude_unset=True,
             )
+            audio_input = (patch.get("audio") or {}).get("input") or {}
+            requested_vad = audio_input.get("turn_detection")
+            if isinstance(requested_vad, dict):
+                # The published graph is immutable. These per-session controls
+                # have no runtime binding; reporting them as effective is misleading.
+                validate_transcription_input(audio_input)
+                for key in ("threshold", "prefix_padding_ms", "silence_duration_ms", "eagerness"):
+                    if key in requested_vad:
+                        raise SessionConfigurationError(
+                            f"session.audio.input.turn_detection.{key}",
+                            "当前工作流不支持此按会话覆盖参数，请移除后重试",
+                        )
+                if requested_vad.get("type") == "semantic_vad":
+                    raise SessionConfigurationError(
+                        "session.audio.input.turn_detection.type",
+                        "当前工作流不支持按会话切换语义 VAD，请在工作流中配置",
+                    )
+            current_input = {
+                "format": self._input_audio_format,
+                "transcription": {"model": self.model, "language": self.language},
+                "turn_detection": self._turn_detection,
+            }
+            for key, value in audio_input.items():
+                if key == "transcription" and isinstance(value, dict):
+                    current_input[key] = {**current_input[key], **value}
+                else:
+                    current_input[key] = value
+            patch["audio"] = {"input": current_input}
+            requested = AhaRealtimeTranscriptionSessionCreateRequest.model_validate(patch)
             model, language = session_values(
                 requested,
                 default_model=self.model,
@@ -928,11 +1020,12 @@ class RealtimeTranscriptionSession:
                 message=str(exc),
                 code="invalid_session",
                 client_event_id=event.event_id,
-                param="session",
+                param=getattr(exc, "param", "session"),
             )
             return
         if self._audio_started and (
             model != self.model or input_audio_format != self._input_audio_format
+            or turn_detection != self._turn_detection
         ):
             await self.send_error(
                 message=(
@@ -959,14 +1052,14 @@ class RealtimeTranscriptionSession:
             turn_detection=self._turn_detection,
         )
         await self._send_event(
-            AhaSessionUpdatedEvent(
-                event_id=event_id(),
-                session=self.session,
-                type="session.updated",
-            )
+            {"event_id": event_id(), "session": self.session.model_dump(
+                mode="python", exclude_none=False, exclude_unset=True
+            ), "type": "session.updated"}
         )
 
     async def _start_workflow(self) -> None:
+        self._workflow_received_samples = 0
+        self._workflow_committed_samples = 0
         self._discard_workflow_outputs = False
         self._workflow_failure = None
         self._cluster_latest_result = None
@@ -1034,30 +1127,33 @@ class RealtimeTranscriptionSession:
             if self._discard_workflow_outputs:
                 return
             logger.exception("Realtime 工作流失败")
-            if self._pending_items:
-                item = self._pending_items[0]
-                with suppress(Exception):
-                    await self._send_event(
-                        ConversationItemInputAudioTranscriptionFailedEvent(
-                            content_index=0,
-                            error=TranscriptionError(
-                                code="transcription_failed",
-                                message=str(exc),
-                                param=None,
-                                type="server_error",
-                            ),
-                            event_id=event_id(),
-                            item_id=item.item_id,
-                            type=(
-                                "conversation.item."
-                                "input_audio_transcription.failed"
-                            ),
-                        )
-                    )
+            await self._fail_pending_transcriptions(exc)
             with suppress(Exception):
                 await self.send_error(
                     message=str(exc),
                     code="workflow_failed",
+                )
+
+    async def _fail_pending_transcriptions(self, exc: BaseException) -> None:
+        while self._pending_items:
+            item = self._pending_items.popleft()
+            with suppress(Exception):
+                await self._send_event(
+                    ConversationItemInputAudioTranscriptionFailedEvent(
+                        content_index=0,
+                        error=TranscriptionError(
+                            code="transcription_failed",
+                            message=str(exc),
+                            param=None,
+                            type="server_error",
+                        ),
+                        event_id=event_id(),
+                        item_id=item.item_id,
+                        type=(
+                            "conversation.item."
+                            "input_audio_transcription.failed"
+                        ),
+                    )
                 )
 
     async def _start_active_item(
@@ -1369,9 +1465,14 @@ class RealtimeTranscriptionSession:
                 start_sample=event.start_sample,
                 sample_rate=event.sample_rate,
             )
+        self._workflow_committed_samples = max(
+            self._workflow_committed_samples,
+            round(event.end_sample * ENGINE_SAMPLE_RATE / event.sample_rate),
+        )
         current_item_id = self._active_item_id or item_id()
         self._active_item_id = None
         if self._manual_commit_enabled:
+            self._manual_speech_detected = True
             self._deferred_speech_starts.clear()
             self._discard_vad_state()
             return
@@ -2084,6 +2185,7 @@ class RealtimeTranscriptionSession:
         append_pending: bool = True,
         drain_deferred: bool = True,
     ) -> None:
+        self._commit_count += 1
         if append_pending:
             self._pending_items.append(item)
         self._speaker_item_history.append(item)
@@ -2164,12 +2266,17 @@ class RealtimeTranscriptionSession:
         try:
             if not send_results:
                 self._discard_workflow_outputs = True
-            if self._transcription is not None:
-                await self._transcription.finish()
-            # 即使连接关闭时不再向客户端发送结果，也必须等待工作流自然耗尽。
-            # 否则紧接着取消任务会把双向流式 gRPC 变成 cancel，降噪服务端
-            # 无法收到请求流的 half-close/EOF。
-            await task
+            async def drain() -> None:
+                if self._transcription is not None:
+                    await self._transcription.finish()
+                await task
+
+            await asyncio.wait_for(
+                drain(), timeout=getattr(
+                    getattr(self, "_workflow_config", None),
+                    "realtime_finish_timeout_seconds", 120.0,
+                ),
+            )
         except BaseException as exc:
             failure = exc
         if send_results and not isinstance(failure, asyncio.CancelledError):
@@ -2211,6 +2318,10 @@ class RealtimeTranscriptionSession:
             self._transcription = None
         if failure is not None:
             raise failure
+        if send_results and self._workflow_failure is not None:
+            raise self._workflow_failure
+        if send_results and self._pending_items and not self._manual_commit_enabled:
+            raise RuntimeError("工作流结束但未返回最终转写结果")
 
     async def _emit_final_cluster_snapshot(
         self,

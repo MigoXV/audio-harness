@@ -1659,3 +1659,50 @@ async def test_multiple_primary_segments_before_vad_stop_preserve_order(include_
     assert [e['item_id'] for e in committed] == [e['item_id'] for e in completed]
     assert not session._pending_items
     assert not session._deferred_primary_results
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["timeout", "asr", "missing_final"])
+async def test_unfinished_items_fail_once_and_commit_remains_correlated(failure):
+    from audio_harness.serving.realtime.session import _TranscriptItem
+    emitted = []
+
+    async def send_event(event):
+        emitted.append(encode_server_event(event))
+
+    session = RealtimeTranscriptionSession(
+        send_event=send_event, session_service=object(),
+        workflow_settings=_Settings(WorkflowRuntimeConfig(realtime_finish_timeout_seconds=.02)),
+        model="audio", target=_profile().audio_workflow,
+    )
+
+    class Transcription:
+        processed_samples = 16000
+
+        async def finish(self):
+            pass
+
+        async def outputs(self):
+            if failure == "asr":
+                raise RuntimeError("ASR test failure")
+            if failure == "timeout":
+                await asyncio.Event().wait()
+            return
+            yield
+
+    session._transcription = Transcription()
+    session._audio_started = True
+    for identifier in ("first", "second"):
+        await session._emit_committed_item(_TranscriptItem(identifier, 0, 16000))
+    session._workflow_task = asyncio.create_task(session._run_workflow())
+    await session.handle_client_event(_CLIENT_EVENTS.validate_python({
+        "type": "input_audio_buffer.commit", "event_id": "finish-failure",
+    }))
+    failed = [e for e in emitted if e["type"] == "conversation.item.input_audio_transcription.failed"]
+    assert [e["item_id"] for e in failed] == ["first", "second"]
+    assert not session._pending_items
+    assert not session._workflow_task
+    assert not any(e["type"] == "conversation.item.input_audio_transcription.completed" for e in emitted)
+    if failure == "timeout":
+        assert any(e["type"] == "error" and e["error"].get("event_id") == "finish-failure" for e in emitted)
+    await session.close()

@@ -30,6 +30,7 @@ class WorkflowConfig(StrictModel):
 
 
 class WorkflowRuntimeConfig(StrictModel):
+    realtime_finish_timeout_seconds: float = Field(default=120.0, gt=0)
     min_chunk_bytes: int = Field(default=640, ge=2)
     default_language_code: str = Field(default="zh-CN", min_length=1)
     audio_queue_capacity: int = Field(default=32, gt=0)

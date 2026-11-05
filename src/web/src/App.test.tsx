@@ -9,6 +9,7 @@ import { THEME_STORAGE_KEY } from "./styles/themePreference";
 import type { AudioHarnessApi, AudioWorkflowDocument, VoiceAgentDefinition } from "./api/types";
 
 vi.mock("./features/engines/console.css", () => ({}));
+vi.mock("./components/workflowWorkspace.css", () => ({}));
 
 const document: AudioWorkflowDocument = {
   schema_version: 1,
@@ -143,7 +144,7 @@ describe("typed audio workflow control plane", () => {
     await waitFor(() => expect(saveAudioWorkflowDraft).toHaveBeenCalledWith("wf-1", expect.objectContaining({
       nodes: expect.arrayContaining([expect.objectContaining({ id: "asr", config: { remove_punctuation: true } })]),
     }), 2));
-    expect(await screen.findByText("草稿 r3", { selector: "small" })).toBeVisible();
+    expect(await screen.findByTitle("草稿 r3")).toBeVisible();
   }, 15_000);
 
   it.each(["workflow", "agent"])("keeps the %s draft and inspector while probing an engine", async (kind) => {
@@ -338,7 +339,7 @@ describe("typed audio workflow control plane", () => {
     expect(validate).toBeDisabled();
     expect(validate).toHaveAttribute("title", "请先保存当前草稿，再校验已保存的版本");
     expect(screen.queryByText("已保存的草稿 r2 校验通过")).not.toBeInTheDocument();
-    expect(screen.queryByText("测试控制台")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /测试控制台/ })).toHaveAttribute("href", "/audio-workflows/wf-1/test");
   });
 
   it("shows actual port connections and keeps edits while switching inspector tabs", async () => {

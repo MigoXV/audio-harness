@@ -5,12 +5,12 @@ export type WorkflowPortFamily = "audioStream" | "audioChunk" | "control" | "emb
 
 // 视觉家族只决定线条和标记；连接兼容性继续由完整 kind / accepted_kinds 校验。
 export const WORKFLOW_PORT_FAMILIES = {
-  audioStream: { label: "音频流", color: vars.color.portAudio, width: 3.5 },
-  audioChunk: { label: "语音片段", color: vars.color.portSegment, width: 2.5 },
-  control: { label: "控制 / 事件", color: vars.color.portEvent, width: 1.5 },
-  embedding: { label: "特征向量", color: vars.color.portVector, width: 1.5 },
-  result: { label: "文本 / 结果", color: vars.color.portTranscript, width: 1.5 },
-  unknown: { label: "其他类型", color: vars.color.textMuted, width: 1.5 },
+  audioStream: { label: "音频流", color: `var(--workflow-port-audioStream, ${vars.color.portAudio})`, width: 1.6 },
+  audioChunk: { label: "语音片段", color: `var(--workflow-port-audioChunk, ${vars.color.portSegment})`, width: 1.6 },
+  control: { label: "控制 / 事件", color: `var(--workflow-port-control, ${vars.color.portEvent})`, width: 1.6 },
+  embedding: { label: "特征向量", color: `var(--workflow-port-embedding, ${vars.color.portVector})`, width: 1.6 },
+  result: { label: "文本 / 结果", color: `var(--workflow-port-result, ${vars.color.portTranscript})`, width: 1.6 },
+  unknown: { label: "类型待核对", color: `var(--workflow-port-unknown, ${vars.color.textMuted})`, width: 1.6 },
 } as const;
 
 export function workflowPortFamily(kind: string): WorkflowPortFamily {

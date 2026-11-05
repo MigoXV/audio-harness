@@ -17,6 +17,7 @@ import { DeploymentPanel } from "../components/DeploymentPanel";
 import { RealtimeTestPanel } from "../components/RealtimeTestPanel";
 import { UnsavedChangesGuard } from "../components/UnsavedChangesGuard";
 import { WorkbenchSidebar } from "../components/WorkbenchSidebar";
+import "../components/workflowWorkspace.css";
 
 interface Props { api: AudioHarnessApi; refreshVersion: number; }
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error" | "conflict";
@@ -148,7 +149,7 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
   if (!workflow || !document) return <main className="workspace-page"><div className="alert alert-error">{error ?? "工作流不存在"}</div></main>;
   const saveLabel = ({ idle: "草稿已同步", dirty: "有未保存修改", saving: "正在保存…", saved: "草稿已同步", error: "保存失败", conflict: "版本冲突" } as const)[saveState];
   const hasUnsavedChanges = ["dirty", "saving", "error", "conflict"].includes(saveState);
-  const workflowNavigation = <nav className="builder-detail-navigation" aria-label="工作流页面">{tabs.map(([key, label]) => <NavLink key={key} to={`/audio-workflows/${encodeURIComponent(workflowId)}/${key}`} className={tab === key ? "active" : ""}>{label}<span>›</span></NavLink>)}</nav>;
+  const workflowNavigation = <nav className="builder-detail-navigation" aria-label="工作流页面">{tabs.map(([key, label]) => <NavLink key={key} to={`/audio-workflows/${encodeURIComponent(workflowId)}/${key}`} className={tab === key ? "active" : ""}>{label}</NavLink>)}</nav>;
   const validateDraft = async () => {
     setValidating(true); setValidationNotice(null);
     try {
@@ -161,26 +162,38 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
   };
   const sidebarContent = <>
     <section className="builder-workflow-summary">
-      <Link className="builder-back-link" to="/audio-workflows">← 工作流列表</Link>
-      <div className="builder-workflow-title"><h1>{workflow.name}</h1><span className={`status-chip ${workflow.active_revision ? "status-published_healthy" : "status-unpublished"}`}>{workflow.active_revision ? `活动 v${workflow.active_revision}` : "未发布"}</span></div>
-      <p><code>{workflow.slug}</code><span><small>草稿 r{draftRevision}</small> · {document.nodes.length} 个节点</span></p>
+      <Link className="builder-back-link" to="/audio-workflows">‹ {tab === "build" ? "所有工作流" : "工作流列表"}</Link>
+      {tab !== "build" && <>
+        <div className="builder-workflow-title"><h1>{workflow.name}</h1></div>
+        <p><code>{workflow.slug}</code></p>
+        <dl className="workflow-context-facts">
+          <div><dt>草稿修订</dt><dd>r{draftRevision}</dd></div>
+          <div><dt>活动版本</dt><dd>{workflow.active_revision ? `v${workflow.active_revision}` : "未发布"}</dd></div>
+          <div><dt>节点</dt><dd>{document.nodes.length}</dd></div>
+        </dl>
+      </>}
     </section>
-    {tab !== "build" && workflowNavigation}
     {error && <div className="builder-sidebar-alert alert alert-error">{error}<button onClick={() => setError(null)}>关闭</button></div>}
     {vectorWarning && <div className="builder-sidebar-alert alert alert-warning" role="status">{vectorWarning}</div>}
     {saveState === "conflict" && <div className="builder-sidebar-alert alert alert-warning"><strong>服务器草稿已更新</strong><button className="secondary-button" onClick={() => void load()}>重新载入</button></div>}
   </>;
   const sidebarFooter = tab === "build" ? <div className="workflow-save-bar">
-    <span className={`workflow-save-status save-${saveState}`} role="status"><i aria-hidden="true" />{saveState === "idle" || saveState === "saved" ? "已保存" : saveLabel}</span>
+    <span className={`workflow-save-status save-${saveState}`} role="status" title={`草稿 r${draftRevision}`}><i aria-hidden="true" />{saveState === "idle" || saveState === "saved" ? "已保存" : saveLabel}</span>
     {(["dirty", "error", "saving"].includes(saveState)) && <button className="text-button" aria-label="保存草稿" disabled={saveState === "saving"} onClick={() => void saveDraft()}>{saveState === "saving" ? "保存中" : "保存"}</button>}
   </div> : <div className="workflow-sidebar-footer">
     <div className={`builder-save-state save-${saveState}`}><i /><div><strong>{saveLabel}</strong><small>草稿 r{draftRevision}</small></div></div>
     <button className="secondary-button" disabled={saveState !== "dirty" && saveState !== "error"} onClick={() => void saveDraft()}>{saveState === "saving" ? "正在保存…" : "保存草稿"}</button>
   </div>;
-  const publishReview = <section className="panel publish-review"><div className="panel-heading"><div><p className="eyebrow">ACTIVE VERSION</p><h2>发布当前草稿</h2><p>编译并发布后，即可使用资源 Slug 接入 Realtime 或开始测试；发布失败不会替换当前活动版本。</p></div><span className={`status-chip ${workflow.active_revision ? "status-published_healthy" : "status-unpublished"}`}>{workflow.active_revision ? `当前活动 v${workflow.active_revision}` : "尚无活动版本"}</span></div><div className="draft-version-line">草稿修订 r{draftRevision}</div>{validation.diagnostics.length ? <div className="diagnostic-list">{validation.diagnostics.map((item, index) => <div key={`${item.code}-${index}`}><strong>{item.message}</strong><small>{item.code}</small></div>)}</div> : <div className="success-block">结构校验通过，共 {document.nodes.length} 个节点、{document.edges.length} 条内部连线。</div>}<div className="panel-actions"><button className="primary-button large-button" disabled={Boolean(publishBlocked)} onClick={() => void publish()}>编译并发布</button>{publishBlocked && <span className="blocking-reason">{publishBlocked}</span>}</div></section>;
+  const publishReview = <section className="panel publish-review">
+    <div className="panel-heading"><div><h2>发布当前草稿</h2><p>发布后可用资源 Slug 接入 Realtime。发布失败时保留当前活动版本。</p></div></div>
+    <dl className="workflow-release-facts"><div><dt>草稿修订</dt><dd>r{draftRevision}</dd></div><div><dt>当前活动</dt><dd>{workflow.active_revision ? `v${workflow.active_revision}` : "未发布"}</dd></div></dl>
+    {validation.diagnostics.length ? <div className="diagnostic-list">{validation.diagnostics.map((item, index) => <div key={`${item.code}-${index}`}><strong>{item.message}</strong><small>{item.code}</small></div>)}</div> : <div className="success-block">结构校验通过，{document.nodes.length} 个节点、{document.edges.length} 条内部连线。</div>}
+    <div className="panel-actions"><button className="primary-button large-button" disabled={Boolean(publishBlocked)} onClick={() => void publish()}>编译并发布</button>{publishBlocked && <span className="blocking-reason">{publishBlocked}</span>}</div>
+  </section>;
 
   return <main className={`workspace-page workflow-detail-page workflow-sidebar-page ${tab === "build" ? "workflow-building" : ""}`}>
     <UnsavedChangesGuard when={hasUnsavedChanges} saving={saveState === "saving"} onSave={saveDraft} onDiscard={discardChanges} />
+    <header className="workflow-phase-header"><strong title={workflow.name}>{workflow.name}</strong>{workflowNavigation}</header>
     {tab === "build" ? <AudioGraphEditor
       key={workflow.id}
       api={api}
@@ -193,7 +206,7 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
       sidebarOpen={sidebarOpen}
       sidebarContent={sidebarContent}
       sidebarFooter={sidebarFooter}
-      toolbarContent={workflowNavigation}
+      toolbarContent={<h2>流程画布</h2>}
       testHref={`/audio-workflows/${encodeURIComponent(workflowId)}/test`}
       onValidate={validateDraft}
       validating={validating}
@@ -208,7 +221,15 @@ export function WorkflowDetailPage({ api, refreshVersion }: Props) {
         {tab === "test" && <div className="workflow-test-content">
           {workflow.active_revision === null ? <section className="panel test-prerequisite"><p className="eyebrow">REALTIME TEST</p><h2>发布后开始测试</h2><p>请先在接入页编译并发布活动版本，发布后即可使用资源 Slug 开始测试。</p><button className="secondary-button" onClick={() => navigate(`/audio-workflows/${encodeURIComponent(workflowId)}/access`)}>前往接入配置</button></section> : <RealtimeTestPanel api={api} model={workflow.slug} workflowKind="transcription" canTest blockedReason="" />}
         </div>}
-        {tab === "history" && <section className="panel object-history-panel"><div className="panel-heading"><div><h2>不可变发布历史</h2><p>恢复只会创建新草稿，不会热改活动会话。</p></div></div><div className="object-records" tabIndex={0} role="region" aria-label="发布记录">{revisions.length === 0 ? <div className="empty-state">尚无发布记录</div> : <div className="revision-list">{revisions.map((item) => <div className="revision-row" key={item.revision}><div><strong>v{item.revision}</strong><small>{item.document.nodes.length} 个节点</small></div><span>{Object.keys(item.engine_revisions).length} 个引擎快照</span><button className="secondary-button" onClick={() => void restore(item.revision)}>恢复为草稿</button></div>)}</div>}</div></section>}
+        {tab === "history" && <section className="panel object-history-panel">
+          <div className="panel-heading"><div><h2>发布历史</h2><p>恢复版本会创建新草稿，不会替换活动会话。</p></div></div>
+          <div className="object-records" tabIndex={0} role="region" aria-label="发布记录">
+            <table className="workflow-history-table"><thead><tr><th>版本</th><th>引擎快照</th><th>发布时间</th><th>操作</th></tr></thead><tbody>
+              {revisions.length === 0 ? <tr><td colSpan={4}><div className="workflow-history-empty"><strong>尚无发布记录</strong><p>首次发布后，版本和发布时间会出现在这里。</p></div></td></tr> : revisions.map((item) => <tr key={item.revision}><td><strong>v{item.revision}</strong><small>{item.document.nodes.length} 个节点</small></td><td>{Object.keys(item.engine_revisions).length} 个引擎快照</td><td>{item.activated_at ? <time dateTime={item.activated_at}>{new Date(item.activated_at).toLocaleString()}</time> : "—"}</td><td><button className="secondary-button" disabled={hasUnsavedChanges} title={hasUnsavedChanges ? "请先保存或放弃当前修改" : undefined} onClick={() => void restore(item.revision)}>恢复为草稿</button></td></tr>)}
+            </tbody></table>
+          </div>
+        </section>}
+
       </section>
     </div>}
   </main>;

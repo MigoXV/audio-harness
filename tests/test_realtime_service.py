@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import threading
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -166,6 +167,7 @@ def build_app(
         inferencer_pool=inferencer_pool,
     )
     app = FastAPI()
+    app.state.realtime_closed = threading.Event()
 
     @app.websocket("/v1/realtime")
     async def realtime(
@@ -177,11 +179,14 @@ def build_app(
         if intent != "transcription" or "model" in websocket.query_params:
             await websocket.close(code=4400)
             return
-        await service.handle(
-            websocket,
-            diagnostics_enabled=diagnostics,
-            aha_version=x_aha,
-        )
+        try:
+            await service.handle(
+                websocket,
+                diagnostics_enabled=diagnostics,
+                aha_version=x_aha,
+            )
+        finally:
+            app.state.realtime_closed.set()
 
     return app
 
@@ -963,3 +968,156 @@ def test_online_resampler_rejects_incomplete_pcm_sample() -> None:
 
     with pytest.raises(ValueError, match="PCM S16LE"):
         resampler.append(b"\0")
+
+
+class SilentVad(ImmediateVad):
+    async def stream_detect(self, audio_chunks, sample_rate):
+        processed = 0
+        async for chunk in audio_chunks:
+            processed += len(chunk) // 2
+            yield VadInferencer.Update(boundaries=(), processed_samples=processed)
+
+
+@pytest.mark.parametrize("aha", [False, True])
+@pytest.mark.parametrize("manual", [False, True])
+@pytest.mark.parametrize("samples", [8, 16000])
+def test_silence_commit_closes_and_next_turn_is_usable(aha, manual, samples):
+    import time
+    suffix = "&x_aha=v1" if aha else ""
+    with TestClient(build_app(vad=SilentVad())) as client:
+        with client.websocket_connect("/v1/realtime?intent=transcription" + suffix) as ws:
+            ws.receive_json()
+            ws.send_json({"type": "session.update", "session": {
+                "type": "transcription", "audio": {"input": {
+                    "format": {"type": "audio/pcm", "rate": 16000},
+                    "transcription": {"model": "gpt-4o-transcribe"},
+                    **({"turn_detection": None} if manual else {}),
+                }}}})
+            updated = ws.receive_json()
+            assert updated["type"] == "session.updated"
+            if manual:
+                assert updated["session"]["audio"]["input"]["turn_detection"] is None
+            for turn in range(2):
+                ws.send_json({"type": "input_audio_buffer.append", "audio": base64.b64encode(bytes(samples * 2)).decode()})
+                started = time.monotonic()
+                ws.send_json({"type": "input_audio_buffer.commit", "event_id": f"commit-{turn}"})
+                committed = []
+                while True:
+                    event = ws.receive_json()
+                    if event["type"] == "input_audio_buffer.committed":
+                        committed.append(event["item_id"])
+                    if event["type"] == "error":
+                        assert not manual
+                        assert event["error"]["event_id"] == f"commit-{turn}"
+                        assert event["error"]["code"] == "input_audio_buffer_commit_no_speech"
+                        break
+                    if event["type"] == "conversation.item.input_audio_transcription.completed":
+                        assert manual and committed == [event["item_id"]]
+                        assert event["transcript"] == ""
+                        break
+                assert time.monotonic() - started < 2
+            ws.send_json({"type": "input_audio_buffer.commit", "event_id": "empty"})
+            event = ws.receive_json()
+            assert event["error"]["code"] == "input_audio_buffer_commit_empty"
+            assert event["error"]["event_id"] == "empty"
+            ws.close()
+            assert client.app.state.realtime_closed.wait(2)
+
+
+@pytest.mark.parametrize("option,value,path", [
+    ("turn_detection", {"type": "server_vad", "threshold": 2.0}, "turn_detection.threshold"),
+    ("turn_detection", {"type": "server_vad", "threshold": -1}, "turn_detection.threshold"),
+    ("turn_detection", {"type": "server_vad", "threshold": True}, "turn_detection.threshold"),
+    ("turn_detection", {"type": "server_vad", "prefix_padding_ms": -1}, "turn_detection.prefix_padding_ms"),
+    ("turn_detection", {"type": "semantic_vad", "eagerness": "invalid"}, "turn_detection.eagerness"),
+    ("turn_detection", {"type": "server_vad", "threshold": 0.65}, "turn_detection.threshold"),
+    ("turn_detection", {"type": "semantic_vad", "eagerness": "high"}, "turn_detection.eagerness"),
+    ("noise_reduction", {"type": "near_field"}, "noise_reduction"),
+    ("nonexistent_test_option", True, "nonexistent_test_option"),
+])
+def test_configuration_rejection_is_correlated_and_retry_succeeds(option, value, path):
+    with TestClient(build_app()) as client:
+        with client.websocket_connect("/v1/realtime?intent=transcription") as ws:
+            ws.receive_json()
+            configure_transcription(ws)
+            ws.send_json({"type": "session.update", "event_id": "bad", "session": {
+                "type": "transcription", "audio": {"input": {option: value}}}})
+            error = ws.receive_json()
+            assert error["type"] == "error"
+            assert error["error"]["event_id"] == "bad"
+            assert error["error"]["param"] == "session.audio.input." + path
+            configure_transcription(ws, event_id="retry")
+            ws.close()
+            assert client.app.state.realtime_closed.wait(2)
+
+
+@pytest.mark.parametrize("aha", [False, True])
+def test_auto_commit_then_manual_commit_does_not_duplicate_item(aha):
+    suffix = "&x_aha=v1" if aha else ""
+    with TestClient(build_app()) as client:
+        with client.websocket_connect("/v1/realtime?intent=transcription" + suffix) as ws:
+            ws.receive_json()
+            configure_transcription(ws, sample_rate=16000)
+            ws.send_json({"type": "input_audio_buffer.append", "audio": base64.b64encode(bytes(6400)).decode()})
+            identifiers = []
+            while True:
+                event = ws.receive_json()
+                if event["type"] == "input_audio_buffer.committed":
+                    identifiers.append(event["item_id"])
+                if event["type"] == "conversation.item.input_audio_transcription.completed":
+                    assert identifiers == [event["item_id"]]
+                    break
+            ws.send_json({"type": "input_audio_buffer.commit", "event_id": "after-auto"})
+            while True:
+                event = ws.receive_json()
+                assert event["type"] != "input_audio_buffer.committed"
+                if event["type"] == "error":
+                    assert event["error"]["event_id"] == "after-auto"
+                    assert event["error"]["code"] == "input_audio_buffer_commit_empty"
+                    break
+            ws.close()
+            assert client.app.state.realtime_closed.wait(2)
+
+
+def test_partial_session_update_preserves_explicit_vad_disable():
+    with TestClient(build_app()) as client:
+        with client.websocket_connect("/v1/realtime?intent=transcription") as ws:
+            ws.receive_json()
+            configure_transcription(ws)
+            for audio_input in ({"turn_detection": None}, {"transcription": {"language": "en"}}):
+                ws.send_json({"type": "session.update", "session": {
+                    "type": "transcription", "audio": {"input": audio_input}}})
+                updated = ws.receive_json()
+                assert updated["type"] == "session.updated"
+                assert updated["session"]["audio"]["input"]["turn_detection"] is None
+            ws.close()
+            assert client.app.state.realtime_closed.wait(2)
+
+
+@pytest.mark.parametrize("manual", [False, True])
+@pytest.mark.parametrize("aha", [False, True])
+def test_audio_appended_immediately_after_commit_stays_in_next_turn(manual, aha):
+    suffix = "&x_aha=v1" if aha else ""
+    with TestClient(build_app(vad=RecordingVad())) as client:
+        with client.websocket_connect("/v1/realtime?intent=transcription" + suffix) as ws:
+            ws.receive_json()
+            configure_transcription(ws, sample_rate=16000)
+            if manual:
+                ws.send_json({"type": "session.update", "session": {
+                    "type": "transcription", "audio": {"input": {"turn_detection": None}}}})
+                assert ws.receive_json()["type"] == "session.updated"
+            for turn in range(2):
+                ws.send_json({"type": "input_audio_buffer.append", "audio": base64.b64encode(bytes(6400)).decode()})
+                ws.send_json({"type": "input_audio_buffer.commit", "event_id": f"pipelined-{turn}"})
+            committed, completed = [], []
+            while len(completed) < 2:
+                event = ws.receive_json()
+                assert event["type"] != "error", event
+                if event["type"] == "input_audio_buffer.committed":
+                    committed.append(event["item_id"])
+                if event["type"] == "conversation.item.input_audio_transcription.completed":
+                    completed.append(event["item_id"])
+            assert committed == completed
+            assert len(set(completed)) == 2
+            ws.close()
+            assert client.app.state.realtime_closed.wait(2)

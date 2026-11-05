@@ -422,7 +422,7 @@ class RealtimeConnection:
                 message=str(exc),
                 code="invalid_session",
                 client_event_id=event.event_id,
-                param="session",
+                param=getattr(exc, "param", "session"),
             )
             return
 

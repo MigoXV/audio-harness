@@ -877,16 +877,16 @@ export function RealtimeTestPanel({ model, workflowKind, canTest, blockedReason 
   return (
     <div className="test-console">
       <section className="panel test-control-panel">
-        <div className="panel-heading"><div><h2>{workflowKind === "voice_agent" ? "端到端对话测试" : "实时转写测试"}</h2><p>{workflowKind === "voice_agent" ? "音频、转写和回复仅保留在当前浏览器内存。" : "验证 VAD、切段与 ASR 转写；不会调用 Responses 或 TTS。"}</p></div><span className={`connection-indicator connection-${connection}`}>{connection === "connected" ? "已连接" : connection === "connecting" ? "连接中" : connection === "error" ? "连接失败" : "未连接"}</span></div>
+        <div className="panel-heading"><div><h2>{workflowKind === "voice_agent" ? "端到端对话测试" : "实时转写测试"}</h2><p>{workflowKind === "voice_agent" ? "音频、转写和回复仅保留在当前浏览器内存。" : "验证 VAD 切段与 ASR 转写。"}</p></div><span className={`connection-indicator connection-${connection}`}>{connection === "connected" ? "已连接" : connection === "connecting" ? "连接中" : connection === "error" ? "连接失败" : "未连接"}</span></div>
         <div className="test-connection-options"><div className="protocol-tabs"><button className={protocol === "wss" ? "active" : ""} disabled={connectionLocked} onClick={() => setProtocol("wss")}>WSS</button><button className={protocol === "webrtc" ? "active" : ""} disabled={connectionLocked} onClick={() => setProtocol("webrtc")}>WebRTC</button></div><label className="switch-control aha-extension-toggle"><input type="checkbox" checked={ahaEnabled} disabled={connectionLocked} onChange={(event) => setAhaEnabled(event.target.checked)} /><span>启用 AHA 扩展协议</span></label></div>
-        <div className="test-status"><span className="pulse-dot" /><strong>{notice}</strong></div>
+        <div className={`test-status${connection === "idle" && notice === "等待开始测试" ? " test-status-idle" : ""}`}><span className="pulse-dot" /><strong>{notice}</strong></div>
         {!canTest && <div className="alert alert-warning">{blockedReason ?? "请先完成配置并发布资源。"}</div>}
         <div className="panel-actions"><button className="primary-button" disabled={!canTest || connection === "connecting" || connection === "connected"} title={!canTest ? blockedReason : undefined} onClick={() => void start()}>开始麦克风测试</button><button className="secondary-button" disabled={connection === "idle"} onClick={() => void stop()}>停止并清除</button></div>
         <audio ref={remoteAudioRef} autoPlay className="remote-audio" />
       </section>
 
       <section className={`conversation-grid ${workflowKind === "transcription" ? "transcription-only" : ""}`}>
-        <article className="panel conversation-card"><div className="conversation-label">用户转写{transcriptBadge && <span className="interim-badge">{transcriptBadge}</span>}</div><p className={transcriptIsPending ? "interim-transcript" : undefined}>{transcriptView.text || "开始说话后，实时转写会显示在这里。"}</p></article>
+        <article className="panel conversation-card"><div className="conversation-label">{workflowKind === "transcription" ? "实时转写" : "用户转写"}{transcriptBadge && <span className="interim-badge">{transcriptBadge}</span>}</div><p className={transcriptIsPending ? "interim-transcript" : undefined}>{transcriptView.text || "开始麦克风测试后，转写内容会显示在这里。"}</p></article>
         {workflowKind === "voice_agent" && <article className="panel conversation-card assistant-card"><div className="conversation-label">模型回复</div><p>{assistant || "Responses 文本增量会显示在这里，并同步送入 TTS。"}</p></article>}
       </section>
 
@@ -905,13 +905,14 @@ export function RealtimeTestPanel({ model, workflowKind, canTest, blockedReason 
 
       {ahaEnabled && backendQuestion && <section className="panel backend-interaction-card backend-question-card" aria-label="DSH 结构化问题"><div className="panel-heading"><div><p className="eyebrow">INPUT REQUIRED</p><h2>DSH 需要补充信息</h2><p>界面回答与下一句语音回答先到者生效。</p></div></div><div className="backend-question-list">{backendQuestion.questions.map((question) => <fieldset key={question.id} disabled={backendQuestion.submitting}><legend>{question.question || question.id}</legend>{question.options.map((option) => { const selected = (backendQuestion.selections[question.id] ?? []).includes(option.label); return <label className="backend-question-option" key={option.label}><input type={question.multiSelect ? "checkbox" : "radio"} name={`backend-question-${question.id}`} checked={selected} onChange={() => toggleQuestionOption(question, option.label)} /><span><strong>{option.label}</strong>{option.description && <small>{option.description}</small>}</span></label>; })}<label><span>自定义回答（可选）</span><input value={backendQuestion.custom[question.id] ?? ""} onChange={(event) => setBackendQuestion({ ...backendQuestion, custom: { ...backendQuestion.custom, [question.id]: event.target.value } })} /></label></fieldset>)}</div><div className="panel-actions"><button className="primary-button" disabled={backendQuestion.submitting} onClick={answerQuestions}>{backendQuestion.submitting ? "正在提交…" : "提交结构化答案"}</button></div></section>}
 
+      {workflowKind === "transcription" && <h3 className="workflow-diagnostics-heading">运行诊断</h3>}
       <section className={`latency-grid ${workflowKind === "transcription" ? "transcription-only" : ""}`}>
         <div className="metric-card"><span>检测到语音 → 首个中间结果</span><strong>{displayMs(latencies.interim, "等待中间结果")}</strong></div>
         <div className="metric-card"><span>话音结束 → 最终转写</span><strong>{displayMs(latencies.transcription, "等待最终转写")}</strong></div>
         {workflowKind === "voice_agent" && <><div className="metric-card"><span>转写 → 模型首字</span><strong>{displayMs(latencies.model, "等待模型首字")}</strong></div><div className="metric-card"><span>模型首字 → TTS 首个音频块</span><strong>{displayMs(latencies.audio, "等待 TTS 音频")}</strong></div></>}
       </section>
 
-      {ahaEnabled && <section className="latency-grid transcription-only" aria-label="AHA 处理状态">
+      {(ahaEnabled || workflowKind === "transcription") && <section className="latency-grid transcription-only" aria-label="AHA 处理状态">
         <div className="metric-card"><span>VAD 处理位置</span><strong>{vadProgress ? `${vadProgress.final ? "100% · " : "处理中 · "}${displayMs(vadProgress.processedAudioMs, "等待进度")}` : "等待进度"}</strong></div>
         <div className="metric-card"><span>最终聚类状态</span><strong>{finalCluster ? finalCluster.status === "completed" ? `完成 r${finalCluster.revision} · ${finalCluster.assignments} 个片段` : `失败 r${finalCluster.revision}` : "等待最终快照"}</strong></div>
       </section>}

@@ -146,7 +146,7 @@
     "vallum": {
       "bgPrimary": {
         "$type": "color",
-        "$value": "#F8F7F2"
+        "$value": "#FCFBF8"
       },
       "bgSecondary": {
         "$type": "color",
@@ -158,7 +158,7 @@
       },
       "surfaceSubtle": {
         "$type": "color",
-        "$value": "#EEECE5"
+        "$value": "#F8F7F2"
       },
       "selected": {
         "$type": "color",

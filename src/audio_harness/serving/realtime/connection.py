@@ -15,6 +15,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 from audio_harness.errors import CapacityExceededError
+from .session import validate_transcription_input
 from .core import (
     RealtimeConnection,
     RealtimeConnectionMode,
@@ -114,10 +115,16 @@ class RealtimeTranscriptionService(RealtimeService):
                 payload = json.loads(raw)
                 if not isinstance(payload, dict):
                     raise ValueError("Realtime 事件必须是 JSON 对象")
+                if payload.get("type") == "session.update":
+                    session_payload = payload.get("session") or {}
+                    if session_payload.get("type") == "transcription":
+                        audio_input = (session_payload.get("audio") or {}).get("input") or {}
+                        validate_transcription_input(audio_input)
                 event = decode_client_event(payload)
             except (ValueError, UnicodeDecodeError, ValidationError) as exc:
                 await connection.send_error(
                     message=str(exc),
+                    param=getattr(exc, "param", None),
                     code=(
                         "invalid_audio_base64"
                         if isinstance(exc, InvalidAudioEncoding)

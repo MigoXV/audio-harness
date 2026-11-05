@@ -947,6 +947,7 @@ function AudioGraphEditorInner({
             <Link className="primary-button" to={testHref}>测试</Link>
           </div>
         </header>
+        <div className="workflow-chain-heading"><strong>主链路</strong><span>输入、检测、转写与输出</span></div>
         <section className="audio-canvas panel workflow-canvas" aria-label="语音工作流画布">
         {validationNotice && <div className="workflow-validation-notice" role="status">{validationNotice}</div>}
         {connectionError && <div className="graph-toast">{connectionError}</div>}
@@ -981,7 +982,6 @@ function AudioGraphEditorInner({
           maxZoom={1.6}
           deleteKeyCode={["Backspace", "Delete"]}
         >
-          <Panel position="top-left" className="workflow-type-legend" aria-label="连线类型图例">{(Object.keys(WORKFLOW_PORT_FAMILIES) as WorkflowPortFamily[]).map((family) => <span key={family} style={{ color: WORKFLOW_PORT_FAMILIES[family].color }}><i /><WorkflowPortMarker family={family} /><span>{WORKFLOW_PORT_FAMILIES[family].label}</span></span>)}</Panel>
           <Panel position="bottom-left" className="workflow-view-controls">
             <button aria-label="缩小画布" onClick={() => void zoomOut()}>−</button><span>{Math.round(zoom * 100)}%</span>
             <button aria-label="放大画布" onClick={() => void zoomIn()}>＋</button>
@@ -990,6 +990,11 @@ function AudioGraphEditorInner({
           </Panel>
         </ReactFlow>
         </section>
+        <footer className="workflow-canvas-footer">
+          <div className="workflow-type-legend" aria-label="连线类型图例"><span>类型</span>{(Object.keys(WORKFLOW_PORT_FAMILIES) as WorkflowPortFamily[]).map((family) => <span key={family} style={{ color: WORKFLOW_PORT_FAMILIES[family].color }}><i /><span>{WORKFLOW_PORT_FAMILIES[family].label}</span></span>)}</div>
+          <p>当前显示 {flowNodes.length} 个节点。查看全部连接可使用「完整画布」。</p>
+        </footer>
+        <Link className="workflow-test-console-link" to={testHref}><WorkflowUiIcon name="play" /><span>测试控制台</span><small>运行后查看音频、转写与事件</small></Link>
       </section>
 
       {selectedGraphNode && <WorkflowInspector

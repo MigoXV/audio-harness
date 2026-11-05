@@ -1950,6 +1950,7 @@ async def test_finish_workflow_waits_for_outputs_before_final_cluster() -> None:
     session._workflow_task = asyncio.create_task(drain_outputs())
     session._session_context = None
     session._reservation = None
+    session._pending_items = deque()
     session._cluster_output_enabled = True
     session._discard_workflow_outputs = False
     session._workflow_failure = None
