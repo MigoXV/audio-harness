@@ -162,3 +162,11 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
+# Development files not needed by the image
+tests/
+docs/
+reports/
+.vscode/
+.samaya/
+.env.*
+# Keep model-bin/realtime-tls/ in the build context intentionally.
